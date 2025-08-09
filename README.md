@@ -1,12 +1,24 @@
-Basic Rust CLI for openrouter. Minimal dependencies. Mostly written by GPT-5 to my spec.
+# Basic Rust CLI for openrouter.ai
 
-Usage: `ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] <prompt>`
+You need an [openrouter.ai](https://openrouter.ai/) API key in environment variable `OPENROUTER_API_KEY`.
+
+Example: 
+```
+# Basic
+ort "Prompt goes here"
+
+# Full
+ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick about AI"
+```
+
+Usage:
+```
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] <prompt>
+```
+
 Default model is `openrouter/auto:price`, meaning that OpenRouter chooses the provider and model, prioritizing cheap ones.
-API key must be in environment variable `OPENROUTER_API_KEY`.
 
-Example: `ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick about AI"`
-
-Only dependencies are `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
+Mostly written by GPT-5 to my spec. Only dependencies are `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
 
 Here's an advanced example of how I use it in tmux:
 
@@ -43,3 +55,4 @@ tmux send-keys -t 2 "ort -m $MODEL_3 -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
 t
 ```
 
+If you mostly use models from the big-three labs I highly recommend trying OpenRouter. You get to use Qwen, DeepSeek, Kimi, GLM - all of which have impressed me - and all sorts of cutting edge experiments, such as diffusion model Mercury.
