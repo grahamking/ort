@@ -1,0 +1,8 @@
+[package]
+name = "ort"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ureq = { version = "3", features = ["gzip"] }
+serde_json = "1.0"
