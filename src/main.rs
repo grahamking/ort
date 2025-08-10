@@ -141,7 +141,7 @@ fn main() -> ExitCode {
 
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(5)))
-        .timeout_recv_response(Some(Duration::from_secs(5)))
+        .timeout_recv_response(None)
         .build()
         .into();
 
