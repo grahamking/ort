@@ -1,7 +1,7 @@
 use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_MODEL: &str = "openrouter/auto:price";
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -12,11 +12,13 @@ struct Opts {
     system: Option<String>,
     priority: Option<String>,
     prompt: String,
+    /// Don't show stats after request
+    quiet: bool,
 }
 
 fn print_usage_and_exit() -> ! {
     eprintln!(
-        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] <prompt>\n\
+        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-q] <prompt>\n\
          Defaults: -m {} ; -s omitted ; -p omitted\n\
          Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"",
         DEFAULT_MODEL
@@ -37,6 +39,7 @@ fn parse_args() -> Opts {
     let mut priority: Option<String> = None;
     let mut i = 1usize;
     let mut prompt_parts: Vec<String> = Vec::new();
+    let mut quiet = false;
 
     while i < args.len() {
         let arg = &args[i];
@@ -76,6 +79,10 @@ fn parse_args() -> Opts {
                 }
                 i += 1;
             }
+            "-q" => {
+                quiet = true;
+                i += 1;
+            }
             s if s.starts_with('-') => {
                 eprintln!("Unknown flag: {}", s);
                 print_usage_and_exit();
@@ -97,6 +104,7 @@ fn parse_args() -> Opts {
         model,
         system,
         priority,
+        quiet,
         prompt: prompt_parts.join(" "),
     }
 }
@@ -113,7 +121,8 @@ fn build_body(cfg: &Opts) -> String {
     let mut obj = serde_json::json!({
         "model": cfg.model,
         "stream": true,
-        "messages": messages
+        "usage": {"include": true},
+        "messages": messages,
     });
 
     // Optional provider.sort
@@ -151,6 +160,7 @@ fn main() -> ExitCode {
         .header("Content-Type", "application/json")
         .header("Accept", "text/event-stream");
 
+    let start = Instant::now();
     let mut resp = match req.send(&body) {
         Ok(r) => r,
         Err(ureq::Error::StatusCode(code)) => {
@@ -179,6 +189,13 @@ fn main() -> ExitCode {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
 
+    let mut provider = None;
+    let mut used_model = None;
+    let mut cost = None;
+    let mut ttft = None; // Time To First Token
+    let mut token_stream_start = None;
+    let mut num_tokens = 0;
+
     for line_res in reader.lines() {
         let line = match line_res {
             Ok(l) => l,
@@ -194,6 +211,10 @@ fn main() -> ExitCode {
         }
 
         if let Some(data) = line.strip_prefix("data: ") {
+            if ttft.is_none() {
+                ttft = Some(Instant::now() - start);
+                token_stream_start = Some(Instant::now());
+            }
             if data == "[DONE]" {
                 // Finish with a newline if last chunk didn't include one
                 let _ = handle.flush();
@@ -211,9 +232,19 @@ fn main() -> ExitCode {
                         .and_then(|d| d.get("content"))
                         .and_then(|c| c.as_str())
                     {
+                        num_tokens += 1;
                         // Write chunk and flush to keep it live
                         let _ = write!(handle, "{}", content);
                         let _ = handle.flush();
+                    }
+                    // data: {"id":"gen-1754854411-CSuOMdkzzX4onip4XTBU","provider":"Google","model":"anthropic/claude-3.5-sonnet","object":"chat.completion.chunk","created":1754854413,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":22,"completion_tokens":7,"total_tokens":29,"cost":0.000171,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0},"cost_details":{"upstream_inference_cost":null},"completion_tokens_details":{"reasoning_tokens":0}}}
+                    // If a "usage" key is present this is the last message.
+                    if let Some(usage) = v.get("usage") {
+                        if let Some(c) = usage.get("cost") {
+                            cost = Some(c.as_f64().unwrap() * 100.0); // convert to cents
+                        }
+                        provider = v.get("provider").map(|p| p.as_str().unwrap().to_string());
+                        used_model = v.get("model").map(|m| m.as_str().unwrap().to_string());
                     }
                 }
                 Err(_e) => {
@@ -222,6 +253,58 @@ fn main() -> ExitCode {
             }
         }
     }
+    let now = Instant::now();
+    let elapsed_time = now - start;
+    let stream_elapsed_time = now - token_stream_start.unwrap();
+    let inter_token_latency = stream_elapsed_time.as_millis() / num_tokens;
     println!();
+    if !opts.quiet {
+        println!();
+        println!(
+            "Stats: {} at {}. {:.4} cents. {} ({} TTFT, {inter_token_latency}ms ITL)",
+            used_model.unwrap_or_default(),
+            provider.unwrap_or_default(),
+            cost.unwrap_or_default(),
+            format_duration(elapsed_time),
+            format_duration(ttft.unwrap()),
+        );
+    }
     ExitCode::SUCCESS
+}
+
+// Format the Duration as minutes, seconds and milliseconds.
+// examples: 3m12s, 5s, 400ms, 12m, 4s
+fn format_duration(d: Duration) -> String {
+    let total_millis = d.as_millis();
+    let minutes = total_millis / 60_000;
+    let seconds = (total_millis % 60_000) / 1_000;
+    let milliseconds = total_millis % 1_000;
+
+    let mut result = String::new();
+
+    if minutes > 0 {
+        result.push_str(&format!("{minutes}m"));
+    }
+
+    if seconds > 0 {
+        if seconds <= 2 {
+            result.push_str(&format!(
+                "{seconds}.{}s",
+                (milliseconds as f64 / 100.0) as u32
+            ));
+        } else {
+            result.push_str(&format!("{seconds}s"));
+        }
+    }
+
+    if milliseconds > 0 && minutes == 0 && seconds == 0 {
+        result.push_str(&format!("{milliseconds}ms"));
+    }
+
+    // Handle the case where duration is 0
+    if result.is_empty() {
+        result = "0ms".to_string();
+    }
+
+    result
 }
