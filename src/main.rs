@@ -1,3 +1,9 @@
+//! ort: Open Router CLI
+//! https://github.com/grahamking/ort
+//!
+//! MIT License
+//! Copyright (c) 2025 Graham King
+
 use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::ExitCode;
@@ -14,13 +20,23 @@ struct Opts {
     prompt: String,
     /// Don't show stats after request
     quiet: bool,
+    /// Enable reasoning (medium). Does this need low/medium/high?
+    enable_reasoning: bool,
+    /// Show reasoning
+    show_reasoning: bool,
 }
 
 fn print_usage_and_exit() -> ! {
     eprintln!(
-        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-q] <prompt>\n\
-         Defaults: -m {} ; -s omitted ; -p omitted\n\
-         Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"",
+        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-r] [-rr] [-q] <prompt>\n\
+Defaults: -m {} ; -s omitted ; -p omitted\n\
+Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"
+Flags:
+ -p Provider sort. price is lowest price, throughput is lowest inter-token latency, latency is time to first token.
+ -r Enable reasoning. Only certain models.
+ -rr Show the reasoning tokens.
+ -q Quiet. Do not show Stats at end.
+",
         DEFAULT_MODEL
     );
     std::process::exit(2);
@@ -40,6 +56,8 @@ fn parse_args() -> Opts {
     let mut i = 1usize;
     let mut prompt_parts: Vec<String> = Vec::new();
     let mut quiet = false;
+    let mut enable_reasoning = false;
+    let mut show_reasoning = false;
 
     while i < args.len() {
         let arg = &args[i];
@@ -83,6 +101,14 @@ fn parse_args() -> Opts {
                 quiet = true;
                 i += 1;
             }
+            "-r" => {
+                enable_reasoning = true;
+                i += 1;
+            }
+            "-rr" => {
+                show_reasoning = true;
+                i += 1;
+            }
             s if s.starts_with('-') => {
                 eprintln!("Unknown flag: {}", s);
                 print_usage_and_exit();
@@ -105,6 +131,8 @@ fn parse_args() -> Opts {
         system,
         priority,
         quiet,
+        enable_reasoning,
+        show_reasoning,
         prompt: prompt_parts.join(" "),
     }
 }
@@ -130,6 +158,12 @@ fn build_body(cfg: &Opts) -> String {
         obj.as_object_mut()
             .unwrap()
             .insert("provider".into(), serde_json::json!({ "sort": p }));
+    }
+    if cfg.enable_reasoning {
+        obj.as_object_mut().unwrap().insert(
+            "reasoning".into(),
+            serde_json::json!({"effort": "medium", "exclude": false, "enabled": true}),
+        );
     }
 
     serde_json::to_string(&obj).expect("JSON serialization failed")
@@ -195,6 +229,8 @@ fn main() -> ExitCode {
     let mut ttft = None; // Time To First Token
     let mut token_stream_start = None;
     let mut num_tokens = 0;
+    let mut is_first_reasoning = true;
+    let mut is_first_content = true;
 
     for line_res in reader.lines() {
         let line = match line_res {
@@ -225,16 +261,40 @@ fn main() -> ExitCode {
             match serde_json::from_str::<serde_json::Value>(data) {
                 Ok(v) => {
                     // Standard OpenAI stream delta shape
-                    if let Some(content) = v
+                    let Some(delta) = v
                         .get("choices")
                         .and_then(|c| c.get(0))
                         .and_then(|c0| c0.get("delta"))
-                        .and_then(|d| d.get("content"))
-                        .and_then(|c| c.as_str())
+                    else {
+                        continue;
+                    };
+                    if let Some(reasoning_content) = delta.get("reasoning").and_then(|c| c.as_str())
+                        && !reasoning_content.is_empty()
                     {
                         num_tokens += 1;
+                        if opts.show_reasoning {
+                            if is_first_reasoning {
+                                let _ = write!(handle, "<think>");
+                                is_first_reasoning = false;
+                            }
+                            let _ = write!(handle, "{reasoning_content}");
+                            let _ = handle.flush();
+                        }
+                    }
+                    if let Some(content) = delta.get("content").and_then(|c| c.as_str())
+                        && !content.is_empty()
+                    {
+                        num_tokens += 1;
+                        // If user saw reasoning (opts.show_reasoning),
+                        // and we printed the open (!is_first_reasoning)
+                        // and we haven't printed the close yet (is_first_reasoning),
+                        // print the close.
+                        if opts.show_reasoning && !is_first_reasoning && is_first_content {
+                            let _ = write!(handle, "</think>\n\n");
+                            is_first_content = false;
+                        }
                         // Write chunk and flush to keep it live
-                        let _ = write!(handle, "{}", content);
+                        let _ = write!(handle, "{content}");
                         let _ = handle.flush();
                     }
                     // data: {"id":"gen-1754854411-CSuOMdkzzX4onip4XTBU","provider":"Google","model":"anthropic/claude-3.5-sonnet","object":"chat.completion.chunk","created":1754854413,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":22,"completion_tokens":7,"total_tokens":29,"cost":0.000171,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0},"cost_details":{"upstream_inference_cost":null},"completion_tokens_details":{"reasoning_tokens":0}}}
