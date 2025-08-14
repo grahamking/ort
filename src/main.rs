@@ -9,7 +9,7 @@ use std::io::{self, BufRead, BufReader, Read as _, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-const DEFAULT_MODEL: &str = "openrouter/auto:price";
+const DEFAULT_MODEL: &str = "openrouter/auto";
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
