@@ -11,9 +11,21 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_MODEL: &str = "openrouter/auto:price";
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
 #[derive(Debug)]
-struct Opts {
+enum Cmd {
+    List(ListOpts),
+    Prompt(PromptOpts),
+}
+
+#[derive(Debug)]
+struct ListOpts {
+    is_json: bool,
+}
+
+#[derive(Debug)]
+struct PromptOpts {
     model: String,
     system: Option<String>,
     priority: Option<String>,
@@ -31,25 +43,48 @@ fn print_usage_and_exit() -> ! {
         "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-r] [-rr] [-q] <prompt>\n\
 Defaults: -m {} ; -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"
-Flags:
- -p Provider sort. price is lowest price, throughput is lowest inter-token latency, latency is time to first token.
- -r Enable reasoning. Only certain models.
- -rr Show the reasoning tokens.
- -q Quiet. Do not show Stats at end.
+
+See https://github.com/grahamking/ort for full docs.
 ",
         DEFAULT_MODEL
     );
     std::process::exit(2);
 }
 
-fn parse_args() -> Opts {
+fn parse_args() -> Cmd {
     let args: Vec<String> = env::args().collect();
     // args[0] is program name
     if args.len() == 1 {
         print_usage_and_exit();
     }
 
-    // Simple, fast, no external parser
+    if args[1].as_str() == "list" {
+        parse_list(args)
+    } else {
+        parse_prompt(args)
+    }
+}
+
+fn parse_list(args: Vec<String>) -> Cmd {
+    let mut is_json = false;
+
+    let mut i = 2;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-json" => is_json = true,
+            x => {
+                eprintln!("Invalid list argument: {x}");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    Cmd::List(ListOpts { is_json })
+}
+
+fn parse_prompt(args: Vec<String>) -> Cmd {
     let mut model = DEFAULT_MODEL.to_string();
     let mut system: Option<String> = None;
     let mut priority: Option<String> = None;
@@ -110,7 +145,7 @@ fn parse_args() -> Opts {
                 i += 1;
             }
             s if s.starts_with('-') => {
-                eprintln!("Unknown flag: {}", s);
+                eprintln!("Unknown flag: {s}");
                 print_usage_and_exit();
             }
             _ => {
@@ -133,7 +168,7 @@ fn parse_args() -> Opts {
         print_usage_and_exit();
     };
 
-    Opts {
+    Cmd::Prompt(PromptOpts {
         model,
         system,
         priority,
@@ -141,10 +176,10 @@ fn parse_args() -> Opts {
         enable_reasoning,
         show_reasoning,
         prompt,
-    }
+    })
 }
 
-fn build_body(cfg: &Opts) -> String {
+fn build_body(cfg: &PromptOpts) -> String {
     // Build messages array
     let mut messages = Vec::new();
     if let Some(sys) = &cfg.system {
@@ -186,7 +221,53 @@ fn main() -> ExitCode {
         }
     };
 
-    let opts = parse_args(); // handles pipe input
+    let cmd = parse_args(); // handles pipe input
+    let cmd_result = match cmd {
+        Cmd::Prompt(args) => run_prompt(&api_key, args),
+        Cmd::List(args) => run_list(&api_key, args),
+    };
+    match cmd_result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{err}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run_list(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
+    let mut req = ureq::get(MODELS_URL);
+    req = req.header("Authorization", &format!("Bearer {api_key}",));
+    let mut resp = req.call()?;
+    let body = resp.body_mut().read_to_string()?;
+    let doc: serde_json::Value = serde_json::from_str(&body)?;
+
+    if opts.is_json {
+        // pretty-print the full JSON
+        println!("{}", serde_json::to_string_pretty(&doc).unwrap());
+    } else {
+        // extract and print canonical_slug fields alphabetically
+        let mut slugs: Vec<String> = doc
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("canonical_slug").and_then(|s| s.as_str()))
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        slugs.sort();
+        slugs.dedup();
+        for s in slugs {
+            println!("{s}");
+        }
+    }
+    Ok(())
+}
+
+fn run_prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<()> {
     let body = build_body(&opts);
 
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -205,12 +286,10 @@ fn main() -> ExitCode {
     let mut resp = match req.send(&body) {
         Ok(r) => r,
         Err(ureq::Error::StatusCode(code)) => {
-            eprintln!("HTTP error {code}");
-            return ExitCode::from(1);
+            anyhow::bail!("HTTP error {code}");
         }
         Err(e) => {
-            eprintln!("Request error: {e}");
-            return ExitCode::from(1);
+            anyhow::bail!("Request error: {e}");
         }
     };
 
@@ -220,8 +299,7 @@ fn main() -> ExitCode {
             .body_mut()
             .read_to_string()
             .unwrap_or_else(|_| "<failed to read body>".to_string());
-        eprintln!("HTTP error {}: {}", status, body);
-        std::process::exit(1);
+        anyhow::bail!("HTTP error {status}: {body}");
     }
 
     // Stream SSE lines and print content deltas as they arrive
@@ -336,7 +414,7 @@ fn main() -> ExitCode {
             format_duration(ttft.unwrap()),
         );
     }
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 // Format the Duration as minutes, seconds and milliseconds.

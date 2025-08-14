@@ -28,7 +28,7 @@ Default model is `openrouter/auto:price`, meaning that OpenRouter chooses the pr
 
 Orginal version written by GPT-5 to my spec.
 
-Only dependencies are `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
+Only dependencies are `anyhow`, `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
 
 Here's an advanced example of how I use it in tmux:
 
