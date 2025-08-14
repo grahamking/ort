@@ -2,7 +2,7 @@
 
 You need an [openrouter.ai](https://openrouter.ai/) API key in environment variable `OPENROUTER_API_KEY`.
 
-Example: 
+Example:
 ```
 # Basic
 ort "Prompt goes here"
@@ -16,9 +16,19 @@ Usage:
 ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] <prompt>
 ```
 
-Default model is `openrouter/auto:price`, meaning that OpenRouter chooses the provider and model, prioritizing cheap ones.
+Flags:
+-p Provider sort. price is lowest price, throughput is lowest inter-token latency, latency is time to first token.
+-r Enable reasoning. Only certain models.
+-rr Show the reasoning tokens.
+-q Quiet. Do not show Stats at end.
 
-Mostly written by GPT-5 to my spec. Only dependencies are `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
+Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
+
+Default model is `openrouter/auto:price`, meaning that OpenRouter chooses the provider and model, prioritizing cheap ones. It often selects an older Claude Sonnet, which is quite expensive, so don't use the default for too much.
+
+Orginal version written by GPT-5 to my spec.
+
+Only dependencies are `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
 
 Here's an advanced example of how I use it in tmux:
 
@@ -56,3 +66,6 @@ t
 ```
 
 If you mostly use models from the big-three labs I highly recommend trying OpenRouter. You get to use Qwen, DeepSeek, Kimi, GLM - all of which have impressed me - and all sorts of cutting edge experiments, such as diffusion model Mercury.
+
+MIT Licence.
+

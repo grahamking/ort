@@ -5,7 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 use std::env;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read as _, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -121,10 +121,17 @@ fn parse_args() -> Opts {
         }
     }
 
-    if prompt_parts.is_empty() {
+    let is_pipe = unsafe { libc::isatty(libc::STDIN_FILENO) == 0 };
+    let prompt = if !prompt_parts.is_empty() {
+        prompt_parts.join(" ")
+    } else if is_pipe {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer).unwrap();
+        buffer
+    } else {
         eprintln!("Missing prompt.");
         print_usage_and_exit();
-    }
+    };
 
     Opts {
         model,
@@ -133,7 +140,7 @@ fn parse_args() -> Opts {
         quiet,
         enable_reasoning,
         show_reasoning,
-        prompt: prompt_parts.join(" "),
+        prompt,
     }
 }
 
@@ -179,7 +186,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let opts = parse_args();
+    let opts = parse_args(); // handles pipe input
     let body = build_body(&opts);
 
     let agent: ureq::Agent = ureq::Agent::config_builder()
