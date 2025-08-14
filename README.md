@@ -2,29 +2,35 @@
 
 You need an [openrouter.ai](https://openrouter.ai/) API key in environment variable `OPENROUTER_API_KEY`.
 
-Example:
+Usage:
 ```
-# Basic
-ort "Prompt goes here"
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-r] [-rr] [-q] <prompt>
+```
 
-# Full
+Let OpenRouter choose the model: 
+```
+ort "What is the capital of France?"
+```
+
+List available models:
+```
+ort list [-json]
+```
+
+Use Kimi K2, provider with lowest price, and set a system prompt:
+```
 ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick about AI"
 ```
 
-Usage:
-```
-ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] <prompt>
-```
-
 Flags:
--p Provider sort. price is lowest price, throughput is lowest inter-token latency, latency is time to first token.
--r Enable reasoning. Only certain models.
--rr Show the reasoning tokens.
--q Quiet. Do not show Stats at end.
+- -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
+- -r Enable reasoning. Only certain models.
+- -rr Show the reasoning tokens.
+- -q Quiet. Do not show Stats at end.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 
-Default model is `openrouter/auto:price`, meaning that OpenRouter chooses the provider and model, prioritizing cheap ones. It often selects an older Claude Sonnet, which is quite expensive, so don't use the default for too much.
+Default model is `openrouter/auto`, meaning that OpenRouter chooses the provider. It often selects an older Claude Sonnet, which is quite expensive, so don't use the default for too much.
 
 Orginal version written by GPT-5 to my spec.
 
