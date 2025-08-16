@@ -5,37 +5,24 @@
 //! Copyright (c) 2025 Graham King
 
 use std::env;
-use std::io::{self, BufRead, BufReader, Read as _, Write};
+use std::io;
+use std::io::Read as _;
+use std::io::Write as _;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
 
-const DEFAULT_MODEL: &str = "openrouter/auto";
-const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
-const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
+use ort::Response;
+
+const DEFAULT_MODEL: &str = "openai/gpt-oss-20b:free";
 
 #[derive(Debug)]
 enum Cmd {
     List(ListOpts),
-    Prompt(PromptOpts),
+    Prompt(ort::PromptOpts),
 }
 
 #[derive(Debug)]
 struct ListOpts {
     is_json: bool,
-}
-
-#[derive(Debug)]
-struct PromptOpts {
-    model: String,
-    system: Option<String>,
-    priority: Option<String>,
-    prompt: String,
-    /// Don't show stats after request
-    quiet: bool,
-    /// Enable reasoning (medium). Does this need low/medium/high?
-    enable_reasoning: bool,
-    /// Show reasoning
-    show_reasoning: bool,
 }
 
 fn print_usage_and_exit() -> ! {
@@ -168,7 +155,7 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
         print_usage_and_exit();
     };
 
-    Cmd::Prompt(PromptOpts {
+    Cmd::Prompt(ort::PromptOpts {
         model,
         system,
         priority,
@@ -177,38 +164,6 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
         show_reasoning,
         prompt,
     })
-}
-
-fn build_body(cfg: &PromptOpts) -> String {
-    // Build messages array
-    let mut messages = Vec::new();
-    if let Some(sys) = &cfg.system {
-        messages.push(serde_json::json!({ "role": "system", "content": sys }));
-    }
-    messages.push(serde_json::json!({ "role": "user", "content": cfg.prompt }));
-
-    // Base payload with streaming enabled
-    let mut obj = serde_json::json!({
-        "model": cfg.model,
-        "stream": true,
-        "usage": {"include": true},
-        "messages": messages,
-    });
-
-    // Optional provider.sort
-    if let Some(p) = &cfg.priority {
-        obj.as_object_mut()
-            .unwrap()
-            .insert("provider".into(), serde_json::json!({ "sort": p }));
-    }
-    if cfg.enable_reasoning {
-        obj.as_object_mut().unwrap().insert(
-            "reasoning".into(),
-            serde_json::json!({"effort": "medium", "exclude": false, "enabled": true}),
-        );
-    }
-
-    serde_json::to_string(&obj).expect("JSON serialization failed")
 }
 
 fn main() -> ExitCode {
@@ -236,27 +191,19 @@ fn main() -> ExitCode {
 }
 
 fn run_list(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
-    let mut req = ureq::get(MODELS_URL);
-    req = req.header("Authorization", &format!("Bearer {api_key}",));
-    let mut resp = req.call()?;
-    let body = resp.body_mut().read_to_string()?;
-    let doc: serde_json::Value = serde_json::from_str(&body)?;
+    let models = ort::list_models(api_key)?;
 
     if opts.is_json {
         // pretty-print the full JSON
-        println!("{}", serde_json::to_string_pretty(&doc).unwrap());
+        for m in models {
+            println!("{}", serde_json::to_string_pretty(&m).unwrap());
+        }
     } else {
         // extract and print canonical_slug fields alphabetically
-        let mut slugs: Vec<String> = doc
-            .get("data")
-            .and_then(|d| d.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|m| m.get("canonical_slug").and_then(|s| s.as_str()))
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let mut slugs: Vec<_> = models
+            .into_iter()
+            .map(|mut m| m["canonical_slug"].take().as_str().unwrap().to_string())
+            .collect();
 
         slugs.sort();
         slugs.dedup();
@@ -267,189 +214,29 @@ fn run_list(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<()> {
-    let body = build_body(&opts);
-
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_connect(Some(Duration::from_secs(5)))
-        .timeout_recv_response(None)
-        .build()
-        .into();
-
-    let req = agent
-        .post(API_URL)
-        .header("Authorization", &format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream");
-
-    let start = Instant::now();
-    let mut resp = match req.send(&body) {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(code)) => {
-            anyhow::bail!("HTTP error {code}");
-        }
-        Err(e) => {
-            anyhow::bail!("Request error: {e}");
-        }
-    };
-
-    if resp.status() != 200 {
-        let status = resp.status();
-        let body = resp
-            .body_mut()
-            .read_to_string()
-            .unwrap_or_else(|_| "<failed to read body>".to_string());
-        anyhow::bail!("HTTP error {status}: {body}");
-    }
-
-    // Stream SSE lines and print content deltas as they arrive
-    let body = resp.body_mut();
-    let reader = BufReader::new(body.as_reader());
+fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
+    let is_quiet = opts.quiet;
+    let rx = ort::prompt(api_key, opts)?;
     let stdout = io::stdout();
     let mut handle = stdout.lock();
-
-    let mut provider = None;
-    let mut used_model = None;
-    let mut cost = None;
-    let mut ttft = None; // Time To First Token
-    let mut token_stream_start = None;
-    let mut num_tokens = 0;
-    let mut is_first_reasoning = true;
-    let mut is_first_content = true;
-
-    for line_res in reader.lines() {
-        let line = match line_res {
-            Ok(l) => l,
-            Err(e) => {
-                let _ = writeln!(io::stderr(), "Stream read error: {}", e);
-                break;
+    while let Ok(data) = rx.recv() {
+        match data {
+            Response::Error(err) => {
+                anyhow::bail!("{err}");
             }
-        };
-
-        // SSE heartbeats and blank lines
-        if line.is_empty() || line.starts_with(':') {
-            continue;
-        }
-
-        if let Some(data) = line.strip_prefix("data: ") {
-            if ttft.is_none() {
-                ttft = Some(Instant::now() - start);
-                token_stream_start = Some(Instant::now());
+            Response::Stats(stats) => {
+                println!();
+                if !is_quiet {
+                    println!();
+                    println!("{stats}");
+                }
             }
-            if data == "[DONE]" {
-                // Finish with a newline if last chunk didn't include one
+            Response::Content(content) => {
+                let _ = write!(handle, "{content}");
                 let _ = handle.flush();
-                break;
-            }
-
-            // Each data: line is a JSON chunk in OpenAI streaming format
-            match serde_json::from_str::<serde_json::Value>(data) {
-                Ok(v) => {
-                    // Standard OpenAI stream delta shape
-                    let Some(delta) = v
-                        .get("choices")
-                        .and_then(|c| c.get(0))
-                        .and_then(|c0| c0.get("delta"))
-                    else {
-                        continue;
-                    };
-                    if let Some(reasoning_content) = delta.get("reasoning").and_then(|c| c.as_str())
-                        && !reasoning_content.is_empty()
-                    {
-                        num_tokens += 1;
-                        if opts.show_reasoning {
-                            if is_first_reasoning {
-                                let _ = write!(handle, "<think>");
-                                is_first_reasoning = false;
-                            }
-                            let _ = write!(handle, "{reasoning_content}");
-                            let _ = handle.flush();
-                        }
-                    }
-                    if let Some(content) = delta.get("content").and_then(|c| c.as_str())
-                        && !content.is_empty()
-                    {
-                        num_tokens += 1;
-                        // If user saw reasoning (opts.show_reasoning),
-                        // and we printed the open (!is_first_reasoning)
-                        // and we haven't printed the close yet (is_first_reasoning),
-                        // print the close.
-                        if opts.show_reasoning && !is_first_reasoning && is_first_content {
-                            let _ = write!(handle, "</think>\n\n");
-                            is_first_content = false;
-                        }
-                        // Write chunk and flush to keep it live
-                        let _ = write!(handle, "{content}");
-                        let _ = handle.flush();
-                    }
-                    // data: {"id":"gen-1754854411-CSuOMdkzzX4onip4XTBU","provider":"Google","model":"anthropic/claude-3.5-sonnet","object":"chat.completion.chunk","created":1754854413,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":22,"completion_tokens":7,"total_tokens":29,"cost":0.000171,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0},"cost_details":{"upstream_inference_cost":null},"completion_tokens_details":{"reasoning_tokens":0}}}
-                    // If a "usage" key is present this is the last message.
-                    if let Some(usage) = v.get("usage") {
-                        if let Some(c) = usage.get("cost") {
-                            cost = Some(c.as_f64().unwrap() * 100.0); // convert to cents
-                        }
-                        provider = v.get("provider").map(|p| p.as_str().unwrap().to_string());
-                        used_model = v.get("model").map(|m| m.as_str().unwrap().to_string());
-                    }
-                }
-                Err(_e) => {
-                    // Ignore malformed server-sent diagnostics; keep streaming
-                }
             }
         }
     }
-    let now = Instant::now();
-    let elapsed_time = now - start;
-    let stream_elapsed_time = now - token_stream_start.unwrap();
-    let inter_token_latency = stream_elapsed_time.as_millis() / num_tokens;
-    println!();
-    if !opts.quiet {
-        println!();
-        println!(
-            "Stats: {} at {}. {:.4} cents. {} ({} TTFT, {inter_token_latency}ms ITL)",
-            used_model.unwrap_or_default(),
-            provider.unwrap_or_default(),
-            cost.unwrap_or_default(),
-            format_duration(elapsed_time),
-            format_duration(ttft.unwrap()),
-        );
-    }
+
     Ok(())
-}
-
-// Format the Duration as minutes, seconds and milliseconds.
-// examples: 3m12s, 5s, 400ms, 12m, 4s
-fn format_duration(d: Duration) -> String {
-    let total_millis = d.as_millis();
-    let minutes = total_millis / 60_000;
-    let seconds = (total_millis % 60_000) / 1_000;
-    let milliseconds = total_millis % 1_000;
-
-    let mut result = String::new();
-
-    if minutes > 0 {
-        result.push_str(&format!("{minutes}m"));
-    }
-
-    if seconds > 0 {
-        if seconds <= 2 {
-            result.push_str(&format!(
-                "{seconds}.{}s",
-                (milliseconds as f64 / 100.0) as u32
-            ));
-        } else {
-            result.push_str(&format!("{seconds}s"));
-        }
-    }
-
-    if milliseconds > 0 && minutes == 0 && seconds == 0 {
-        result.push_str(&format!("{milliseconds}ms"));
-    }
-
-    // Handle the case where duration is 0
-    if result.is_empty() {
-        result = "0ms".to_string();
-    }
-
-    result
 }

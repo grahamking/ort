@@ -7,7 +7,7 @@ Usage:
 ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-r] [-rr] [-q] <prompt>
 ```
 
-Let OpenRouter choose the model: 
+Use default model (currently `openai/gpt-oss-20b:free`):
 ```
 ort "What is the capital of France?"
 ```
@@ -17,7 +17,7 @@ List available models:
 ort list [-json]
 ```
 
-Use Kimi K2, provider with lowest price, and set a system prompt:
+Use Kimi K2, select the provider with lowest price, and set a system prompt:
 ```
 ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick about AI"
 ```
@@ -25,7 +25,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 Flags:
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
 - -r Enable reasoning. Only certain models.
-- -rr Show the reasoning tokens.
+- -rr Show the reasoning tokens. Default is not to show them.
 - -q Quiet. Do not show Stats at end.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
@@ -35,6 +35,14 @@ Default model is `openrouter/auto`, meaning that OpenRouter chooses the provider
 Orginal version written by GPT-5 to my spec.
 
 Only dependencies are `anyhow`, `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
+
+Stats printed at the end:
+- Model: The model that executed the query. Usually only interesting with `openrouter/auto`. Useful if you're doing evals because now the output includes the model name.
+- Provider: The provider selected by Open Router to run your query.
+- Cost in cents: Because the cost in dollars is so low it's hard to read.
+- Elapsed time: Total query duration, including network, queuing at the provider, thinking, and streaming all tokens.
+- Time To First Token: Time until the first token was received. Note that reasoning (thinking) tokens count, but unless you pass `-rr` they are not displayed. That can make the TTFT look wrong.
+- Inter Token Latency: Average time between each token in milliseconds.
 
 Here's an advanced example of how I use it in tmux:
 
