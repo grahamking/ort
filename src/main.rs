@@ -228,7 +228,7 @@ fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
                 println!();
                 if !is_quiet {
                     println!();
-                    println!("{stats}");
+                    println!("Stats: {stats}");
                 }
             }
             Response::Content(content) => {

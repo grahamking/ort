@@ -46,7 +46,7 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Stats: {} at {}. {:.4} cents. {} ({} TTFT, {}ms ITL)",
+            "{} at {}. {:.4} cents. {} ({} TTFT, {}ms ITL)",
             self.used_model,
             self.provider,
             self.cost_in_cents,
