@@ -21,16 +21,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ort::Response;
 
-/// Write output to here, one directory per prompt
-const EVALS_ROOT: &str = "/home/graham/evals/results/";
-
-/// Model IDs one per line. To enable reasoning put anything else on the line after a space.
-/// Max 15 models! That's how many cat names we have. Add names if you have more models.
-const MODELS_FILE: &str = "/home/graham/evals/models-final.txt";
-
-/// Prompt to use, one per line
-const PROMPTS_FILE: &str = "/home/graham/evals/prompts-final.txt";
-
 /// Secret alises for the models so you can blind compare them
 const CAT_NAMES: [&str; 15] = [
     "Luna", "Milo", "Oliver", "Bella", "Chloe", "Simba", "Nala", "Kitty", "Shadow", "Gizmo",
@@ -41,6 +31,28 @@ const CAT_NAMES: [&str; 15] = [
 const SYSTEM_PROMPT: &str =
     "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.";
 
+fn print_usage_and_exit() -> ! {
+    eprintln!(
+        "eval --models <models-file> --prompts <prompts-file> --out <dir>\n\
+- models-file is a list of model IDs (e.g. 'moonshotai/kimi-k2') one per line.\n\
+- prompts-file is a list of prompts one per line\n\
+- out dir is a directory to write the results to\n\
+See https://github.com/grahamking/ort for full docs.
+"
+    );
+    std::process::exit(2);
+}
+
+struct Args {
+    /// Model IDs one per line. To enable reasoning put anything else on the line after a space.
+    /// Max 15 models! That's how many cat names we have. Add names if you have more models.
+    models_file: PathBuf,
+    /// Prompt to use, one per line
+    prompts_file: PathBuf,
+    /// Write output to here, one directory per prompt
+    out_dir: PathBuf,
+}
+
 fn main() -> anyhow::Result<()> {
     let api_key = match env::var("OPENROUTER_API_KEY") {
         Ok(v) if !v.is_empty() => v,
@@ -50,21 +62,94 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let models: Vec<String> = fs::read_to_string(MODELS_FILE)
-        .context(MODELS_FILE)?
+    let args = parse_args();
+
+    let models: Vec<String> = fs::read_to_string(&args.models_file)
+        .context("Reading models file")?
         .lines()
         .map(str::to_string)
         .collect();
-    let prompts: Vec<String> = fs::read_to_string(PROMPTS_FILE)
-        .context(PROMPTS_FILE)?
+    let prompts: Vec<String> = fs::read_to_string(&args.prompts_file)
+        .context("Reading prompts file")?
         .lines()
         .map(str::to_string)
         .collect();
 
     for (eval_num, prompt) in prompts.into_iter().enumerate() {
-        run_prompt(&api_key, eval_num, &prompt, &models)?;
+        run_prompt(&api_key, eval_num, &prompt, &models, &args.out_dir)?;
     }
     Ok(())
+}
+
+fn parse_args() -> Args {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 7 {
+        print_usage_and_exit();
+    }
+
+    let mut models_file: PathBuf = Default::default();
+    let mut prompts_file: PathBuf = Default::default();
+    let mut out_dir: PathBuf = Default::default();
+
+    let mut i = 1;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-h" | "--help" => print_usage_and_exit(),
+            "--models" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Missing value for --models");
+                    print_usage_and_exit();
+                }
+                models_file = args[i].clone().into();
+                if !models_file.exists() || !models_file.is_file() {
+                    eprintln!("File not found: {}", models_file.display());
+                    std::process::exit(3);
+                }
+                i += 1;
+            }
+            "--prompts" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Missing value for --prompts");
+                    print_usage_and_exit();
+                }
+                prompts_file = args[i].clone().into();
+                if !prompts_file.exists() || !prompts_file.is_file() {
+                    eprintln!("File not found: {}", prompts_file.display());
+                    std::process::exit(3);
+                }
+                i += 1;
+            }
+            "--out" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Missing value for --out");
+                    print_usage_and_exit();
+                }
+                out_dir = args[i].clone().into();
+                if !out_dir.exists() || !out_dir.is_dir() {
+                    eprintln!("Directory does not exist: {}", out_dir.display());
+                    std::process::exit(3);
+                }
+                i += 1;
+            }
+            s if s.starts_with('-') => {
+                eprintln!("Unknown flag: {s}");
+                print_usage_and_exit();
+            }
+            _ => {
+                print_usage_and_exit();
+            }
+        }
+    }
+
+    Args {
+        models_file,
+        prompts_file,
+        out_dir,
+    }
 }
 
 fn run_prompt(
@@ -72,15 +157,16 @@ fn run_prompt(
     eval_num: usize,
     prompt: &str,
     models: &[String],
+    out_dir: &Path,
 ) -> anyhow::Result<()> {
     println!("\n-- {prompt}");
 
     // Randomize so their names are not predictable
-    let mut names = CAT_NAMES.iter().map(|n| n.to_string()).collect();
+    let mut names: Vec<String> = CAT_NAMES.iter().map(|n| n.to_string()).collect();
     shuffle_strings(&mut names);
 
     // Make the eval directory
-    let dir_name = PathBuf::from(EVALS_ROOT).join(format!("eval{eval_num}"));
+    let dir_name = PathBuf::from(out_dir).join(format!("eval{eval_num}"));
     fs::create_dir_all(&dir_name)?;
 
     // Save the prompt
@@ -88,7 +174,7 @@ fn run_prompt(
     fs::write(prompt_path, format!("{prompt}\n"))?;
 
     let mut key_file = File::create(Path::new(&dir_name).join("key"))?;
-    for (model_num, model) in models.into_iter().enumerate() {
+    for (model_num, model) in models.iter().enumerate() {
         let parts: Vec<_> = model.split(' ').collect();
         let enable_reasoning = parts.len() > 1;
         println!(
@@ -118,14 +204,14 @@ fn run_prompt(
                     anyhow::bail!("{err}");
                 }
                 Response::Stats(stats) => {
-                    let _ = write!(key_file, "{cat_name}: {stats}\n");
+                    let _ = writeln!(key_file, "{cat_name}: {stats}");
                 }
                 Response::Content(content) => {
                     let _ = write!(out, "{content}");
                 }
             }
         }
-        let _ = write!(out, "\n");
+        let _ = writeln!(out);
         let _ = out.flush();
         let _ = key_file.flush();
     }
@@ -140,7 +226,7 @@ fn xorshift(seed: &mut u64) -> u64 {
     *seed
 }
 
-fn shuffle_strings(vec: &mut Vec<String>) {
+fn shuffle_strings(vec: &mut [String]) {
     let mut seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
