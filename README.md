@@ -22,7 +22,8 @@ Use Kimi K2, select the provider with lowest price, and set a system prompt:
 ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick about AI"
 ```
 
-Flags:
+## Flags
+
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
 - -r Enable reasoning. Only certain models.
 - -rr Show the reasoning tokens. Default is not to show them.
@@ -30,19 +31,37 @@ Flags:
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 
-Default model is `openrouter/auto`, meaning that OpenRouter chooses the provider. It often selects an older Claude Sonnet, which is quite expensive, so don't use the default for too much.
 
-Orginal version written by GPT-5 to my spec.
-
-Only dependencies are `anyhow`, `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
+## Stats
 
 Stats printed at the end:
+
 - Model: The model that executed the query. Usually only interesting with `openrouter/auto`. Useful if you're doing evals because now the output includes the model name.
 - Provider: The provider selected by Open Router to run your query.
 - Cost in cents: Because the cost in dollars is so low it's hard to read.
 - Elapsed time: Total query duration, including network, queuing at the provider, thinking, and streaming all tokens.
 - Time To First Token: Time until the first token was received. Note that reasoning (thinking) tokens count, but unless you pass `-rr` they are not displayed. That can make the TTFT look wrong.
 - Inter Token Latency: Average time between each token in milliseconds.
+
+## Config file
+
+The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which is usually `~/.config/ort.json`.
+
+```
+{
+    "keys": [{"name": "openrouter", "value": "sk-..."}],
+    "prompt_opts": {
+        "model": "deepseek/deepseek-r1-0528",
+        "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
+        "priority": "latency",
+        "quiet": false,
+        "enable_reasoning": true,
+        "show_reasoning": true
+    }
+}
+```
+
+## tmux
 
 Here's an advanced example of how I use it in tmux:
 
@@ -68,6 +87,7 @@ tmux split-window -v
 tmux split-window -v
 
 # Select all panes and distribute them evenly
+# try also: even-vertical (2 or 3 panes) or tiled (good for 4 panes)
 tmux select-layout even-vertical
 
 # Run commands in each pane
@@ -80,6 +100,11 @@ t
 ```
 
 If you mostly use models from the big-three labs I highly recommend trying OpenRouter. You get to use Qwen, DeepSeek, Kimi, GLM - all of which have impressed me - and all sorts of cutting edge experiments, such as diffusion model Mercury.
+Orginal version written by GPT-5 to my spec.
+
+## Misc
+
+Only dependencies are `anyhow`, `ureq` for HTTP, and `serde_json` to build valid JSON. No async. Built because I got frustrated waiting for Python CLIs to start. For best perf build it in `--release` mode and then run `strip` on it.
 
 MIT Licence.
 

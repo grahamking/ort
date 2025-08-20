@@ -12,18 +12,45 @@ use std::time::{Duration, Instant};
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
-#[derive(Debug)]
+pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b:free";
+const DEFAULT_QUIET: bool = false;
+const DEFAULT_ENABLE_REAONING: bool = false;
+const DEFAULT_SHOW_REASONING: bool = false;
+
+#[derive(Default, Debug, serde::Deserialize)]
 pub struct PromptOpts {
-    pub model: String,
+    pub prompt: Option<String>,
+    pub model: Option<String>,
     pub system: Option<String>,
     pub priority: Option<String>,
-    pub prompt: String,
     /// Don't show stats after request
-    pub quiet: bool,
+    pub quiet: Option<bool>,
     /// Enable reasoning (medium). Does this need low/medium/high?
-    pub enable_reasoning: bool,
-    /// Show reasoning
-    pub show_reasoning: bool,
+    pub enable_reasoning: Option<bool>,
+    /// Show reasoning output
+    pub show_reasoning: Option<bool>,
+}
+
+impl PromptOpts {
+    // Replace any blank or None fields on Self with values from other
+    // or with the defaults.
+    // After this call a PromptOpts is ready to use.
+    pub fn merge(&mut self, o: PromptOpts) {
+        self.prompt.get_or_insert(o.prompt.unwrap_or_default());
+        self.model
+            .get_or_insert(o.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()));
+        if o.system.is_some() {
+            self.system.get_or_insert(o.system.unwrap());
+        }
+        if o.priority.is_some() {
+            self.priority.get_or_insert(o.priority.unwrap());
+        }
+        self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
+        self.enable_reasoning
+            .get_or_insert(o.enable_reasoning.unwrap_or(DEFAULT_ENABLE_REAONING));
+        self.show_reasoning
+            .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+    }
 }
 
 pub enum Response {
@@ -74,10 +101,10 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
 
     std::thread::spawn(move || {
         let body = build_body(
-            &opts.model,
-            &opts.prompt,
+            &opts.model.unwrap(),
+            &opts.prompt.unwrap(),
             opts.system.as_deref(),
-            opts.enable_reasoning,
+            opts.enable_reasoning.unwrap(),
             opts.priority.as_deref(),
         );
 
@@ -125,6 +152,7 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
         let mut is_first_reasoning = true;
         let mut is_first_content = true;
 
+        let show_reasoning = opts.show_reasoning.unwrap();
         for line_res in reader.lines() {
             let line = match line_res {
                 Ok(l) => l,
@@ -178,7 +206,7 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
                             && !reasoning_content.is_empty()
                         {
                             num_tokens += 1;
-                            if opts.show_reasoning {
+                            if show_reasoning {
                                 if is_first_reasoning {
                                     let _ = tx.send(Response::Content("<think>".to_string()));
                                     is_first_reasoning = false;
@@ -196,7 +224,7 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
                             // and we printed the open (!is_first_reasoning)
                             // and we haven't printed the close yet (is_first_reasoning),
                             // print the close.
-                            if opts.show_reasoning && !is_first_reasoning && is_first_content {
+                            if show_reasoning && !is_first_reasoning && is_first_content {
                                 let _ = tx.send(Response::Content("</think>\n\n".to_string()));
                                 is_first_content = false;
                             }

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use ort::Response;
 
-const DEFAULT_MODEL: &str = "openai/gpt-oss-20b:free";
+mod config;
 
 #[derive(Debug)]
 enum Cmd {
@@ -33,7 +33,7 @@ Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Wr
 
 See https://github.com/grahamking/ort for full docs.
 ",
-        DEFAULT_MODEL
+        ort::DEFAULT_MODEL
     );
     std::process::exit(2);
 }
@@ -72,15 +72,18 @@ fn parse_list(args: Vec<String>) -> Cmd {
 }
 
 fn parse_prompt(args: Vec<String>) -> Cmd {
-    let mut model = DEFAULT_MODEL.to_string();
+    // Only the prompt is required. Everything else can come from config file
+    // or default.
+    let mut prompt_parts: Vec<String> = Vec::new();
+
+    let mut model: Option<String> = None;
     let mut system: Option<String> = None;
     let mut priority: Option<String> = None;
-    let mut i = 1usize;
-    let mut prompt_parts: Vec<String> = Vec::new();
-    let mut quiet = false;
-    let mut enable_reasoning = false;
-    let mut show_reasoning = false;
+    let mut quiet: Option<bool> = None;
+    let mut enable_reasoning: Option<bool> = None;
+    let mut show_reasoning: Option<bool> = None;
 
+    let mut i = 1usize;
     while i < args.len() {
         let arg = &args[i];
         match arg.as_str() {
@@ -91,7 +94,7 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
                     eprintln!("Missing value for -m");
                     print_usage_and_exit();
                 }
-                model = args[i].clone();
+                model = Some(args[i].clone());
                 i += 1;
             }
             "-s" => {
@@ -120,15 +123,15 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
                 i += 1;
             }
             "-q" => {
-                quiet = true;
+                quiet = Some(true);
                 i += 1;
             }
             "-r" => {
-                enable_reasoning = true;
+                enable_reasoning = Some(true);
                 i += 1;
             }
             "-rr" => {
-                show_reasoning = true;
+                show_reasoning = Some(true);
                 i += 1;
             }
             s if s.starts_with('-') => {
@@ -143,14 +146,20 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
         }
     }
 
+    let mut prompt = "".to_string();
+    if !prompt_parts.is_empty() {
+        prompt = prompt_parts.join(" ");
+    };
+
     let is_pipe = unsafe { libc::isatty(libc::STDIN_FILENO) == 0 };
-    let prompt = if !prompt_parts.is_empty() {
-        prompt_parts.join(" ")
-    } else if is_pipe {
+    if is_pipe {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer).unwrap();
-        buffer
-    } else {
+        prompt.push_str("\n\n");
+        prompt.push_str(&buffer);
+    }
+
+    if prompt.is_empty() {
         eprintln!("Missing prompt.");
         print_usage_and_exit();
     };
@@ -162,23 +171,39 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
         quiet,
         enable_reasoning,
         show_reasoning,
-        prompt,
+        prompt: Some(prompt),
     })
 }
 
 fn main() -> ExitCode {
-    // Fail fast if key missing
-    let api_key = match env::var("OPENROUTER_API_KEY") {
-        Ok(v) if !v.is_empty() => v,
-        _ => {
-            eprintln!("OPENROUTER_API_KEY is not set.");
+    // Load ~/.config/ort.json
+    let cfg = match config::load() {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            eprintln!("Failed loading config file: {err:#}");
             std::process::exit(1);
         }
     };
 
+    // Fail fast if key missing
+    let api_key = match env::var("OPENROUTER_API_KEY") {
+        Ok(v) if !v.is_empty() => v,
+        _ => match cfg.get_openrouter_key() {
+            Some(k) => k,
+            None => {
+                eprintln!("OPENROUTER_API_KEY is not set.");
+                std::process::exit(1);
+            }
+        },
+    };
+
     let cmd = parse_args(); // handles pipe input
+
     let cmd_result = match cmd {
-        Cmd::Prompt(args) => run_prompt(&api_key, args),
+        Cmd::Prompt(mut cli_opts) => {
+            cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+            run_prompt(&api_key, cli_opts)
+        }
         Cmd::List(args) => run_list(&api_key, args),
     };
     match cmd_result {
@@ -215,7 +240,7 @@ fn run_list(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
 }
 
 fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
-    let is_quiet = opts.quiet;
+    let is_quiet = opts.quiet.unwrap();
     let rx = ort::prompt(api_key, opts)?;
     let stdout = io::stdout();
     let mut handle = stdout.lock();

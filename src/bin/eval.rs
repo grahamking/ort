@@ -184,14 +184,14 @@ fn run_prompt(
         );
 
         let prompt_opts = ort::PromptOpts {
+            prompt: Some(prompt.to_string()),
             // We clone the model name because the struct takes ownership of the String.
-            model: parts[0].to_string(),
+            model: Some(parts[0].to_string()),
             system: Some(SYSTEM_PROMPT.to_string()),
-            prompt: prompt.to_string(),
             priority: None,
-            quiet: false,
-            show_reasoning: true,
-            enable_reasoning,
+            quiet: Some(false),
+            show_reasoning: Some(true),
+            enable_reasoning: Some(enable_reasoning),
         };
 
         let cat_name = &names[model_num];
