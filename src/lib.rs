@@ -54,9 +54,22 @@ impl PromptOpts {
 }
 
 pub enum Response {
+    /// The first time we get anything at all on the SSE stream
+    Start,
+    /// Reasoning events - start, some thoughts, stop
+    Think(ThinkEvent),
+    /// The good stuff
     Content(String),
+    /// Summary stats at the end of the run
     Stats(Stats),
+    /// Less good things. Often you mistyped the model name.
     Error(String),
+}
+
+pub enum ThinkEvent {
+    Start,
+    Content(String),
+    Stop,
 }
 
 #[derive(Default, Debug)]
@@ -149,10 +162,10 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
         let mut stats: Stats = Default::default();
         let mut token_stream_start = None;
         let mut num_tokens = 0;
+        let mut is_start = true;
         let mut is_first_reasoning = true;
         let mut is_first_content = true;
 
-        let show_reasoning = opts.show_reasoning.unwrap();
         for line_res in reader.lines() {
             let line = match line_res {
                 Ok(l) => l,
@@ -161,6 +174,14 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
                     return;
                 }
             };
+            //eprintln!("{line}");
+
+            if is_start {
+                // Very first message from server, usually
+                // : OPENROUTER PROCESSING
+                let _ = tx.send(Response::Start);
+                is_start = false;
+            }
 
             // SSE heartbeats and blank lines
             if line.is_empty() || line.starts_with(':') {
@@ -186,12 +207,12 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
 
                         let maybe_reasoning = delta.get("reasoning").and_then(|c| c.as_str());
                         let maybe_content = delta.get("content").and_then(|c| c.as_str());
-                        let has_content = maybe_reasoning
-                            .or(maybe_content)
-                            .map(|x| !x.is_empty())
-                            .unwrap_or(false);
+
+                        let has_reasoning = maybe_reasoning.map(|x| !x.is_empty()).unwrap_or(false);
+                        let has_content = maybe_content.map(|x| !x.is_empty()).unwrap_or(false);
                         let has_usage = v.get("usage").is_some();
-                        if !(has_content || has_usage) {
+
+                        if !(has_reasoning || has_content || has_usage) {
                             continue;
                         }
 
@@ -206,13 +227,17 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
                             && !reasoning_content.is_empty()
                         {
                             num_tokens += 1;
-                            if show_reasoning {
-                                if is_first_reasoning {
-                                    let _ = tx.send(Response::Content("<think>".to_string()));
-                                    is_first_reasoning = false;
+                            if is_first_reasoning {
+                                if reasoning_content.trim().is_empty() {
+                                    // Don't allow starting with carriage return or blank space, that messes up the display
+                                    continue;
                                 }
-                                let _ = tx.send(Response::Content(reasoning_content.to_string()));
+                                let _ = tx.send(Response::Think(ThinkEvent::Start));
+                                is_first_reasoning = false;
                             }
+                            let _ = tx.send(Response::Think(ThinkEvent::Content(
+                                reasoning_content.to_string(),
+                            )));
                         }
 
                         // Handle regular content
@@ -220,15 +245,17 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
                             && !content.is_empty()
                         {
                             num_tokens += 1;
-                            // If user saw reasoning (opts.show_reasoning),
-                            // and we printed the open (!is_first_reasoning)
-                            // and we haven't printed the close yet (is_first_reasoning),
-                            // print the close.
-                            if show_reasoning && !is_first_reasoning && is_first_content {
-                                let _ = tx.send(Response::Content("</think>\n\n".to_string()));
+                            if is_first_content && content.trim().is_empty() {
+                                // Don't allow starting with carriage return or blank space, that messes up the display
+                                continue;
+                            }
+                            // If we signaled the open (!is_first_reasoning)
+                            // and we signaled the close yet (is_first_reasoning),
+                            // signal the close.
+                            if !is_first_reasoning && is_first_content {
+                                let _ = tx.send(Response::Think(ThinkEvent::Stop));
                                 is_first_content = false;
                             }
-                            // Write chunk and flush to keep it live
                             let _ = tx.send(Response::Content(content.to_string()));
                         }
 

@@ -11,8 +11,17 @@ use std::io::Write as _;
 use std::process::ExitCode;
 
 use ort::Response;
+use ort::ThinkEvent;
 
 mod config;
+
+const BOLD_START: &str = "\x1b[1m";
+const BOLD_END: &str = "\x1b[0m";
+const BACK_ONE: &str = "\x1b[1D";
+const CURSOR_OFF: &str = "\x1b[?25l";
+const CURSOR_ON: &str = "\x1b[?25h";
+
+const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
 #[derive(Debug)]
 enum Cmd {
@@ -151,8 +160,8 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
         prompt = prompt_parts.join(" ");
     };
 
-    let is_pipe = unsafe { libc::isatty(libc::STDIN_FILENO) == 0 };
-    if is_pipe {
+    let is_pipe_input = unsafe { libc::isatty(libc::STDIN_FILENO) == 0 };
+    if is_pipe_input {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer).unwrap();
         prompt.push_str("\n\n");
@@ -241,13 +250,67 @@ fn run_list(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
 
 fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
     let is_quiet = opts.quiet.unwrap();
+    let show_reasoning = opts.show_reasoning.unwrap();
+
     let rx = ort::prompt(api_key, opts)?;
+
+    let is_pipe_output = unsafe { libc::isatty(libc::STDOUT_FILENO) == 0 };
+
     let stdout = io::stdout();
     let mut handle = stdout.lock();
+    //let mut s = String::new();
+    //let mut handle = std::io::Cursor::new(unsafe { s.as_bytes_mut() });
+
+    if !is_pipe_output {
+        let _ = write!(handle, "{CURSOR_OFF}Connecting...\r");
+        let _ = handle.flush();
+    }
+
+    let mut spindx = 0;
     while let Ok(data) = rx.recv() {
         match data {
-            Response::Error(err) => {
-                anyhow::bail!("{err}");
+            Response::Start => {
+                if !is_pipe_output {
+                    let _ = write!(handle, "{BOLD_START}Processing...{BOLD_END} \r");
+                    let _ = handle.flush();
+                }
+            }
+            Response::Think(think) => {
+                if show_reasoning {
+                    match think {
+                        ThinkEvent::Start => {
+                            let _ = write!(handle, "<think>");
+                        }
+                        ThinkEvent::Content(s) => {
+                            let _ = write!(handle, "{s}");
+                            let _ = handle.flush();
+                        }
+                        ThinkEvent::Stop => {
+                            let _ = write!(handle, "</think>\n\n");
+                        }
+                    }
+                } else if !is_pipe_output {
+                    match think {
+                        ThinkEvent::Start => {
+                            let _ = write!(handle, "{BOLD_START}Thinking...{BOLD_END}  ");
+                            let _ = handle.flush();
+                        }
+                        ThinkEvent::Content(_) => {
+                            let _ = write!(handle, "{}{BACK_ONE}", SPINNER[spindx % 4] as char);
+                            let _ = handle.flush();
+                            spindx += 1;
+                        }
+                        ThinkEvent::Stop => {
+                            // Erase the Thinking line
+                            let _ = write!(handle, "\r");
+                            let _ = handle.flush();
+                        }
+                    }
+                }
+            }
+            Response::Content(content) => {
+                let _ = write!(handle, "{content}");
+                let _ = handle.flush();
             }
             Response::Stats(stats) => {
                 println!();
@@ -256,11 +319,19 @@ fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
                     println!("Stats: {stats}");
                 }
             }
-            Response::Content(content) => {
-                let _ = write!(handle, "{content}");
-                let _ = handle.flush();
+            Response::Error(err) => {
+                if !is_pipe_output {
+                    let _ = write!(handle, "{CURSOR_ON}");
+                    let _ = handle.flush();
+                }
+                anyhow::bail!("{err}");
             }
         }
+    }
+
+    if !is_pipe_output {
+        let _ = write!(handle, "{CURSOR_ON}");
+        let _ = handle.flush();
     }
 
     Ok(())

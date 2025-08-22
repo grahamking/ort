@@ -11,6 +11,7 @@
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
 use anyhow::Context as _;
+use ort::ThinkEvent;
 use std::io::Write as _;
 
 use std::env;
@@ -200,14 +201,26 @@ fn run_prompt(
         let rx = ort::prompt(api_key, prompt_opts)?;
         while let Ok(data) = rx.recv() {
             match data {
-                Response::Error(err) => {
-                    anyhow::bail!("{err}");
+                Response::Start => {}
+                Response::Think(think) => match think {
+                    ThinkEvent::Start => {
+                        let _ = write!(out, "<think>");
+                    }
+                    ThinkEvent::Content(s) => {
+                        let _ = write!(out, "{s}");
+                    }
+                    ThinkEvent::Stop => {
+                        let _ = write!(out, "</think>\n\n");
+                    }
+                },
+                Response::Content(content) => {
+                    let _ = write!(out, "{content}");
                 }
                 Response::Stats(stats) => {
                     let _ = writeln!(key_file, "{cat_name}: {stats}");
                 }
-                Response::Content(content) => {
-                    let _ = write!(out, "{content}");
+                Response::Error(err) => {
+                    anyhow::bail!("{err}");
                 }
             }
         }
