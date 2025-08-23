@@ -14,7 +14,6 @@ const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
 pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b:free";
 const DEFAULT_QUIET: bool = false;
-const DEFAULT_ENABLE_REAONING: bool = false;
 const DEFAULT_SHOW_REASONING: bool = false;
 
 #[derive(Default, Debug, serde::Deserialize)]
@@ -25,10 +24,36 @@ pub struct PromptOpts {
     pub priority: Option<String>,
     /// Don't show stats after request
     pub quiet: Option<bool>,
-    /// Enable reasoning (medium). Does this need low/medium/high?
-    pub enable_reasoning: Option<bool>,
+    /// Reasoning config
+    pub reasoning: Option<ReasoningConfig>,
     /// Show reasoning output
     pub show_reasoning: Option<bool>,
+}
+
+#[derive(Default, Debug, serde::Deserialize)]
+pub struct ReasoningConfig {
+    pub enabled: bool,
+    pub effort: Option<ReasoningEffort>,
+    pub tokens: Option<u32>,
+}
+
+#[derive(Default, Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl fmt::Display for ReasoningEffort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReasoningEffort::Low => write!(f, "low"),
+            ReasoningEffort::Medium => write!(f, "medium"),
+            ReasoningEffort::High => write!(f, "high"),
+        }
+    }
 }
 
 impl PromptOpts {
@@ -46,8 +71,8 @@ impl PromptOpts {
             self.priority.get_or_insert(o.priority.unwrap());
         }
         self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
-        self.enable_reasoning
-            .get_or_insert(o.enable_reasoning.unwrap_or(DEFAULT_ENABLE_REAONING));
+        self.reasoning
+            .get_or_insert(o.reasoning.unwrap_or_default());
         self.show_reasoning
             .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
     }
@@ -117,7 +142,7 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
             &opts.model.unwrap(),
             &opts.prompt.unwrap(),
             opts.system.as_deref(),
-            opts.enable_reasoning.unwrap(),
+            opts.reasoning,
             opts.priority.as_deref(),
         );
 
@@ -332,7 +357,7 @@ fn build_body(
     model: &str,
     prompt: &str,
     system_prompt: Option<&str>,
-    enable_reasoning: bool,
+    reasoning: Option<ReasoningConfig>,
     priority: Option<&str>,
 ) -> String {
     // Build messages array
@@ -356,12 +381,24 @@ fn build_body(
             .unwrap()
             .insert("provider".into(), serde_json::json!({ "sort": p }));
     }
-    if enable_reasoning {
-        obj.as_object_mut().unwrap().insert(
-            "reasoning".into(),
-            serde_json::json!({"effort": "medium", "exclude": false, "enabled": true}),
-        );
-    }
-
+    let open_router_json = match reasoning {
+        // No -r and nothing in config file
+        None => serde_json::json!({"enabled": false}),
+        // cli "-r off" or config file '"enabled": false'
+        Some(r_cfg) if !r_cfg.enabled => serde_json::json!({"enabled": false}),
+        // Reasoning on
+        Some(r_cfg) => match (r_cfg.effort, r_cfg.tokens) {
+            (Some(effort), _) => {
+                serde_json::json!({"effort": effort.to_string(), "exclude": false, "enabled": true})
+            }
+            (_, Some(tokens)) => {
+                serde_json::json!({"max_tokens": tokens, "exclude": false, "enabled": true})
+            }
+            _ => unreachable!("Reasoning effort and tokens cannot both be null"),
+        },
+    };
+    obj.as_object_mut()
+        .unwrap()
+        .insert("reasoning".into(), open_router_json);
     serde_json::to_string(&obj).expect("JSON serialization failed")
 }

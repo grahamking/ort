@@ -10,6 +10,8 @@ use std::io::Read as _;
 use std::io::Write as _;
 use std::process::ExitCode;
 
+use ort::ReasoningConfig;
+use ort::ReasoningEffort;
 use ort::Response;
 use ort::ThinkEvent;
 
@@ -89,7 +91,7 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
     let mut system: Option<String> = None;
     let mut priority: Option<String> = None;
     let mut quiet: Option<bool> = None;
-    let mut enable_reasoning: Option<bool> = None;
+    let mut reasoning: Option<ReasoningConfig> = None;
     let mut show_reasoning: Option<bool> = None;
 
     let mut i = 1usize;
@@ -136,7 +138,40 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
                 i += 1;
             }
             "-r" => {
-                enable_reasoning = Some(true);
+                i += 1;
+                let r_cfg = match args[i].as_str() {
+                    "off" => ReasoningConfig {
+                        enabled: false,
+                        ..Default::default()
+                    },
+                    "low" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::Low),
+                        ..Default::default()
+                    },
+                    "medium" | "med" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::Medium),
+                        ..Default::default()
+                    },
+                    "high" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::High),
+                        ..Default::default()
+                    },
+                    n_str => match n_str.parse::<u32>() {
+                        Ok(n) => ReasoningConfig {
+                            enabled: true,
+                            tokens: Some(n),
+                            ..Default::default()
+                        },
+                        Err(_) => {
+                            eprintln!("Invalid -r value. Must be off|low|medium|high|<num-tokens>");
+                            print_usage_and_exit();
+                        }
+                    },
+                };
+                reasoning = Some(r_cfg);
                 i += 1;
             }
             "-rr" => {
@@ -178,7 +213,7 @@ fn parse_prompt(args: Vec<String>) -> Cmd {
         system,
         priority,
         quiet,
-        enable_reasoning,
+        reasoning,
         show_reasoning,
         prompt: Some(prompt),
     })
@@ -262,7 +297,7 @@ fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
     //let mut handle = std::io::Cursor::new(unsafe { s.as_bytes_mut() });
 
     if !is_pipe_output {
-        let _ = write!(handle, "{CURSOR_OFF}Connecting...\r");
+        let _ = write!(handle, "\n{CURSOR_OFF}Connecting...\r");
         let _ = handle.flush();
     }
 
@@ -279,14 +314,22 @@ fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
                 if show_reasoning {
                     match think {
                         ThinkEvent::Start => {
-                            let _ = write!(handle, "<think>");
+                            if is_pipe_output {
+                                let _ = write!(handle, "<think>");
+                            } else {
+                                let _ = write!(handle, "{BOLD_START}<think>{BOLD_END}");
+                            }
                         }
                         ThinkEvent::Content(s) => {
                             let _ = write!(handle, "{s}");
                             let _ = handle.flush();
                         }
                         ThinkEvent::Stop => {
-                            let _ = write!(handle, "</think>\n\n");
+                            if is_pipe_output {
+                                let _ = write!(handle, "</think>\n\n");
+                            } else {
+                                let _ = write!(handle, "{BOLD_START}</think>{BOLD_END}\n\n");
+                            }
                         }
                     }
                 } else if !is_pipe_output {

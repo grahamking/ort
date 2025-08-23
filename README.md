@@ -4,7 +4,7 @@ You need an [openrouter.ai](https://openrouter.ai/) API key in environment varia
 
 Usage:
 ```
-ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-r] [-rr] [-q] <prompt>
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-r off|low|medium|high|<toks>] [-rr] [-q] <prompt>
 ```
 
 Use default model (currently `openai/gpt-oss-20b:free`):
@@ -25,12 +25,11 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 ## Flags
 
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
-- -r Enable reasoning. Only certain models.
+- -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "low", "medium" or "high". Default is off. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
 - -rr Show the reasoning tokens. Default is not to show them.
 - -q Quiet. Do not show Stats at end.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
-
 
 ## Stats
 
@@ -55,11 +54,43 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
         "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
         "priority": "latency",
         "quiet": false,
-        "enable_reasoning": true,
-        "show_reasoning": true
+        "show_reasoning": false,
+        "reasoning": {
+            "enabled": true,
+            "effort": "medium"
+        }
     }
 }
 ```
+
+## Reasoning model configuration
+
+Here's what I got from the models I use regularly.
+
+Optional reasoning with effort, pass `-r off|low|medium|high`:
+
+- deepseek/deepseek-chat-v3.1
+- google/gemini-2.5-flash
+- google/gemini-2.5-pro
+- openai/gpt-oss-120b
+- openai/gpt-oss-20b
+- z-ai/glm-4.5
+
+Optional reasoning with tokens, pass e.g `-r off|4096`:
+
+- anthropic/claude-sonnet-4 # and other Anthropic models
+- baidu/ernie-4.5-300b-a47b # I never see any reasoning from this model so not sure. Seems 'smarter' with -r.
+
+Always fixed reasoning, cannot be configured or disabled:
+
+- deepseek/deepseek-r1-0528
+- qwen/qwen3-235b-a22b-thinking-2507
+
+No reasoning:
+
+- deepseek/deepseek-chat-v3-0324
+- qwen/qwen3-235b-a22b-07-25
+- moonshotai/kimi-k2
 
 ## tmux
 
@@ -75,9 +106,9 @@ Here's an advanced example of how I use it in tmux:
 # - Runs the query in three LLMs, one in each window
 
 SYSTEM_PROMPT="Make your answer concise but complete. No yapping. Direct professional tone. No emoji."
-MODEL_1=z-ai/glm-4.5
-MODEL_2=moonshotai/kimi-k2
-MODEL_3=deepseek/deepseek-r1-0528
+MODEL_1=z-ai/glm-4.5                # Hybrid reasoning, -r useful here
+MODEL_2=moonshotai/kimi-k2          # No reasoning
+MODEL_3=deepseek/deepseek-r1-0528   # Always reasoning, cannot disable
 
 # Close all other panes in the current window (keep only the current one)
 tmux kill-pane -a
@@ -91,9 +122,9 @@ tmux split-window -v
 tmux select-layout even-vertical
 
 # Run commands in each pane
-tmux send-keys -t 0 "ort -m $MODEL_1 -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
+tmux send-keys -t 0 "ort -m $MODEL_1 -r medium -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
 tmux send-keys -t 1 "ort -m $MODEL_2 -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
-tmux send-keys -t 2 "ort -m $MODEL_3 -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
+tmux send-keys -t 2 "ort -m $MODEL_3 -r medium -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
 
 # Optional: Select the first pane
 t

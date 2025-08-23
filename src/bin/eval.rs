@@ -11,6 +11,8 @@
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
 use anyhow::Context as _;
+use ort::ReasoningConfig;
+use ort::ReasoningEffort;
 use ort::ThinkEvent;
 use std::io::Write as _;
 
@@ -192,7 +194,11 @@ fn run_prompt(
             priority: None,
             quiet: Some(false),
             show_reasoning: Some(true),
-            enable_reasoning: Some(enable_reasoning),
+            reasoning: Some(ReasoningConfig {
+                enabled: true,
+                effort: Some(ReasoningEffort::Medium),
+                ..Default::default()
+            }),
         };
 
         let cat_name = &names[model_num];
