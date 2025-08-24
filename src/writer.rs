@@ -4,12 +4,10 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use std::io::Write;
 use std::sync::mpsc::Receiver;
-use std::{fs::File, io::Write};
 
 use ort::{Response, ThinkEvent};
-
-use crate::config;
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -20,140 +18,137 @@ const CLEAR_LINE: &str = "\x1b[2K";
 
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
-pub struct Writer {
-    pub model_name: String,
-    pub save_to_file: bool,
-    pub is_pipe_output: bool,
+pub trait Writer {
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<()>;
+}
+
+pub struct ConsoleWriter {
+    pub writer: Box<dyn Write>, // Must handle ANSI control chars
     pub is_quiet: bool,
     pub show_reasoning: bool,
 }
 
-impl Writer {
-    pub fn run(&self, rx: Receiver<Response>) -> anyhow::Result<()> {
-        let filepath;
-        let mut file: Box<dyn Write> = if self.save_to_file {
-            let cache_dir = config::cache_dir()?;
-            let path = cache_dir.join(format!("{}.txt", slug(&self.model_name)));
-            let f = File::create(&path)?;
-            filepath = Some(path);
-            Box::new(f)
-        } else {
-            filepath = None;
-            Box::new(std::io::sink()) // /dev/null
-        };
-
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-
-        // For debug
-        //let mut s = String::new();
-        //let mut handle = std::io::Cursor::new(unsafe { s.as_bytes_mut() });
-
-        if !self.is_pipe_output {
-            let _ = write!(handle, "\n{CURSOR_OFF}Connecting...\r");
-            let _ = handle.flush();
-        }
+impl Writer for ConsoleWriter {
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<()> {
+        let _ = write!(self.writer, "\n{CURSOR_OFF}Connecting...\r");
+        let _ = self.writer.flush();
 
         let mut spindx = 0;
         while let Ok(data) = rx.recv() {
             match data {
                 Response::Start => {
-                    if !self.is_pipe_output {
-                        let _ = write!(handle, "{BOLD_START}Processing...{BOLD_END} \r");
-                        let _ = handle.flush();
-                    }
+                    let _ = write!(self.writer, "{BOLD_START}Processing...{BOLD_END} \r");
+                    let _ = self.writer.flush();
                 }
                 Response::Think(think) => {
                     if self.show_reasoning {
                         match think {
                             ThinkEvent::Start => {
-                                if self.is_pipe_output {
-                                    let _ = write!(handle, "<think>");
-                                } else {
-                                    let _ = write!(handle, "{BOLD_START}<think>{BOLD_END}");
-                                }
-                                let _ = write!(file, "<think>");
+                                let _ = write!(self.writer, "{BOLD_START}<think>{BOLD_END}");
                             }
                             ThinkEvent::Content(s) => {
-                                let _ = write!(handle, "{s}");
-                                let _ = handle.flush();
-                                let _ = write!(file, "{s}");
+                                let _ = write!(self.writer, "{s}");
+                                let _ = self.writer.flush();
                             }
                             ThinkEvent::Stop => {
-                                if self.is_pipe_output {
-                                    let _ = write!(handle, "</think>\n\n");
-                                } else {
-                                    let _ = write!(handle, "{BOLD_START}</think>{BOLD_END}\n\n");
-                                }
-                                let _ = write!(file, "</think>");
+                                let _ = write!(self.writer, "{BOLD_START}</think>{BOLD_END}\n\n");
                             }
                         }
-                    } else if !self.is_pipe_output {
+                    } else {
                         match think {
                             ThinkEvent::Start => {
-                                let _ = write!(handle, "{BOLD_START}Thinking...{BOLD_END}  ");
-                                let _ = handle.flush();
+                                let _ = write!(self.writer, "{BOLD_START}Thinking...{BOLD_END}  ");
+                                let _ = self.writer.flush();
                             }
                             ThinkEvent::Content(_) => {
                                 let _ = write!(
-                                    handle,
+                                    self.writer,
                                     "{}{BACK_ONE}",
                                     SPINNER[spindx % SPINNER.len()] as char
                                 );
-                                let _ = handle.flush();
+                                let _ = self.writer.flush();
                                 spindx += 1;
                             }
                             ThinkEvent::Stop => {
                                 // Erase the Thinking line
-                                let _ = write!(handle, "{CLEAR_LINE}\r");
-                                let _ = handle.flush();
+                                let _ = write!(self.writer, "{CLEAR_LINE}\r");
+                                let _ = self.writer.flush();
                             }
                         }
                     }
                 }
                 Response::Content(content) => {
-                    let _ = write!(handle, "{content}");
-                    let _ = handle.flush();
-                    let _ = write!(file, "{content}");
+                    let _ = write!(self.writer, "{content}");
+                    let _ = self.writer.flush();
                 }
                 Response::Stats(stats) => {
-                    println!();
+                    let _ = writeln!(self.writer);
                     if !self.is_quiet {
-                        println!();
-                        match &filepath {
+                        let _ = write!(self.writer, "\nStats: {stats}\n");
+                        /* TODO print where file was stored, can only use single line.
+                        match &self.filepath {
                             Some(fp) => println!("Stats: {stats}. Saved to {}", fp.display()),
                             None => println!("Stats: {stats}"),
                         };
+                        */
                     }
                 }
                 Response::Error(err) => {
-                    if !self.is_pipe_output {
-                        let _ = write!(handle, "{CURSOR_ON}");
-                        let _ = handle.flush();
-                    }
+                    let _ = write!(self.writer, "{CURSOR_ON}");
+                    let _ = self.writer.flush();
                     anyhow::bail!("{err}");
                 }
             }
         }
 
-        if !self.is_pipe_output {
-            let _ = write!(handle, "{CURSOR_ON}");
-            let _ = handle.flush();
-        }
-        let _ = writeln!(file);
+        let _ = write!(self.writer, "{CURSOR_ON}");
+        let _ = self.writer.flush();
 
         Ok(())
     }
 }
 
-fn slug(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c.to_lowercase().next().unwrap_or('-')
-            } else {
-                '-'
+pub struct FileWriter {
+    pub writer: Box<dyn Write>,
+    pub is_quiet: bool,
+    pub show_reasoning: bool,
+}
+
+impl Writer for FileWriter {
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<()> {
+        while let Ok(data) = rx.recv() {
+            match data {
+                Response::Start => {}
+                Response::Think(think) => {
+                    if self.show_reasoning {
+                        match think {
+                            ThinkEvent::Start => {
+                                let _ = write!(self.writer, "<think>");
+                            }
+                            ThinkEvent::Content(s) => {
+                                let _ = write!(self.writer, "{s}");
+                            }
+                            ThinkEvent::Stop => {
+                                let _ = write!(self.writer, "</think>\n\n");
+                            }
+                        }
+                    }
+                }
+                Response::Content(content) => {
+                    let _ = write!(self.writer, "{content}");
+                }
+                Response::Stats(stats) => {
+                    let _ = writeln!(self.writer);
+                    if !self.is_quiet {
+                        let _ = write!(self.writer, "\nStats: {stats}\n");
+                    }
+                }
+                Response::Error(err) => {
+                    anyhow::bail!("{err}");
+                }
             }
-        })
-        .collect()
+        }
+
+        Ok(())
+    }
 }

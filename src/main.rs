@@ -5,15 +5,20 @@
 //! Copyright (c) 2025 Graham King
 
 use std::env;
+use std::fs::File;
 use std::io;
 use std::io::Read as _;
 use std::process::ExitCode;
+use std::sync::mpsc;
+use std::thread;
 
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
 
 mod config;
+mod multi_channel;
 mod writer;
+use writer::Writer as _;
 
 #[derive(Debug)]
 enum Cmd {
@@ -232,11 +237,12 @@ fn main() -> ExitCode {
     };
 
     let cmd = parse_args(); // handles pipe input
+    let save_to_file = true;
 
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
             cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
-            run_prompt(&api_key, cli_opts)
+            run_prompt(&api_key, save_to_file, cli_opts)
         }
         Cmd::List(args) => run_list(&api_key, args),
     };
@@ -273,23 +279,72 @@ fn run_list(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_prompt(api_key: &str, opts: ort::PromptOpts) -> anyhow::Result<()> {
+fn run_prompt(api_key: &str, save_to_file: bool, opts: ort::PromptOpts) -> anyhow::Result<()> {
     let is_quiet = opts.quiet.unwrap();
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_pipe_output = unsafe { libc::isatty(libc::STDOUT_FILENO) == 0 };
     let model_name = opts.model.clone().unwrap();
 
-    let rx = ort::prompt(api_key, opts)?;
+    // Start network connection before almost anything else, this takes time
+    let rx_main = ort::prompt(api_key, opts)?;
 
-    // TODO: Need to write the prompt to the output file
-    // Probably pass the Box<dyn Write> to Writer
+    let (tx_stdout, rx_stdout) = mpsc::channel();
+    let (tx_file, rx_file) = mpsc::channel();
+    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_file]);
 
-    let w = writer::Writer {
-        model_name,
-        save_to_file: true,
-        is_pipe_output,
-        is_quiet,
-        show_reasoning,
-    };
-    w.run(rx)
+    let jh_stdout = thread::spawn(move || -> anyhow::Result<()> {
+        let stdout = std::io::stdout();
+        let handle = stdout.lock();
+        let mut stdout_writer: Box<dyn writer::Writer> = if is_pipe_output {
+            Box::new(writer::FileWriter {
+                writer: Box::new(handle),
+                is_quiet,
+                show_reasoning,
+            })
+        } else {
+            Box::new(writer::ConsoleWriter {
+                writer: Box::new(handle),
+                is_quiet,
+                show_reasoning,
+            })
+        };
+        stdout_writer.run(rx_stdout)
+    });
+
+    let mut handles = vec![jh_broadcast, jh_stdout];
+
+    if save_to_file {
+        let jh_file = thread::spawn(move || -> anyhow::Result<()> {
+            let cache_dir = config::cache_dir()?;
+            let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
+            let f = File::create(&path)?;
+            let mut file_writer = writer::FileWriter {
+                writer: Box::new(f),
+                is_quiet,
+                show_reasoning,
+            };
+            file_writer.run(rx_file)
+        });
+        handles.push(jh_file);
+    }
+
+    for h in handles {
+        if let Err(err) = h.join().unwrap() {
+            eprintln!("Thread error: {err}");
+        }
+    }
+
+    Ok(())
+}
+
+fn slug(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_lowercase().next().unwrap_or('-')
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }

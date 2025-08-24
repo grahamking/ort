@@ -78,6 +78,7 @@ impl PromptOpts {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum Response {
     /// The first time we get anything at all on the SSE stream
     Start,
@@ -91,13 +92,14 @@ pub enum Response {
     Error(String),
 }
 
+#[derive(Debug, Clone)]
 pub enum ThinkEvent {
     Start,
     Content(String),
     Stop,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Stats {
     used_model: String,
     provider: String,
