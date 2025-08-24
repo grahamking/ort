@@ -16,6 +16,7 @@ const OPENROUTER_KEY: &str = "openrouter";
 pub struct ConfigFile {
     pub keys: Vec<ApiKey>,
     pub prompt_opts: Option<ort::PromptOpts>,
+    // TODO field to toggle saving to file
 }
 
 impl ConfigFile {
@@ -33,19 +34,32 @@ pub struct ApiKey {
 }
 
 pub fn load() -> anyhow::Result<ConfigFile> {
-    let config_dir = match env::var("XDG_CONFIG_HOME") {
-        Ok(c) => PathBuf::from(c),
-        _ => {
-            let Some(home_dir) = std::env::home_dir() else {
-                anyhow::bail!("Could not get home dir.");
-            };
-            home_dir.join(".config")
-        }
-    };
+    let config_dir = xdg_dir("XDG_CONFIG_HOME", ".config")?;
     let config_file = config_dir.join(CONFIG_FILE);
     match fs::read_to_string(&config_file) {
         Ok(cfg_str) => serde_json::from_str(&cfg_str).context("Failed to parse config"),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ConfigFile::default()),
         Err(e) => Err(e).context(config_file.display().to_string()),
+    }
+}
+
+pub fn cache_dir() -> anyhow::Result<PathBuf> {
+    let cache_root = xdg_dir("XDG_CACHE_HOME", ".cache")?;
+    let d = cache_root.join("ort");
+    if !d.exists() {
+        fs::create_dir_all(&d)?;
+    }
+    Ok(d)
+}
+
+fn xdg_dir(var_name: &'static str, default: &'static str) -> anyhow::Result<PathBuf> {
+    match env::var(var_name) {
+        Ok(c) => Ok(PathBuf::from(c)),
+        _ => {
+            let Some(home_dir) = std::env::home_dir() else {
+                anyhow::bail!("Could not get home dir.");
+            };
+            Ok(home_dir.join(default))
+        }
     }
 }

@@ -146,9 +146,18 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
             opts.priority.as_deref(),
         );
 
+        //
+        // TODO: Remember the IP address from last time (in config probably)
+        // and do .with_parts and pass a Resolver - skip DNS!
+        //
+        // TODO2: Make a TlsConfig and call disable_verification for speed
+        //
+
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_response(None)
+            .https_only(true)
+            .user_agent("ort/0.1.0")
             .build()
             .into();
 
