@@ -11,12 +11,20 @@ use std::{env, path::PathBuf};
 const CONFIG_FILE: &str = "ort.json";
 const OPENROUTER_KEY: &str = "openrouter";
 
+const DEFAULT_SAVE_TO_FILE: bool = true;
+
+#[derive(Default, serde::Deserialize)]
+pub struct Settings {
+    save_to_file: bool,
+    // verify_certs: bool,
+}
+
 #[derive(Default, serde::Deserialize)]
 #[allow(unused)]
 pub struct ConfigFile {
+    pub settings: Option<Settings>,
     pub keys: Vec<ApiKey>,
     pub prompt_opts: Option<ort::PromptOpts>,
-    // TODO field to toggle saving to file
 }
 
 impl ConfigFile {
@@ -24,6 +32,12 @@ impl ConfigFile {
         self.keys
             .iter()
             .find_map(|ak| (ak.name == OPENROUTER_KEY).then(|| ak.value.clone()))
+    }
+    pub fn save_to_file(&self) -> bool {
+        self.settings
+            .as_ref()
+            .map(|s| s.save_to_file)
+            .unwrap_or(DEFAULT_SAVE_TO_FILE)
     }
 }
 

@@ -49,6 +49,9 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
 ```
 {
     "keys": [{"name": "openrouter", "value": "sk-..."}],
+    "settings": {
+        "save_to_file": true
+    },
     "prompt_opts": {
         "model": "deepseek/deepseek-r1-0528",
         "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
@@ -62,6 +65,9 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
     }
 }
 ```
+
+Here are the settings that are not available on the command line:
+- save_to_file: Whether to also write the output to `$XDG_CACHE_HOME}/ort/<model-name>.txt`. Defaults to true.
 
 ## Reasoning model configuration
 

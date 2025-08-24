@@ -1,0 +1,245 @@
+//! ort: Open Router CLI
+//! https://github.com/grahamking/ort
+//!
+//! MIT License
+//! Copyright (c) 2025 Graham King
+
+use std::fs::File;
+use std::io;
+use std::io::Read as _;
+use std::io::Write as _;
+use std::sync::mpsc;
+use std::thread;
+
+use crate::writer::Writer as _;
+use ort::PromptOpts;
+use ort::ReasoningConfig;
+use ort::ReasoningEffort;
+
+use crate::ArgParseError;
+use crate::Cmd;
+use crate::config;
+use crate::multi_channel;
+use crate::print_usage_and_exit;
+use crate::writer;
+
+pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
+    // Only the prompt is required. Everything else can come from config file
+    // or default.
+    let mut prompt_parts: Vec<String> = Vec::new();
+
+    let mut model: Option<String> = None;
+    let mut system: Option<String> = None;
+    let mut priority: Option<String> = None;
+    let mut quiet: Option<bool> = None;
+    let mut reasoning: Option<ReasoningConfig> = None;
+    let mut show_reasoning: Option<bool> = None;
+
+    let mut i = 1usize;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-h" | "--help" => print_usage_and_exit(),
+            "-m" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -m"));
+                }
+                model = Some(args[i].clone());
+                i += 1;
+            }
+            "-s" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -s"));
+                }
+                system = Some(args[i].clone());
+                i += 1;
+            }
+            "-p" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -p"));
+                }
+                let val = args[i].clone();
+                match val.as_str() {
+                    "price" | "throughput" | "latency" => priority = Some(val),
+                    _ => {
+                        return Err(ArgParseError::new_str(
+                            "Invalid -p value: must be one of price|throughput|latency",
+                        ));
+                    }
+                }
+                i += 1;
+            }
+            "-q" => {
+                quiet = Some(true);
+                i += 1;
+            }
+            "-r" => {
+                i += 1;
+                let r_cfg = match args[i].as_str() {
+                    "off" => ReasoningConfig {
+                        enabled: false,
+                        ..Default::default()
+                    },
+                    "low" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::Low),
+                        ..Default::default()
+                    },
+                    "medium" | "med" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::Medium),
+                        ..Default::default()
+                    },
+                    "high" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::High),
+                        ..Default::default()
+                    },
+                    n_str => match n_str.parse::<u32>() {
+                        Ok(n) => ReasoningConfig {
+                            enabled: true,
+                            tokens: Some(n),
+                            ..Default::default()
+                        },
+                        Err(_) => {
+                            return Err(ArgParseError::new_str(
+                                "Invalid -r value. Must be off|low|medium|high|<num-tokens>",
+                            ));
+                        }
+                    },
+                };
+                reasoning = Some(r_cfg);
+                i += 1;
+            }
+            "-rr" => {
+                show_reasoning = Some(true);
+                i += 1;
+            }
+            s if s.starts_with('-') => {
+                return Err(ArgParseError::new(format!("Unknown flag: {s}")));
+            }
+            _ => {
+                // First positional marks the start of the prompt; join the rest verbatim
+                prompt_parts.extend_from_slice(&args[i..]);
+                break;
+            }
+        }
+    }
+
+    let mut prompt = "".to_string();
+    if !prompt_parts.is_empty() {
+        prompt = prompt_parts.join(" ");
+    };
+
+    let is_pipe_input = unsafe { libc::isatty(libc::STDIN_FILENO) == 0 };
+    if is_pipe_input {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer).unwrap();
+        prompt.push_str("\n\n");
+        prompt.push_str(&buffer);
+    }
+
+    if prompt.is_empty() {
+        return Err(ArgParseError::new_str("Missing prompt."));
+    };
+
+    Ok(Cmd::Prompt(PromptOpts {
+        model,
+        system,
+        priority,
+        quiet,
+        reasoning,
+        show_reasoning,
+        prompt: Some(prompt),
+    }))
+}
+
+pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Result<()> {
+    let is_quiet = opts.quiet.unwrap();
+    let show_reasoning = opts.show_reasoning.unwrap();
+    let model_name = opts.model.clone().unwrap();
+
+    // Start network connection before almost anything else, this takes time
+    let rx_main = ort::prompt(api_key, opts)?;
+    std::thread::yield_now();
+
+    let (tx_stdout, rx_stdout) = mpsc::channel();
+    let (tx_file, rx_file) = mpsc::channel();
+    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_file]);
+    let mut handles = vec![jh_broadcast];
+
+    let cache_dir = config::cache_dir()?;
+    let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
+    let path_display = path.display().to_string();
+
+    let is_pipe_output = unsafe { libc::isatty(libc::STDOUT_FILENO) == 0 };
+    let jh_stdout = thread::spawn(move || -> anyhow::Result<()> {
+        let stdout = std::io::stdout();
+        let handle = stdout.lock();
+        let mut stdout_writer: Box<dyn writer::Writer> = if is_pipe_output {
+            Box::new(writer::FileWriter {
+                writer: Box::new(handle),
+                show_reasoning,
+            })
+        } else {
+            Box::new(writer::ConsoleWriter {
+                writer: Box::new(handle),
+                show_reasoning,
+            })
+        };
+        let stats = stdout_writer.run(rx_stdout)?;
+        let handle = stdout_writer.inner();
+        let _ = writeln!(handle);
+        if !is_quiet {
+            if save_to_file {
+                let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
+            } else {
+                let _ = write!(handle, "\nStats: {stats}\n");
+            }
+        }
+
+        Ok(())
+    });
+    handles.push(jh_stdout);
+
+    if save_to_file {
+        let jh_file = thread::spawn(move || -> anyhow::Result<()> {
+            let f = File::create(&path)?;
+            let mut file_writer = writer::FileWriter {
+                writer: Box::new(f),
+                show_reasoning,
+            };
+            let stats = file_writer.run(rx_file)?;
+            let f = file_writer.inner();
+            let _ = writeln!(f);
+            if !is_quiet {
+                let _ = write!(f, "\nStats: {stats}\n");
+            }
+            Ok(())
+        });
+        handles.push(jh_file);
+    }
+
+    for h in handles {
+        if let Err(err) = h.join().unwrap() {
+            eprintln!("Thread error: {err}");
+        }
+    }
+
+    Ok(())
+}
+
+fn slug(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_lowercase().next().unwrap_or('-')
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}

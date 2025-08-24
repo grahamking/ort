@@ -7,7 +7,7 @@
 use std::io::Write;
 use std::sync::mpsc::Receiver;
 
-use ort::{Response, ThinkEvent};
+use ort::{Response, Stats, ThinkEvent};
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -19,21 +19,26 @@ const CLEAR_LINE: &str = "\x1b[2K";
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
 pub trait Writer {
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<()>;
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats>;
+    fn inner(&mut self) -> &mut Box<dyn Write>;
 }
 
 pub struct ConsoleWriter {
     pub writer: Box<dyn Write>, // Must handle ANSI control chars
-    pub is_quiet: bool,
     pub show_reasoning: bool,
 }
 
 impl Writer for ConsoleWriter {
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<()> {
+    fn inner(&mut self) -> &mut Box<dyn Write> {
+        &mut self.writer
+    }
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
         let _ = write!(self.writer, "\n{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
+        let mut is_first_content = true;
         let mut spindx = 0;
+        let mut stats_out = None;
         while let Ok(data) = rx.recv() {
             match data {
                 Response::Start => {
@@ -69,29 +74,21 @@ impl Writer for ConsoleWriter {
                                 let _ = self.writer.flush();
                                 spindx += 1;
                             }
-                            ThinkEvent::Stop => {
-                                // Erase the Thinking line
-                                let _ = write!(self.writer, "{CLEAR_LINE}\r");
-                                let _ = self.writer.flush();
-                            }
+                            ThinkEvent::Stop => {}
                         }
                     }
                 }
                 Response::Content(content) => {
+                    if is_first_content {
+                        // Erase the Processing or Thinking line
+                        let _ = write!(self.writer, "\r{CLEAR_LINE}");
+                        is_first_content = false;
+                    }
                     let _ = write!(self.writer, "{content}");
                     let _ = self.writer.flush();
                 }
                 Response::Stats(stats) => {
-                    let _ = writeln!(self.writer);
-                    if !self.is_quiet {
-                        let _ = write!(self.writer, "\nStats: {stats}\n");
-                        /* TODO print where file was stored, can only use single line.
-                        match &self.filepath {
-                            Some(fp) => println!("Stats: {stats}. Saved to {}", fp.display()),
-                            None => println!("Stats: {stats}"),
-                        };
-                        */
-                    }
+                    stats_out = Some(stats);
                 }
                 Response::Error(err) => {
                     let _ = write!(self.writer, "{CURSOR_ON}");
@@ -104,18 +101,24 @@ impl Writer for ConsoleWriter {
         let _ = write!(self.writer, "{CURSOR_ON}");
         let _ = self.writer.flush();
 
-        Ok(())
+        let Some(stats) = stats_out else {
+            anyhow::bail!("OpenRouter did not return usage stats");
+        };
+        Ok(stats)
     }
 }
 
 pub struct FileWriter {
     pub writer: Box<dyn Write>,
-    pub is_quiet: bool,
     pub show_reasoning: bool,
 }
 
 impl Writer for FileWriter {
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<()> {
+    fn inner(&mut self) -> &mut Box<dyn Write> {
+        &mut self.writer
+    }
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
+        let mut stats_out = None;
         while let Ok(data) = rx.recv() {
             match data {
                 Response::Start => {}
@@ -138,10 +141,7 @@ impl Writer for FileWriter {
                     let _ = write!(self.writer, "{content}");
                 }
                 Response::Stats(stats) => {
-                    let _ = writeln!(self.writer);
-                    if !self.is_quiet {
-                        let _ = write!(self.writer, "\nStats: {stats}\n");
-                    }
+                    stats_out = Some(stats);
                 }
                 Response::Error(err) => {
                     anyhow::bail!("{err}");
@@ -149,6 +149,9 @@ impl Writer for FileWriter {
             }
         }
 
-        Ok(())
+        let Some(stats) = stats_out else {
+            anyhow::bail!("OpenRouter did not return usage stats");
+        };
+        Ok(stats)
     }
 }
