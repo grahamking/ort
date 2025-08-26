@@ -163,12 +163,13 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
     let model_name = opts.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = ort::prompt(api_key, opts)?;
+    let rx_main = ort::prompt(api_key, opts.clone())?;
     std::thread::yield_now();
 
     let (tx_stdout, rx_stdout) = mpsc::channel();
     let (tx_file, rx_file) = mpsc::channel();
-    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_file]);
+    let (tx_last, rx_last) = mpsc::channel();
+    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_file, tx_last]);
     let mut handles = vec![jh_broadcast];
 
     let cache_dir = config::cache_dir()?;
@@ -221,11 +222,20 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
             Ok(())
         });
         handles.push(jh_file);
+
+        let jh_last = thread::spawn(move || -> anyhow::Result<()> {
+            let mut last_writer = writer::LastWriter::new(opts)?;
+            last_writer.run(rx_last)?;
+            Ok(())
+        });
+        handles.push(jh_last);
     }
 
     for h in handles {
         if let Err(err) = h.join().unwrap() {
             eprintln!("Thread error: {err}");
+            // The errors are all the same so only print the first
+            break;
         }
     }
 

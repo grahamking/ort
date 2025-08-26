@@ -9,6 +9,8 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
@@ -16,7 +18,7 @@ pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b:free";
 const DEFAULT_QUIET: bool = false;
 const DEFAULT_SHOW_REASONING: bool = false;
 
-#[derive(Default, Debug, serde::Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PromptOpts {
     pub prompt: Option<String>,
     pub model: Option<String>,
@@ -30,14 +32,14 @@ pub struct PromptOpts {
     pub show_reasoning: Option<bool>,
 }
 
-#[derive(Default, Debug, serde::Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ReasoningConfig {
     pub enabled: bool,
     pub effort: Option<ReasoningEffort>,
     pub tokens: Option<u32>,
 }
 
-#[derive(Default, Debug, serde::Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
     Low,
@@ -107,6 +109,12 @@ pub struct Stats {
     elapsed_time: Duration,
     time_to_first_token: Option<Duration>,
     inter_token_latency_ms: u128,
+}
+
+impl Stats {
+    pub fn provider(&self) -> &str {
+        &self.provider
+    }
 }
 
 impl fmt::Display for Stats {

@@ -4,10 +4,14 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io::Write;
+use std::fs::File;
 use std::sync::mpsc::Receiver;
+use std::{fmt, io::Write};
 
-use ort::{Response, Stats, ThinkEvent};
+use ort::{PromptOpts, Response, Stats, ThinkEvent};
+use serde::{Deserialize, Serialize};
+
+use crate::config;
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -153,5 +157,92 @@ impl Writer for FileWriter {
             anyhow::bail!("OpenRouter did not return usage stats");
         };
         Ok(stats)
+    }
+}
+
+pub struct LastWriter {
+    w: Box<dyn Write>,
+    data: LastData,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct LastData {
+    opts: PromptOpts,
+    provider: Option<String>,
+    messages: Vec<Message>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Message {
+    role: Role,
+    content: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Role {
+    User,
+    Assistant,
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Role::User => write!(f, "user"),
+            Role::Assistant => write!(f, "assistant"),
+        }
+    }
+}
+
+impl LastWriter {
+    pub fn new(mut opts: PromptOpts) -> anyhow::Result<Self> {
+        let last_path = config::cache_dir()?.join("last.json");
+        let last_file = Box::new(File::create(last_path)?);
+        let msg = Message {
+            role: Role::User,
+            content: opts.prompt.take().unwrap(),
+        };
+        let data = LastData {
+            opts,
+            provider: None, // We don't know yet
+            messages: vec![msg],
+        };
+        Ok(LastWriter { data, w: last_file })
+    }
+}
+
+impl Writer for LastWriter {
+    fn inner(&mut self) -> &mut Box<dyn Write> {
+        &mut self.w
+    }
+
+    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
+        let mut contents = Vec::with_capacity(1024);
+        while let Ok(data) = rx.recv() {
+            match data {
+                Response::Start => {}
+                Response::Think(_) => {}
+                Response::Content(content) => {
+                    contents.push(content);
+                }
+                Response::Stats(stats) => {
+                    self.data.provider = Some(stats.provider().to_string());
+                }
+                Response::Error(err) => {
+                    anyhow::bail!("LastWriter: {err}");
+                }
+            }
+        }
+
+        let message = Message {
+            role: Role::Assistant,
+            content: contents.join(""),
+        };
+        self.data.messages.push(message);
+
+        serde_json::to_writer(&mut self.w, &self.data)?;
+        let _ = self.w.flush();
+
+        Ok(Stats::default()) // Stats is not used
     }
 }
