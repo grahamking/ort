@@ -160,22 +160,19 @@ pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<
             .timeout_recv_response(None)
             .https_only(true)
             .user_agent("ort/0.1.0")
+            .http_status_as_error(false)
             .build()
             .into();
 
         let req = agent
             .post(API_URL)
-            .header("Authorization", &format!("Bearer {}", api_key))
+            .header("Authorization", &format!("Bearer {api_key}"))
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream");
 
         let start = Instant::now();
         let mut resp = match req.send(&body) {
             Ok(r) => r,
-            Err(ureq::Error::StatusCode(code)) => {
-                let _ = tx.send(Response::Error(format!("HTTP error {code}")));
-                return;
-            }
             Err(e) => {
                 let _ = tx.send(Response::Error(format!("Request error: {e}")));
                 return;
