@@ -4,7 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::fs::File;
 use std::io;
 use std::io::Read as _;
 use std::io::Write as _;
@@ -20,7 +19,6 @@ use ort::utils;
 
 use crate::ArgParseError;
 use crate::Cmd;
-use crate::config;
 use crate::multi_channel;
 use crate::print_usage_and_exit;
 use crate::writer;
@@ -167,39 +165,44 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         reasoning,
         show_reasoning,
     };
-    if continue_conversation {
-        return Ok(Cmd::ContinueConversation(common_opts));
-    }
-
     if prompt.is_empty() {
         return Err(ArgParseError::new_str("Missing prompt."));
     };
-
-    Ok(Cmd::Prompt(PromptOpts {
+    let prompt_opts = PromptOpts {
         common: common_opts,
         prompt: Some(prompt),
         quiet,
-    }))
+    };
+    if !continue_conversation {
+        Ok(Cmd::Prompt(prompt_opts))
+    } else {
+        Ok(Cmd::ContinueConversation(prompt_opts))
+    }
 }
 
-pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Result<()> {
-    let is_quiet = opts.quiet.unwrap();
-    let show_reasoning = opts.common.show_reasoning.unwrap();
-    let model_name = opts.common.model.clone().unwrap();
+pub fn run(
+    api_key: &str,
+    save_to_file: bool,
+    is_quiet: bool,
+    common: ort::CommonPromptOpts,
+    messages: Vec<ort::Message>,
+) -> anyhow::Result<()> {
+    let show_reasoning = common.show_reasoning.unwrap();
+    //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = ort::prompt(api_key, opts.clone())?;
+    let rx_main = ort::prompt(api_key, common.clone(), messages.clone())?;
     std::thread::yield_now();
 
     let (tx_stdout, rx_stdout) = mpsc::channel();
-    let (tx_file, rx_file) = mpsc::channel();
+    //let (tx_file, rx_file) = mpsc::channel();
     let (tx_last, rx_last) = mpsc::channel();
-    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_file, tx_last]);
+    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_last]);
     let mut handles = vec![jh_broadcast];
 
-    let cache_dir = config::cache_dir()?;
-    let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
-    let path_display = path.display().to_string();
+    //let cache_dir = config::cache_dir()?;
+    //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
+    //let path_display = path.display().to_string();
 
     let is_pipe_output = unsafe { libc::isatty(libc::STDOUT_FILENO) == 0 };
     let jh_stdout = thread::spawn(move || -> anyhow::Result<()> {
@@ -220,11 +223,11 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
         let handle = stdout_writer.inner();
         let _ = writeln!(handle);
         if !is_quiet {
-            if save_to_file {
-                let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
-            } else {
-                let _ = write!(handle, "\nStats: {stats}\n");
-            }
+            //if save_to_file {
+            //    let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
+            //} else {
+            let _ = write!(handle, "\nStats: {stats}\n");
+            //}
         }
 
         Ok(())
@@ -232,6 +235,7 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
     handles.push(jh_stdout);
 
     if save_to_file {
+        /*
         let jh_file = thread::spawn(move || -> anyhow::Result<()> {
             let f = File::create(&path)?;
             let mut file_writer = writer::FileWriter {
@@ -247,9 +251,10 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
             Ok(())
         });
         handles.push(jh_file);
+        */
 
         let jh_last = thread::spawn(move || -> anyhow::Result<()> {
-            let mut last_writer = writer::LastWriter::new(opts)?;
+            let mut last_writer = writer::LastWriter::new(common, messages)?;
             last_writer.run(rx_last)?;
             Ok(())
         });

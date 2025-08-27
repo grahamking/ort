@@ -4,6 +4,11 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+// TODO: `ort providers model1,model2,model3`
+// Queries endpoints for a model: curl https://openrouter.ai/api/v1/models/:author/:slug/endpoints
+// Exclude providers that quantize "unknow" and below 16, keeping above and "null"
+// Sort them by pricing/completion
+
 use core::fmt;
 use std::borrow::Cow;
 use std::env;
@@ -16,11 +21,13 @@ mod config;
 mod multi_channel;
 mod writer;
 
+const DEFAULT_QUIET: bool = false;
+
 #[derive(Debug)]
 enum Cmd {
     List(ListOpts),
     Prompt(ort::PromptOpts),
-    ContinueConversation(ort::CommonPromptOpts),
+    ContinueConversation(ort::PromptOpts),
 }
 
 #[derive(Debug)]
@@ -114,9 +121,21 @@ fn main() -> ExitCode {
         Cmd::Prompt(mut cli_opts) => {
             let save_to_file = cfg.save_to_file();
             cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
-            action_prompt::run(&api_key, save_to_file, cli_opts)
+            let messages = vec![ort::Message::user(cli_opts.prompt.take().unwrap())];
+            action_prompt::run(
+                &api_key,
+                save_to_file,
+                cli_opts.quiet.unwrap_or(DEFAULT_QUIET),
+                cli_opts.common,
+                messages,
+            )
         }
-        Cmd::ContinueConversation(opts) => action_history::run_continue(&api_key, opts),
+        Cmd::ContinueConversation(mut cli_opts) => action_history::run_continue(
+            &api_key,
+            cli_opts.quiet.unwrap_or(DEFAULT_QUIET),
+            cli_opts.prompt.take().unwrap(),
+            cli_opts.common,
+        ),
         Cmd::List(args) => action_list::run(&api_key, args),
     };
     match cmd_result {

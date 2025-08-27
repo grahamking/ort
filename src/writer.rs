@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::mpsc::Receiver;
 
-use ort::{PromptOpts, Response, Stats, ThinkEvent, utils};
+use ort::{Response, Stats, ThinkEvent, utils};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
@@ -166,21 +166,17 @@ pub struct LastWriter {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-struct LastData {
+pub struct LastData {
     #[serde(flatten)]
-    opts: ort::CommonPromptOpts,
-    messages: Vec<ort::Message>,
+    pub opts: ort::CommonPromptOpts,
+    pub messages: Vec<ort::Message>,
 }
 
 impl LastWriter {
-    pub fn new(mut opts: PromptOpts) -> anyhow::Result<Self> {
+    pub fn new(opts: ort::CommonPromptOpts, messages: Vec<ort::Message>) -> anyhow::Result<Self> {
         let last_path = config::cache_dir()?.join("last.json");
         let last_file = Box::new(File::create(last_path)?);
-        let msg = ort::Message::new(ort::Role::User, opts.prompt.take().unwrap());
-        let data = LastData {
-            opts: opts.common,
-            messages: vec![msg],
-        };
+        let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })
     }
 }
@@ -208,7 +204,7 @@ impl Writer for LastWriter {
             }
         }
 
-        let message = ort::Message::new(ort::Role::Assistant, contents.join(""));
+        let message = ort::Message::assistant(contents.join(""));
         self.data.messages.push(message);
 
         serde_json::to_writer(&mut self.w, &self.data)?;

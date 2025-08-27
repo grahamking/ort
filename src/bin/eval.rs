@@ -187,28 +187,25 @@ fn run_prompt(
             if enable_reasoning { "reasoning" } else { "" }
         );
 
-        let prompt_opts = ort::PromptOpts {
-            prompt: Some(prompt.to_string()),
-            quiet: Some(false),
-            common: CommonPromptOpts {
-                // We clone the model name because the struct takes ownership of the String.
-                model: Some(parts[0].to_string()),
-                system: Some(SYSTEM_PROMPT.to_string()),
-                priority: None,
-                provider: None,
-                show_reasoning: Some(true),
-                reasoning: Some(ReasoningConfig {
-                    enabled: true,
-                    effort: Some(ReasoningEffort::Medium),
-                    ..Default::default()
-                }),
-            },
+        let common = CommonPromptOpts {
+            // We clone the model name because the struct takes ownership of the String.
+            model: Some(parts[0].to_string()),
+            system: Some(SYSTEM_PROMPT.to_string()),
+            priority: None,
+            provider: None,
+            show_reasoning: Some(true),
+            reasoning: Some(ReasoningConfig {
+                enabled: true,
+                effort: Some(ReasoningEffort::Medium),
+                ..Default::default()
+            }),
         };
 
         let cat_name = &names[model_num];
         let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))?;
 
-        let rx = ort::prompt(api_key, prompt_opts)?;
+        let messages = vec![ort::Message::user(prompt.to_string())];
+        let rx = ort::prompt(api_key, common, messages)?;
         while let Ok(data) = rx.recv() {
             match data {
                 Response::Start => {}

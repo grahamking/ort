@@ -4,7 +4,7 @@ You need an [openrouter.ai](https://openrouter.ai/) API key in environment varia
 
 Usage:
 ```
-ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|low|medium|high|<toks>] [-rr] [-q] <prompt>
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|low|medium|high|<toks>] [-rr] [-q] [-c] <prompt>
 ```
 
 Use default model (currently `openai/gpt-oss-20b:free`):
@@ -29,6 +29,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 - -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "low", "medium" or "high". Default is off. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
 - -rr Show the reasoning tokens. Default is not to show them.
 - -q Quiet. Do not show Stats at end.
+- -c Continue. Add a new prompt to the previous conversation, e.g. `ort -c "Are you sure?"`. All the fields default to the previous message (model, priority, provider, system prompt, etc, but you can override them here, for example continuing the conversation but with a different model, or a higher reasoning effort. The provider of the previous message is set as the first choice, to benefit from caching.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 

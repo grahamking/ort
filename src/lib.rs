@@ -21,7 +21,6 @@ const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 const DEFAULT_QUIET: bool = false;
-const DEFAULT_SHOW_REASONING: bool = false;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PromptOpts {
@@ -40,24 +39,8 @@ impl PromptOpts {
     // After this call a PromptOpts is ready to use.
     pub fn merge(&mut self, o: PromptOpts) {
         self.prompt.get_or_insert(o.prompt.unwrap_or_default());
-        self.common
-            .model
-            .get_or_insert(o.common.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()));
-        if o.common.system.is_some() {
-            self.common.system.get_or_insert(o.common.system.unwrap());
-        }
-        if o.common.priority.is_some() {
-            self.common
-                .priority
-                .get_or_insert(o.common.priority.unwrap());
-        }
         self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
-        self.common
-            .reasoning
-            .get_or_insert(o.common.reasoning.unwrap_or_default());
-        self.common
-            .show_reasoning
-            .get_or_insert(o.common.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+        self.common.merge(o.common);
     }
 }
 
@@ -124,15 +107,16 @@ pub fn list_models(api_key: &str) -> anyhow::Result<Vec<serde_json::Value>> {
 }
 
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
-pub fn prompt(api_key: &str, mut opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<Response>> {
+pub fn prompt(
+    api_key: &str,
+    opts: CommonPromptOpts,
+    messages: Vec<Message>,
+) -> anyhow::Result<mpsc::Receiver<Response>> {
     let (tx, rx) = mpsc::channel();
     let api_key = api_key.to_string();
 
     std::thread::spawn(move || {
-        let body = build_body(
-            &opts.common,
-            &[Message::new(Role::User, opts.prompt.take().unwrap())],
-        );
+        let body = build_body(&opts, &messages);
 
         //
         // TODO: Remember the IP address from last time (in config probably)
