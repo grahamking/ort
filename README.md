@@ -4,7 +4,7 @@ You need an [openrouter.ai](https://openrouter.ai/) API key in environment varia
 
 Usage:
 ```
-ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-r off|low|medium|high|<toks>] [-rr] [-q] <prompt>
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|low|medium|high|<toks>] [-rr] [-q] <prompt>
 ```
 
 Use default model (currently `openai/gpt-oss-20b:free`):
@@ -25,6 +25,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 ## Flags
 
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
+- -pr Provider choice. Pass the slug or name or a provider, and that will be get priority. If that provider is unavailable a different one will be chosen as if you had not provided one.
 - -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "low", "medium" or "high". Default is off. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
 - -rr Show the reasoning tokens. Default is not to show them.
 - -q Quiet. Do not show Stats at end.

@@ -11,51 +11,27 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+mod data;
+pub mod utils;
+pub use data::{CommonPromptOpts, Message, Priority, ReasoningConfig, ReasoningEffort, Role};
+use serde_json::Value;
+
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
-pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b:free";
+pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 const DEFAULT_QUIET: bool = false;
 const DEFAULT_SHOW_REASONING: bool = false;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PromptOpts {
     pub prompt: Option<String>,
-    pub model: Option<String>,
-    pub system: Option<String>,
-    pub priority: Option<String>,
+
     /// Don't show stats after request
     pub quiet: Option<bool>,
-    /// Reasoning config
-    pub reasoning: Option<ReasoningConfig>,
-    /// Show reasoning output
-    pub show_reasoning: Option<bool>,
-}
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct ReasoningConfig {
-    pub enabled: bool,
-    pub effort: Option<ReasoningEffort>,
-    pub tokens: Option<u32>,
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReasoningEffort {
-    Low,
-    #[default]
-    Medium,
-    High,
-}
-
-impl fmt::Display for ReasoningEffort {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ReasoningEffort::Low => write!(f, "low"),
-            ReasoningEffort::Medium => write!(f, "medium"),
-            ReasoningEffort::High => write!(f, "high"),
-        }
-    }
+    #[serde(flatten)]
+    pub common: CommonPromptOpts,
 }
 
 impl PromptOpts {
@@ -64,19 +40,24 @@ impl PromptOpts {
     // After this call a PromptOpts is ready to use.
     pub fn merge(&mut self, o: PromptOpts) {
         self.prompt.get_or_insert(o.prompt.unwrap_or_default());
-        self.model
-            .get_or_insert(o.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()));
-        if o.system.is_some() {
-            self.system.get_or_insert(o.system.unwrap());
+        self.common
+            .model
+            .get_or_insert(o.common.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()));
+        if o.common.system.is_some() {
+            self.common.system.get_or_insert(o.common.system.unwrap());
         }
-        if o.priority.is_some() {
-            self.priority.get_or_insert(o.priority.unwrap());
+        if o.common.priority.is_some() {
+            self.common
+                .priority
+                .get_or_insert(o.common.priority.unwrap());
         }
         self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
-        self.reasoning
-            .get_or_insert(o.reasoning.unwrap_or_default());
-        self.show_reasoning
-            .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+        self.common
+            .reasoning
+            .get_or_insert(o.common.reasoning.unwrap_or_default());
+        self.common
+            .show_reasoning
+            .get_or_insert(o.common.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
     }
 }
 
@@ -143,17 +124,14 @@ pub fn list_models(api_key: &str) -> anyhow::Result<Vec<serde_json::Value>> {
 }
 
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
-pub fn prompt(api_key: &str, opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<Response>> {
+pub fn prompt(api_key: &str, mut opts: PromptOpts) -> anyhow::Result<mpsc::Receiver<Response>> {
     let (tx, rx) = mpsc::channel();
     let api_key = api_key.to_string();
 
     std::thread::spawn(move || {
         let body = build_body(
-            &opts.model.unwrap(),
-            &opts.prompt.unwrap(),
-            opts.system.as_deref(),
-            opts.reasoning,
-            opts.priority.as_deref(),
+            &opts.common,
+            &[Message::new(Role::User, opts.prompt.take().unwrap())],
         );
 
         //
@@ -369,35 +347,41 @@ fn format_duration(d: Duration) -> String {
     result
 }
 
-fn build_body(
-    model: &str,
-    prompt: &str,
-    system_prompt: Option<&str>,
-    reasoning: Option<ReasoningConfig>,
-    priority: Option<&str>,
-) -> String {
+fn build_body(opts: &CommonPromptOpts, messages: &[Message]) -> String {
     // Build messages array
-    let mut messages = Vec::new();
-    if let Some(sys) = system_prompt {
-        messages.push(serde_json::json!({ "role": "system", "content": sys }));
-    }
-    messages.push(serde_json::json!({ "role": "user", "content": prompt }));
+    let mut j = if let Some(sys) = &opts.system {
+        serde_json::json!({ "role": "system", "content": sys }).to_string()
+    } else {
+        String::with_capacity(512)
+    };
+    j += &serde_json::to_string(messages).unwrap();
 
     // Base payload with streaming enabled
     let mut obj = serde_json::json!({
-        "model": model,
+        "model": opts.model,
         "stream": true,
         "usage": {"include": true},
         "messages": messages,
     });
 
-    // Optional provider.sort
-    if let Some(p) = priority {
+    // Optional provider fields
+    let mut provider_obj = serde_json::Map::<String, Value>::new();
+    if let Some(p) = opts.priority {
+        provider_obj.insert("sort".into(), Value::String(p.to_string()));
+    }
+    if let Some(pr) = &opts.provider {
+        provider_obj.insert(
+            "order".into(),
+            Value::Array(vec![Value::String(pr.to_string())]),
+        );
+    }
+    if !provider_obj.is_empty() {
         obj.as_object_mut()
             .unwrap()
-            .insert("provider".into(), serde_json::json!({ "sort": p }));
+            .insert("provider".into(), Value::Object(provider_obj));
     }
-    let open_router_json = match reasoning {
+
+    let open_router_json = match &opts.reasoning {
         // No -r and nothing in config file
         None => serde_json::json!({"enabled": false}),
         // cli "-r off" or config file '"enabled": false'

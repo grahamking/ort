@@ -11,6 +11,7 @@
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
 use anyhow::Context as _;
+use ort::CommonPromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
 use ort::ThinkEvent;
@@ -188,17 +189,20 @@ fn run_prompt(
 
         let prompt_opts = ort::PromptOpts {
             prompt: Some(prompt.to_string()),
-            // We clone the model name because the struct takes ownership of the String.
-            model: Some(parts[0].to_string()),
-            system: Some(SYSTEM_PROMPT.to_string()),
-            priority: None,
             quiet: Some(false),
-            show_reasoning: Some(true),
-            reasoning: Some(ReasoningConfig {
-                enabled: true,
-                effort: Some(ReasoningEffort::Medium),
-                ..Default::default()
-            }),
+            common: CommonPromptOpts {
+                // We clone the model name because the struct takes ownership of the String.
+                model: Some(parts[0].to_string()),
+                system: Some(SYSTEM_PROMPT.to_string()),
+                priority: None,
+                provider: None,
+                show_reasoning: Some(true),
+                reasoning: Some(ReasoningConfig {
+                    enabled: true,
+                    effort: Some(ReasoningEffort::Medium),
+                    ..Default::default()
+                }),
+            },
         };
 
         let cat_name = &names[model_num];

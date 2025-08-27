@@ -5,10 +5,10 @@
 //! Copyright (c) 2025 Graham King
 
 use std::fs::File;
+use std::io::Write;
 use std::sync::mpsc::Receiver;
-use std::{fmt, io::Write};
 
-use ort::{PromptOpts, Response, Stats, ThinkEvent};
+use ort::{PromptOpts, Response, Stats, ThinkEvent, utils};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
@@ -167,44 +167,18 @@ pub struct LastWriter {
 
 #[derive(Default, Serialize, Deserialize)]
 struct LastData {
-    opts: PromptOpts,
-    provider: Option<String>,
-    messages: Vec<Message>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Message {
-    role: Role,
-    content: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Role {
-    User,
-    Assistant,
-}
-
-impl fmt::Display for Role {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Role::User => write!(f, "user"),
-            Role::Assistant => write!(f, "assistant"),
-        }
-    }
+    #[serde(flatten)]
+    opts: ort::CommonPromptOpts,
+    messages: Vec<ort::Message>,
 }
 
 impl LastWriter {
     pub fn new(mut opts: PromptOpts) -> anyhow::Result<Self> {
         let last_path = config::cache_dir()?.join("last.json");
         let last_file = Box::new(File::create(last_path)?);
-        let msg = Message {
-            role: Role::User,
-            content: opts.prompt.take().unwrap(),
-        };
+        let msg = ort::Message::new(ort::Role::User, opts.prompt.take().unwrap());
         let data = LastData {
-            opts,
-            provider: None, // We don't know yet
+            opts: opts.common,
             messages: vec![msg],
         };
         Ok(LastWriter { data, w: last_file })
@@ -226,7 +200,7 @@ impl Writer for LastWriter {
                     contents.push(content);
                 }
                 Response::Stats(stats) => {
-                    self.data.provider = Some(stats.provider().to_string());
+                    self.data.opts.provider = Some(utils::slug(stats.provider()));
                 }
                 Response::Error(err) => {
                     anyhow::bail!("LastWriter: {err}");
@@ -234,10 +208,7 @@ impl Writer for LastWriter {
             }
         }
 
-        let message = Message {
-            role: Role::Assistant,
-            content: contents.join(""),
-        };
+        let message = ort::Message::new(ort::Role::Assistant, contents.join(""));
         self.data.messages.push(message);
 
         serde_json::to_writer(&mut self.w, &self.data)?;

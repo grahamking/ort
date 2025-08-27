@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::env;
 use std::process::ExitCode;
 
+mod action_history;
 mod action_list;
 mod action_prompt;
 mod config;
@@ -19,6 +20,7 @@ mod writer;
 enum Cmd {
     List(ListOpts),
     Prompt(ort::PromptOpts),
+    ContinueConversation(ort::CommonPromptOpts),
 }
 
 #[derive(Debug)]
@@ -28,7 +30,7 @@ struct ListOpts {
 
 fn print_usage_and_exit() -> ! {
     eprintln!(
-        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-r] [-rr] [-q] <prompt>\n\
+        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] <prompt>\n\
 Defaults: -m {} ; -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
@@ -114,6 +116,7 @@ fn main() -> ExitCode {
             cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
             action_prompt::run(&api_key, save_to_file, cli_opts)
         }
+        Cmd::ContinueConversation(opts) => action_history::run_continue(&api_key, opts),
         Cmd::List(args) => action_list::run(&api_key, args),
     };
     match cmd_result {

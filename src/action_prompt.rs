@@ -12,9 +12,11 @@ use std::sync::mpsc;
 use std::thread;
 
 use crate::writer::Writer as _;
+use ort::Priority;
 use ort::PromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
+use ort::utils;
 
 use crate::ArgParseError;
 use crate::Cmd;
@@ -30,10 +32,12 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 
     let mut model: Option<String> = None;
     let mut system: Option<String> = None;
-    let mut priority: Option<String> = None;
+    let mut priority: Option<Priority> = None;
     let mut quiet: Option<bool> = None;
     let mut reasoning: Option<ReasoningConfig> = None;
     let mut show_reasoning: Option<bool> = None;
+    let mut provider: Option<String> = None;
+    let mut continue_conversation = false;
 
     let mut i = 1usize;
     while i < args.len() {
@@ -63,7 +67,8 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                 }
                 let val = args[i].clone();
                 match val.as_str() {
-                    "price" | "throughput" | "latency" => priority = Some(val),
+                    // Safety: The 'parse' can handle exactly the three strings we match on
+                    "price" | "throughput" | "latency" => priority = Some(val.parse().unwrap()),
                     _ => {
                         return Err(ArgParseError::new_str(
                             "Invalid -p value: must be one of price|throughput|latency",
@@ -118,6 +123,18 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                 show_reasoning = Some(true);
                 i += 1;
             }
+            "-pr" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -pr"));
+                }
+                provider = Some(utils::slug(args[i].as_ref()));
+                i += 1;
+            }
+            "-c" => {
+                continue_conversation = true;
+                i += 1;
+            }
             s if s.starts_with('-') => {
                 return Err(ArgParseError::new(format!("Unknown flag: {s}")));
             }
@@ -142,25 +159,33 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         prompt.push_str(&buffer);
     }
 
+    let common_opts = ort::CommonPromptOpts {
+        model,
+        provider,
+        system,
+        priority,
+        reasoning,
+        show_reasoning,
+    };
+    if continue_conversation {
+        return Ok(Cmd::ContinueConversation(common_opts));
+    }
+
     if prompt.is_empty() {
         return Err(ArgParseError::new_str("Missing prompt."));
     };
 
     Ok(Cmd::Prompt(PromptOpts {
-        model,
-        system,
-        priority,
-        quiet,
-        reasoning,
-        show_reasoning,
+        common: common_opts,
         prompt: Some(prompt),
+        quiet,
     }))
 }
 
 pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Result<()> {
     let is_quiet = opts.quiet.unwrap();
-    let show_reasoning = opts.show_reasoning.unwrap();
-    let model_name = opts.model.clone().unwrap();
+    let show_reasoning = opts.common.show_reasoning.unwrap();
+    let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
     let rx_main = ort::prompt(api_key, opts.clone())?;
@@ -173,7 +198,7 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
     let mut handles = vec![jh_broadcast];
 
     let cache_dir = config::cache_dir()?;
-    let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
+    let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
     let path_display = path.display().to_string();
 
     let is_pipe_output = unsafe { libc::isatty(libc::STDOUT_FILENO) == 0 };
@@ -240,16 +265,4 @@ pub fn run(api_key: &str, save_to_file: bool, opts: PromptOpts) -> anyhow::Resul
     }
 
     Ok(())
-}
-
-fn slug(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c.to_lowercase().next().unwrap_or('-')
-            } else {
-                '-'
-            }
-        })
-        .collect()
 }
