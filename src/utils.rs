@@ -15,3 +15,14 @@ pub fn slug(s: &str) -> String {
         })
         .collect()
 }
+
+pub fn tmux_pane_id() -> usize {
+    std::env::var("TMUX_PANE")
+        .ok()
+        .and_then(|mut v| {
+            // removing leading '%'. Values are e.g. '%4'
+            let _ = v.drain(0..1);
+            v.parse::<usize>().ok()
+        })
+        .unwrap_or(0)
+}

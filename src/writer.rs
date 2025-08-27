@@ -174,7 +174,8 @@ pub struct LastData {
 
 impl LastWriter {
     pub fn new(opts: ort::CommonPromptOpts, messages: Vec<ort::Message>) -> anyhow::Result<Self> {
-        let last_path = config::cache_dir()?.join("last.json");
+        let last_filename = format!("last-{}.json", utils::tmux_pane_id());
+        let last_path = config::cache_dir()?.join(last_filename);
         let last_file = Box::new(File::create(last_path)?);
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })

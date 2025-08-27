@@ -33,6 +33,12 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 
+## tmux
+
+Continuation (`-c`) is TMUX aware. It continues the last conversation *from the current tmux pane*. That means you can carry on multiple conversations, one per pane. If there is no previous conversation for this pane, or you are not in tmux, it uses the most recent conversation globally.
+
+The conversations are stored in `${XDG_CACHE_HOME}/ort/last-*.json`. To disable storing them set `save_to_file` to false in config.
+
 ## Stats
 
 Stats printed at the end:
