@@ -58,7 +58,8 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
 {
     "keys": [{"name": "openrouter", "value": "sk-..."}],
     "settings": {
-        "save_to_file": true
+        "save_to_file": true,
+        "verify_certs": false
     },
     "prompt_opts": {
         "model": "deepseek/deepseek-r1-0528",
@@ -76,6 +77,7 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
 
 Here are the settings that are not available on the command line:
 - save_to_file: Whether to also write the output to `$XDG_CACHE_HOME}/ort/<model-name>.txt`. Defaults to true.
+- verify_certs: Whether to verify the TLS (HTTPS) certificate that `openrouter.ai` presents. Note we *disable this by default*, because `ort` is *that* committed to speed. The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat we are concerned with.
 
 ## Reasoning model configuration
 

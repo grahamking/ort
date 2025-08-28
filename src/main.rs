@@ -119,12 +119,11 @@ fn main() -> ExitCode {
 
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
-            let save_to_file = cfg.save_to_file();
             cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
             let messages = vec![ort::Message::user(cli_opts.prompt.take().unwrap())];
             action_prompt::run(
                 &api_key,
-                save_to_file,
+                cfg.settings.unwrap_or_default(),
                 cli_opts.quiet.unwrap_or(DEFAULT_QUIET),
                 cli_opts.common,
                 messages,
@@ -132,6 +131,7 @@ fn main() -> ExitCode {
         }
         Cmd::ContinueConversation(mut cli_opts) => action_history::run_continue(
             &api_key,
+            cfg.settings.unwrap_or_default(),
             cli_opts.quiet.unwrap_or(DEFAULT_QUIET),
             cli_opts.prompt.take().unwrap(),
             cli_opts.common,

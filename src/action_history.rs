@@ -17,6 +17,7 @@ use crate::{action_prompt, config};
 
 pub fn run_continue(
     api_key: &str,
+    settings: config::Settings,
     is_quiet: bool,
     next_prompt: String,
     mut opts: ort::CommonPromptOpts,
@@ -39,8 +40,7 @@ pub fn run_continue(
     opts.merge(last.opts);
     last.messages.push(ort::Message::user(next_prompt));
 
-    let save_to_file = true; // can't continue without this
-    action_prompt::run(api_key, save_to_file, is_quiet, opts, last.messages)
+    action_prompt::run(api_key, settings, is_quiet, opts, last.messages)
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.

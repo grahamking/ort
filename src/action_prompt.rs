@@ -10,6 +10,7 @@ use std::io::Write as _;
 use std::sync::mpsc;
 use std::thread;
 
+use crate::config;
 use crate::writer::Writer as _;
 use ort::Priority;
 use ort::PromptOpts;
@@ -182,7 +183,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 
 pub fn run(
     api_key: &str,
-    save_to_file: bool,
+    settings: config::Settings,
     is_quiet: bool,
     common: ort::CommonPromptOpts,
     messages: Vec<ort::Message>,
@@ -191,7 +192,12 @@ pub fn run(
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = ort::prompt(api_key, common.clone(), messages.clone())?;
+    let rx_main = ort::prompt(
+        api_key,
+        settings.verify_certs,
+        common.clone(),
+        messages.clone(),
+    )?;
     std::thread::yield_now();
 
     let (tx_stdout, rx_stdout) = mpsc::channel();
@@ -223,7 +229,7 @@ pub fn run(
         let handle = stdout_writer.inner();
         let _ = writeln!(handle);
         if !is_quiet {
-            //if save_to_file {
+            //if settings.save_to_file {
             //    let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
             //} else {
             let _ = write!(handle, "\nStats: {stats}\n");
@@ -234,7 +240,7 @@ pub fn run(
     });
     handles.push(jh_stdout);
 
-    if save_to_file {
+    if settings.save_to_file {
         /*
         let jh_file = thread::spawn(move || -> anyhow::Result<()> {
             let f = File::create(&path)?;

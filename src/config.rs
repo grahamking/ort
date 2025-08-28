@@ -12,11 +12,22 @@ const CONFIG_FILE: &str = "ort.json";
 const OPENROUTER_KEY: &str = "openrouter";
 
 const DEFAULT_SAVE_TO_FILE: bool = true;
+const DEFAULT_VERIFY_CERTS: bool = false;
 
-#[derive(Default, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct Settings {
-    save_to_file: bool,
-    // verify_certs: bool,
+    pub save_to_file: bool,
+    #[serde(default)]
+    pub verify_certs: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            save_to_file: DEFAULT_SAVE_TO_FILE,
+            verify_certs: DEFAULT_VERIFY_CERTS,
+        }
+    }
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -33,11 +44,17 @@ impl ConfigFile {
             .iter()
             .find_map(|ak| (ak.name == OPENROUTER_KEY).then(|| ak.value.clone()))
     }
-    pub fn save_to_file(&self) -> bool {
+    pub fn _save_to_file(&self) -> bool {
         self.settings
             .as_ref()
             .map(|s| s.save_to_file)
             .unwrap_or(DEFAULT_SAVE_TO_FILE)
+    }
+    pub fn _verify_certs(&self) -> bool {
+        self.settings
+            .as_ref()
+            .map(|s| s.verify_certs)
+            .unwrap_or(DEFAULT_VERIFY_CERTS)
     }
 }
 
