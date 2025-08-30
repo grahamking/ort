@@ -2,23 +2,23 @@
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust-y iron. It doesn't slow you down with the complicated modern interpreted things like Python. This is a modest 2 MiB ELF binary.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a modest 2 MiB ELF binary.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
 If you're new here in town, it'll introduce you: `ort list [-json]`. Everyone's a model here.
 
-You like to know who you're talking to (`-m <model>`) and it knows you don't want to impose more then necessary (reasoning `-r off|low|medium|high|<toks>`). But you have your own priorities, we all do (`-p price|throughput|latency`).
+You like to know who you're talking to so `-m <model>` selects your conversation partner, and it knows you don't want to impose more then necessary so `-r off|low|medium|high|<toks>` sets reasoning effort. But you have your own priorities, we all do. Use `-p price|throughput|latency` for that.
 
-It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning (`-rr`). As long as you're clear about what you want, it will respect that (`-s "<system prompt>"`). We all got to live here together, and we're the better for it.
+It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning with `-rr`. As long as you're clear about what you want, it will respect your system prompt `-s "<system prompt>"`. We all got to live here together, and we're the better for it.
 
 Like a good friend, it remembers. `-c` will continue a conversation. And like a real friend, it accepts you how you are. In a **tmux** pane? It continues that conversation, not the one happening in the pane next door.
 
-As an honest craftdroid, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
+As an honest CLI, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
 
-Harking from a time when we trusted each other, it doesn't check TLS certificates (`verify_certs` in config), and because we know our neighbours, it hardcodes DNS. I don't mind saying, that gets the city folks riled up.
+Harking from a time when we trusted each other, it doesn't check TLS certificates if `verify_certs` in the config is false, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up.
 
-In short, `ort` is an honest CLI for openrouter. Like it says on the box.
+In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
 ## Give it to me straight
 
