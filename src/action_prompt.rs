@@ -195,6 +195,7 @@ pub fn run(
     let rx_main = ort::prompt(
         api_key,
         settings.verify_certs,
+        settings.dns,
         common.clone(),
         messages.clone(),
     )?;

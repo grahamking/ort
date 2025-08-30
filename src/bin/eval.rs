@@ -206,7 +206,7 @@ fn run_prompt(
 
         let messages = vec![ort::Message::user(prompt.to_string())];
         let verify_certs = false; // we doing evals
-        let rx = ort::prompt(api_key, verify_certs, common, messages)?;
+        let rx = ort::prompt(api_key, verify_certs, vec![], common, messages)?;
         while let Ok(data) = rx.recv() {
             match data {
                 Response::Start => {}

@@ -62,14 +62,15 @@ Stats printed at the end:
 
 ## Config file
 
-The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which is usually `~/.config/ort.json`.
+The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which is usually `~/.config/ort.json`. There are also some settings you can use to go faster such as `dns`.
 
 ```
 {
     "keys": [{"name": "openrouter", "value": "sk-..."}],
     "settings": {
         "save_to_file": true,
-        "verify_certs": false
+        "verify_certs": false,
+        "dns": ["104.18.2.115", "104.18.3.115"]
     },
     "prompt_opts": {
         "model": "deepseek/deepseek-r1-0528",
@@ -86,8 +87,10 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
 ```
 
 Here are the settings that are not available on the command line:
-- save_to_file: Whether to also write the output to `$XDG_CACHE_HOME}/ort/<model-name>.txt`. Defaults to true.
-- verify_certs: Whether to verify the TLS (HTTPS) certificate that `openrouter.ai` presents. Note we *disable this by default*, because `ort` is *that* committed to speed. The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat we are concerned with.
+
+- `save_to_file`: Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
+- `verify_certs`: Whether to verify the TLS (HTTPS) certificate that `openrouter.ai` presents. Note we *disable this by default*, because `ort` is *that* committed to speed. The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat we are concerned with.
+- `dns`: The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Allows up to 16 addresses, although fewer is probably better.
 
 ## Reasoning model configuration
 

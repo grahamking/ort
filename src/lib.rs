@@ -12,10 +12,12 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 mod data;
+mod resolver;
 pub mod utils;
 pub use data::{CommonPromptOpts, Message, Priority, ReasoningConfig, ReasoningEffort, Role};
 use serde_json::Value;
 use ureq::tls::TlsConfig;
+use ureq::unversioned::transport::DefaultConnector;
 
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
@@ -111,6 +113,7 @@ pub fn list_models(api_key: &str) -> anyhow::Result<Vec<serde_json::Value>> {
 pub fn prompt(
     api_key: &str,
     verify_certs: bool,
+    dns: Vec<String>,
     opts: CommonPromptOpts,
     messages: Vec<Message>,
 ) -> anyhow::Result<mpsc::Receiver<Response>> {
@@ -120,24 +123,21 @@ pub fn prompt(
     std::thread::spawn(move || {
         let body = build_body(&opts, &messages);
 
-        //
-        // TODO: Remember the IP address from last time (in config probably)
-        // and do .with_parts and pass a Resolver - skip DNS!
-
         let mut tls_config = TlsConfig::builder();
         if !verify_certs {
             tls_config = tls_config.disable_verification(true);
         }
 
-        let agent: ureq::Agent = ureq::Agent::config_builder()
+        let config = ureq::Agent::config_builder()
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_response(None)
             .https_only(true)
             .user_agent("ort/0.1.0")
             .http_status_as_error(false)
             .tls_config(tls_config.build())
-            .build()
-            .into();
+            .build();
+        let resolver = resolver::HardcodedResolver::new(&dns);
+        let agent = ureq::Agent::with_parts(config, DefaultConnector::new(), resolver);
 
         let req = agent
             .post(API_URL)

@@ -16,9 +16,13 @@ const DEFAULT_VERIFY_CERTS: bool = false;
 
 #[derive(serde::Deserialize)]
 pub struct Settings {
+    /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
     pub save_to_file: bool,
+    /// Yes to verify TLS certificates. Many people choose yes.
     #[serde(default)]
     pub verify_certs: bool,
+    /// IP addresses of openrouter.ai. Saves time resolving them.
+    pub dns: Vec<String>,
 }
 
 impl Default for Settings {
@@ -26,6 +30,7 @@ impl Default for Settings {
         Settings {
             save_to_file: DEFAULT_SAVE_TO_FILE,
             verify_certs: DEFAULT_VERIFY_CERTS,
+            dns: vec![],
         }
     }
 }
