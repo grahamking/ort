@@ -11,7 +11,7 @@
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
 use anyhow::Context as _;
-use ort::CommonPromptOpts;
+use ort::PromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
 use ort::ThinkEvent;
@@ -187,7 +187,8 @@ fn run_prompt(
             if enable_reasoning { "reasoning" } else { "" }
         );
 
-        let common = CommonPromptOpts {
+        let common = PromptOpts {
+            prompt: None,
             // We clone the model name because the struct takes ownership of the String.
             model: Some(parts[0].to_string()),
             system: Some(SYSTEM_PROMPT.to_string()),
@@ -199,6 +200,7 @@ fn run_prompt(
                 effort: Some(ReasoningEffort::Medium),
                 ..Default::default()
             }),
+            quiet: Some(false),
         };
 
         let cat_name = &names[model_num];

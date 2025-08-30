@@ -10,19 +10,18 @@ use std::io::Write as _;
 use std::sync::mpsc;
 use std::thread;
 
-use crate::config;
-use crate::writer::Writer as _;
 use ort::Priority;
-use ort::PromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
+use ort::config;
 use ort::utils;
+use ort::writer::Writer as _;
 
 use crate::ArgParseError;
 use crate::Cmd;
 use crate::multi_channel;
 use crate::print_usage_and_exit;
-use crate::writer;
+use ort::writer;
 
 pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
@@ -158,20 +157,17 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         prompt.push_str(&buffer);
     }
 
-    let common_opts = ort::CommonPromptOpts {
+    if prompt.is_empty() {
+        return Err(ArgParseError::new_str("Missing prompt."));
+    };
+    let prompt_opts = ort::PromptOpts {
+        prompt: Some(prompt),
         model,
         provider,
         system,
         priority,
         reasoning,
         show_reasoning,
-    };
-    if prompt.is_empty() {
-        return Err(ArgParseError::new_str("Missing prompt."));
-    };
-    let prompt_opts = PromptOpts {
-        common: common_opts,
-        prompt: Some(prompt),
         quiet,
     };
     if !continue_conversation {
@@ -184,11 +180,11 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 pub fn run(
     api_key: &str,
     settings: config::Settings,
-    is_quiet: bool,
-    common: ort::CommonPromptOpts,
+    opts: ort::PromptOpts,
     messages: Vec<ort::Message>,
 ) -> anyhow::Result<()> {
-    let show_reasoning = common.show_reasoning.unwrap();
+    let show_reasoning = opts.show_reasoning.unwrap();
+    let is_quiet = opts.quiet.unwrap_or_default();
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
@@ -196,7 +192,7 @@ pub fn run(
         api_key,
         settings.verify_certs,
         settings.dns,
-        common.clone(),
+        opts.clone(),
         messages.clone(),
     )?;
     std::thread::yield_now();
@@ -261,7 +257,7 @@ pub fn run(
         */
 
         let jh_last = thread::spawn(move || -> anyhow::Result<()> {
-            let mut last_writer = writer::LastWriter::new(common, messages)?;
+            let mut last_writer = writer::LastWriter::new(opts, messages)?;
             last_writer.run(rx_last)?;
             Ok(())
         });

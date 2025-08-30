@@ -7,12 +7,15 @@
 use core::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 const DEFAULT_SHOW_REASONING: bool = false;
+const DEFAULT_QUIET: bool = false;
+pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct CommonPromptOpts {
+#[derive(Default, Debug, Clone, Serialize)]
+pub struct PromptOpts {
+    pub prompt: Option<String>,
     /// Model ID, e.g. 'moonshotai/kimi-k2'
     pub model: Option<String>,
     /// Prefered provider slug
@@ -25,10 +28,17 @@ pub struct CommonPromptOpts {
     pub reasoning: Option<ReasoningConfig>,
     /// Show reasoning output
     pub show_reasoning: Option<bool>,
+    /// Don't show stats after request
+    pub quiet: Option<bool>,
 }
 
-impl CommonPromptOpts {
-    pub fn merge(&mut self, o: CommonPromptOpts) {
+impl PromptOpts {
+    // Replace any blank or None fields on Self with values from other
+    // or with the defaults.
+    // After this call a PromptOpts is ready to use.
+    pub fn merge(&mut self, o: PromptOpts) {
+        self.prompt.get_or_insert(o.prompt.unwrap_or_default());
+        self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
         if o.model.is_some() {
             self.model.get_or_insert(o.model.unwrap());
         }
@@ -48,7 +58,7 @@ impl CommonPromptOpts {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
     Price,
@@ -80,14 +90,14 @@ impl fmt::Display for Priority {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct ReasoningConfig {
     pub enabled: bool,
     pub effort: Option<ReasoningEffort>,
     pub tokens: Option<u32>,
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
     Low,
@@ -106,14 +116,14 @@ impl fmt::Display for ReasoningEffort {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Message {
     role: Role,
     content: String,
 }
 
 impl Message {
-    fn new(role: Role, content: String) -> Self {
+    pub(crate) fn new(role: Role, content: String) -> Self {
         Message { role, content }
     }
     pub fn user(content: String) -> Self {
@@ -124,11 +134,22 @@ impl Message {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     User,
     Assistant,
+}
+
+impl FromStr for Role {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "user" => Ok(Role::User),
+            "assistant" => Ok(Role::Assistant),
+            _ => Err("Invalid role"),
+        }
+    }
 }
 
 impl fmt::Display for Role {
@@ -138,4 +159,10 @@ impl fmt::Display for Role {
             Role::Assistant => write!(f, "assistant"),
         }
     }
+}
+
+#[derive(Default, Serialize)]
+pub struct LastData {
+    pub opts: PromptOpts,
+    pub messages: Vec<Message>,
 }

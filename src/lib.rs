@@ -9,43 +9,22 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
-
-mod data;
-mod resolver;
-pub mod utils;
-pub use data::{CommonPromptOpts, Message, Priority, ReasoningConfig, ReasoningEffort, Role};
 use serde_json::Value;
 use ureq::tls::TlsConfig;
 use ureq::unversioned::transport::DefaultConnector;
 
+pub mod config;
+mod data;
+mod resolver;
+pub mod utils;
+pub use data::{
+    DEFAULT_MODEL, LastData, Message, Priority, PromptOpts, ReasoningConfig, ReasoningEffort, Role,
+};
+pub mod parser;
+pub mod writer;
+
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
-
-pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
-const DEFAULT_QUIET: bool = false;
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct PromptOpts {
-    pub prompt: Option<String>,
-
-    /// Don't show stats after request
-    pub quiet: Option<bool>,
-
-    #[serde(flatten)]
-    pub common: CommonPromptOpts,
-}
-
-impl PromptOpts {
-    // Replace any blank or None fields on Self with values from other
-    // or with the defaults.
-    // After this call a PromptOpts is ready to use.
-    pub fn merge(&mut self, o: PromptOpts) {
-        self.prompt.get_or_insert(o.prompt.unwrap_or_default());
-        self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
-        self.common.merge(o.common);
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum Response {
@@ -114,7 +93,8 @@ pub fn prompt(
     api_key: &str,
     verify_certs: bool,
     dns: Vec<String>,
-    opts: CommonPromptOpts,
+    // Note we do not use the prompt from here, it should be in `messages` by now
+    opts: PromptOpts,
     messages: Vec<Message>,
 ) -> anyhow::Result<mpsc::Receiver<Response>> {
     let (tx, rx) = mpsc::channel();
@@ -336,7 +316,7 @@ fn format_duration(d: Duration) -> String {
     result
 }
 
-fn build_body(opts: &CommonPromptOpts, messages: &[Message]) -> String {
+fn build_body(opts: &PromptOpts, messages: &[Message]) -> String {
     // Build messages array
     let mut j = if let Some(sys) = &opts.system {
         serde_json::json!({ "role": "system", "content": sys }).to_string()

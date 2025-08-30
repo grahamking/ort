@@ -17,11 +17,7 @@ use std::process::ExitCode;
 mod action_history;
 mod action_list;
 mod action_prompt;
-mod config;
 mod multi_channel;
-mod writer;
-
-const DEFAULT_QUIET: bool = false;
 
 #[derive(Debug)]
 enum Cmd {
@@ -89,7 +85,7 @@ fn parse_args() -> Result<Cmd, ArgParseError> {
 
 fn main() -> ExitCode {
     // Load ~/.config/ort.json
-    let cfg = match config::load() {
+    let cfg = match ort::config::load() {
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed loading config file: {err:#}");
@@ -124,18 +120,13 @@ fn main() -> ExitCode {
             action_prompt::run(
                 &api_key,
                 cfg.settings.unwrap_or_default(),
-                cli_opts.quiet.unwrap_or(DEFAULT_QUIET),
-                cli_opts.common,
+                cli_opts,
                 messages,
             )
         }
-        Cmd::ContinueConversation(mut cli_opts) => action_history::run_continue(
-            &api_key,
-            cfg.settings.unwrap_or_default(),
-            cli_opts.quiet.unwrap_or(DEFAULT_QUIET),
-            cli_opts.prompt.take().unwrap(),
-            cli_opts.common,
-        ),
+        Cmd::ContinueConversation(cli_opts) => {
+            action_history::run_continue(&api_key, cfg.settings.unwrap_or_default(), cli_opts)
+        }
         Cmd::List(args) => action_list::run(&api_key, args),
     };
     match cmd_result {

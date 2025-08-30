@@ -11,24 +11,24 @@ use std::{
 };
 
 use anyhow::Context as _;
-use ort::utils;
+use ort::LastData;
+use ort::{config, utils};
 
-use crate::{action_prompt, config};
+use crate::action_prompt;
 
 pub fn run_continue(
     api_key: &str,
     settings: config::Settings,
-    is_quiet: bool,
-    next_prompt: String,
-    mut opts: ort::CommonPromptOpts,
+    mut opts: ort::PromptOpts,
 ) -> anyhow::Result<()> {
     let dir = config::cache_dir()?;
     let mut last_file = dir.join(format!("last-{}.json", utils::tmux_pane_id()));
     if !last_file.exists() {
         last_file = most_recent(&dir, "last-")?;
     }
-    let mut last: crate::writer::LastData = match fs::read_to_string(&last_file) {
-        Ok(cfg_str) => serde_json::from_str(&cfg_str).context("Failed to parse last")?,
+    let mut last = match fs::read_to_string(&last_file) {
+        Ok(hist_str) => LastData::from_json(&hist_str)
+            .map_err(|err| anyhow::anyhow!("Failed to parse last: {err}"))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             anyhow::bail!("No last conversation, cannot continue")
         }
@@ -38,9 +38,10 @@ pub fn run_continue(
     };
 
     opts.merge(last.opts);
-    last.messages.push(ort::Message::user(next_prompt));
+    last.messages
+        .push(ort::Message::user(opts.prompt.take().unwrap()));
 
-    action_prompt::run(api_key, settings, is_quiet, opts, last.messages)
+    action_prompt::run(api_key, settings, opts, last.messages)
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.

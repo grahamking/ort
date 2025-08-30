@@ -8,10 +8,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::mpsc::Receiver;
 
-use ort::{Response, Stats, ThinkEvent, utils};
-use serde::{Deserialize, Serialize};
-
-use crate::config;
+use crate::{Message, PromptOpts, Response, Stats, ThinkEvent, config, data::LastData, utils};
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -60,7 +57,7 @@ impl Writer for ConsoleWriter {
                                 let _ = self.writer.flush();
                             }
                             ThinkEvent::Stop => {
-                                let _ = write!(self.writer, "{BOLD_START}</think>{BOLD_END}\n");
+                                let _ = writeln!(self.writer, "{BOLD_START}</think>{BOLD_END}");
                             }
                         }
                     } else {
@@ -165,15 +162,8 @@ pub struct LastWriter {
     data: LastData,
 }
 
-#[derive(Default, Serialize, Deserialize)]
-pub struct LastData {
-    #[serde(flatten)]
-    pub opts: ort::CommonPromptOpts,
-    pub messages: Vec<ort::Message>,
-}
-
 impl LastWriter {
-    pub fn new(opts: ort::CommonPromptOpts, messages: Vec<ort::Message>) -> anyhow::Result<Self> {
+    pub fn new(opts: PromptOpts, messages: Vec<Message>) -> anyhow::Result<Self> {
         let last_filename = format!("last-{}.json", utils::tmux_pane_id());
         let last_path = config::cache_dir()?.join(last_filename);
         let last_file = Box::new(File::create(last_path)?);
@@ -205,7 +195,7 @@ impl Writer for LastWriter {
             }
         }
 
-        let message = ort::Message::assistant(contents.join(""));
+        let message = Message::assistant(contents.join(""));
         self.data.messages.push(message);
 
         serde_json::to_writer(&mut self.w, &self.data)?;
