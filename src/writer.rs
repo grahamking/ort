@@ -37,7 +37,7 @@ impl Writer for ConsoleWriter {
         &mut self.writer
     }
     fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
-        let _ = write!(self.writer, "\n{CURSOR_OFF}Connecting...\r");
+        let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
         let mut is_first_content = true;
@@ -60,7 +60,7 @@ impl Writer for ConsoleWriter {
                                 let _ = self.writer.flush();
                             }
                             ThinkEvent::Stop => {
-                                let _ = write!(self.writer, "{BOLD_START}</think>{BOLD_END}\n\n");
+                                let _ = write!(self.writer, "{BOLD_START}</think>{BOLD_END}\n");
                             }
                         }
                     } else {
@@ -85,7 +85,7 @@ impl Writer for ConsoleWriter {
                 Response::Content(content) => {
                     if is_first_content {
                         // Erase the Processing or Thinking line
-                        let _ = write!(self.writer, "\r{CLEAR_LINE}");
+                        let _ = write!(self.writer, "\r{CLEAR_LINE}\n");
                         is_first_content = false;
                     }
                     let _ = write!(self.writer, "{content}");
