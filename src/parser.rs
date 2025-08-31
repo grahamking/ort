@@ -613,7 +613,6 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    #[inline]
     fn new(s: &'a str) -> Self {
         Self {
             s,
@@ -622,12 +621,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline]
     fn eof(&self) -> bool {
         self.i >= self.b.len()
     }
 
-    #[inline]
     fn peek(&self) -> Option<u8> {
         if self.eof() {
             None
@@ -636,7 +633,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline]
     fn try_consume(&mut self, ch: u8) -> bool {
         if self.peek() == Some(ch) {
             self.i += 1;
@@ -646,7 +642,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline]
     fn expect(&mut self, ch: u8) -> Result<(), &'static str> {
         if self.try_consume(ch) {
             Ok(())
@@ -655,7 +650,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline]
     fn skip_ws(&mut self) {
         while let Some(c) = self.peek() {
             match c {
@@ -665,13 +659,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline]
     fn starts_with_bytes(&self, pat: &[u8]) -> bool {
         let end = self.i + pat.len();
         end <= self.b.len() && &self.b[self.i..end] == pat
     }
 
-    #[inline]
     fn parse_null(&mut self) -> Result<(), &'static str> {
         if self.starts_with_bytes(b"null") {
             self.i += 4;
@@ -681,12 +673,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline]
     fn peek_is_null(&self) -> bool {
         self.starts_with_bytes(b"null")
     }
 
-    #[inline]
     fn parse_bool(&mut self) -> Result<bool, &'static str> {
         self.skip_ws();
         if self.starts_with_bytes(b"true") {
@@ -704,7 +694,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline(always)]
     fn parse_u32(&mut self) -> Result<u32, &'static str> {
         self.skip_ws();
         if self.eof() {
@@ -839,7 +828,6 @@ impl<'a> Parser<'a> {
             }
             Ok((v, end))
         }
-        #[inline]
         fn hex_val(b: u8) -> Result<u16, &'static str> {
             match b {
                 b'0'..=b'9' => Ok((b - b'0') as u16),
