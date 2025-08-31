@@ -201,6 +201,7 @@ fn run_prompt(
                 ..Default::default()
             }),
             quiet: Some(false),
+            merge_config: true,
         };
 
         let cat_name = &names[model_num];

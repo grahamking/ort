@@ -14,6 +14,8 @@ use std::borrow::Cow;
 use std::env;
 use std::process::ExitCode;
 
+use ort::PromptOpts;
+
 mod action_history;
 mod action_list;
 mod action_prompt;
@@ -33,7 +35,7 @@ struct ListOpts {
 
 fn print_usage_and_exit() -> ! {
     eprintln!(
-        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] <prompt>\n\
+        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
 Defaults: -m {} ; -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
@@ -115,8 +117,17 @@ fn main() -> ExitCode {
 
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
-            cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
-            let messages = vec![ort::Message::user(cli_opts.prompt.take().unwrap())];
+            if cli_opts.merge_config {
+                cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+            } else {
+                cli_opts.merge(PromptOpts::default());
+            }
+            let mut messages = if let Some(sys) = cli_opts.system.take() {
+                vec![ort::Message::system(sys)]
+            } else {
+                vec![]
+            };
+            messages.push(ort::Message::user(cli_opts.prompt.take().unwrap()));
             action_prompt::run(
                 &api_key,
                 cfg.settings.unwrap_or_default(),

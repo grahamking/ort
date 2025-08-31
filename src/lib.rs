@@ -9,7 +9,6 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
 use ureq::tls::TlsConfig;
 use ureq::unversioned::transport::DefaultConnector;
 
@@ -21,6 +20,7 @@ pub use data::{
     DEFAULT_MODEL, LastData, Message, Priority, PromptOpts, ReasoningConfig, ReasoningEffort, Role,
 };
 pub mod parser;
+pub mod serializer;
 pub mod writer;
 
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -101,7 +101,7 @@ pub fn prompt(
     let api_key = api_key.to_string();
 
     std::thread::spawn(move || {
-        let body = build_body(&opts, &messages);
+        let body = serializer::build_body(&opts, &messages).unwrap(); // TODO
 
         let mut tls_config = TlsConfig::builder();
         if !verify_certs {
@@ -314,60 +314,4 @@ fn format_duration(d: Duration) -> String {
     }
 
     result
-}
-
-fn build_body(opts: &PromptOpts, messages: &[Message]) -> String {
-    // Build messages array
-    let mut j = if let Some(sys) = &opts.system {
-        serde_json::json!({ "role": "system", "content": sys }).to_string()
-    } else {
-        String::with_capacity(512)
-    };
-    j += &serde_json::to_string(messages).unwrap();
-
-    // Base payload with streaming enabled
-    let mut obj = serde_json::json!({
-        "model": opts.model,
-        "stream": true,
-        "usage": {"include": true},
-        "messages": messages,
-    });
-
-    // Optional provider fields
-    let mut provider_obj = serde_json::Map::<String, Value>::new();
-    if let Some(p) = opts.priority {
-        provider_obj.insert("sort".into(), Value::String(p.to_string()));
-    }
-    if let Some(pr) = &opts.provider {
-        provider_obj.insert(
-            "order".into(),
-            Value::Array(vec![Value::String(pr.to_string())]),
-        );
-    }
-    if !provider_obj.is_empty() {
-        obj.as_object_mut()
-            .unwrap()
-            .insert("provider".into(), Value::Object(provider_obj));
-    }
-
-    let open_router_json = match &opts.reasoning {
-        // No -r and nothing in config file
-        None => serde_json::json!({"enabled": false}),
-        // cli "-r off" or config file '"enabled": false'
-        Some(r_cfg) if !r_cfg.enabled => serde_json::json!({"enabled": false}),
-        // Reasoning on
-        Some(r_cfg) => match (r_cfg.effort, r_cfg.tokens) {
-            (Some(effort), _) => {
-                serde_json::json!({"effort": effort.to_string(), "exclude": false, "enabled": true})
-            }
-            (_, Some(tokens)) => {
-                serde_json::json!({"max_tokens": tokens, "exclude": false, "enabled": true})
-            }
-            _ => unreachable!("Reasoning effort and tokens cannot both be null"),
-        },
-    };
-    obj.as_object_mut()
-        .unwrap()
-        .insert("reasoning".into(), open_router_json);
-    serde_json::to_string(&obj).expect("JSON serialization failed")
 }

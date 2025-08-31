@@ -493,6 +493,7 @@ impl PromptOpts {
         let mut reasoning: Option<ReasoningConfig> = None;
         let mut show_reasoning: Option<bool> = None;
         let mut quiet: Option<bool> = None;
+        let mut merge_config = true;
 
         p.skip_ws();
         if p.try_consume(b'}') {
@@ -505,6 +506,7 @@ impl PromptOpts {
                 reasoning,
                 show_reasoning,
                 quiet,
+                merge_config,
             });
         }
 
@@ -566,6 +568,14 @@ impl PromptOpts {
                         quiet = Some(p.parse_bool()?);
                     }
                 }
+                "merge_config" => {
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        merge_config = true;
+                    } else {
+                        merge_config = p.parse_bool()?;
+                    }
+                }
                 _ => {
                     // Unknown field: skip its value
                     p.skip_value()?;
@@ -590,6 +600,7 @@ impl PromptOpts {
             reasoning,
             show_reasoning,
             quiet,
+            merge_config,
         })
     }
 }
@@ -1034,7 +1045,7 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::writer::LastData;
+    use crate::LastData;
 
     use super::*;
 
@@ -1079,13 +1090,15 @@ mod tests {
      "model": "google/gemma-3n-e4b-it:free",
      "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
      "show_reasoning": false,
-     "reasoning": { "enabled": false }
+     "reasoning": { "enabled": false },
+     "merge_config": true
  }
  "#;
         let opts = PromptOpts::from_json(s).unwrap();
         assert!(!opts.show_reasoning.unwrap());
         assert_eq!(opts.model.as_deref(), Some("google/gemma-3n-e4b-it:free"));
         assert!(!opts.reasoning.unwrap().enabled);
+        assert!(opts.merge_config);
     }
 
     #[test]

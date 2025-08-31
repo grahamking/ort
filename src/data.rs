@@ -7,13 +7,17 @@
 use core::fmt;
 use std::str::FromStr;
 
-use serde::Serialize;
-
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 
-#[derive(Default, Debug, Clone, Serialize)]
+#[derive(Default, Debug)]
+pub struct LastData {
+    pub opts: PromptOpts,
+    pub messages: Vec<Message>,
+}
+
+#[derive(Debug, Clone)]
 pub struct PromptOpts {
     pub prompt: Option<String>,
     /// Model ID, e.g. 'moonshotai/kimi-k2'
@@ -30,6 +34,24 @@ pub struct PromptOpts {
     pub show_reasoning: Option<bool>,
     /// Don't show stats after request
     pub quiet: Option<bool>,
+    /// Whether to merge in the default settings from config file
+    pub merge_config: bool,
+}
+
+impl Default for PromptOpts {
+    fn default() -> Self {
+        Self {
+            prompt: None,
+            model: Some(DEFAULT_MODEL.to_string()),
+            provider: None,
+            system: None,
+            priority: None,
+            reasoning: Some(ReasoningConfig::default()),
+            show_reasoning: Some(false),
+            quiet: Some(false),
+            merge_config: true,
+        }
+    }
 }
 
 impl PromptOpts {
@@ -58,13 +80,22 @@ impl PromptOpts {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Default, Debug, Clone, Copy)]
 pub enum Priority {
     Price,
     #[default]
     Latency,
     Throughput,
+}
+
+impl Priority {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Priority::Price => "price",
+            Priority::Latency => "latency",
+            Priority::Throughput => "throughput",
+        }
+    }
 }
 
 impl FromStr for Priority {
@@ -90,20 +121,38 @@ impl fmt::Display for Priority {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone)]
 pub struct ReasoningConfig {
     pub enabled: bool,
     pub effort: Option<ReasoningEffort>,
     pub tokens: Option<u32>,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
+impl ReasoningConfig {
+    pub fn off() -> Self {
+        Self {
+            enabled: false,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ReasoningEffort {
     Low,
     #[default]
     Medium,
     High,
+}
+
+impl ReasoningEffort {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReasoningEffort::Low => "low",
+            ReasoningEffort::Medium => "medium",
+            ReasoningEffort::High => "high",
+        }
+    }
 }
 
 impl fmt::Display for ReasoningEffort {
@@ -116,15 +165,18 @@ impl fmt::Display for ReasoningEffort {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Message {
-    role: Role,
-    content: String,
+    pub(crate) role: Role,
+    pub(crate) content: String,
 }
 
 impl Message {
     pub(crate) fn new(role: Role, content: String) -> Self {
         Message { role, content }
+    }
+    pub fn system(content: String) -> Self {
+        Self::new(Role::System, content)
     }
     pub fn user(content: String) -> Self {
         Self::new(Role::User, content)
@@ -132,19 +184,35 @@ impl Message {
     pub fn assistant(content: String) -> Self {
         Self::new(Role::Assistant, content)
     }
+
+    /// Estimate size in bytes
+    pub fn size(&self) -> u32 {
+        self.content.len() as u32 + 10
+    }
 }
 
-#[derive(Debug, Copy, Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Copy, Clone)]
 pub enum Role {
+    System,
     User,
     Assistant,
+}
+
+impl Role {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::System => "system",
+            Role::User => "user",
+            Role::Assistant => "assistant",
+        }
+    }
 }
 
 impl FromStr for Role {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "system" => Ok(Role::System),
             "user" => Ok(Role::User),
             "assistant" => Ok(Role::Assistant),
             _ => Err("Invalid role"),
@@ -155,14 +223,9 @@ impl FromStr for Role {
 impl fmt::Display for Role {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Role::System => write!(f, "system"),
             Role::User => write!(f, "user"),
             Role::Assistant => write!(f, "assistant"),
         }
     }
-}
-
-#[derive(Default, Serialize)]
-pub struct LastData {
-    pub opts: PromptOpts,
-    pub messages: Vec<Message>,
 }

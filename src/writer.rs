@@ -198,7 +198,7 @@ impl Writer for LastWriter {
         let message = Message::assistant(contents.join(""));
         self.data.messages.push(message);
 
-        serde_json::to_writer(&mut self.w, &self.data)?;
+        self.data.to_json_writer(&mut self.w)?;
         let _ = self.w.flush();
 
         Ok(Stats::default()) // Stats is not used

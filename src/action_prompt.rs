@@ -36,6 +36,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     let mut show_reasoning: Option<bool> = None;
     let mut provider: Option<String> = None;
     let mut continue_conversation = false;
+    let mut merge_config = true;
 
     let mut i = 1usize;
     while i < args.len() {
@@ -133,6 +134,10 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                 continue_conversation = true;
                 i += 1;
             }
+            "-nc" => {
+                merge_config = false;
+                i += 1;
+            }
             s if s.starts_with('-') => {
                 return Err(ArgParseError::new(format!("Unknown flag: {s}")));
             }
@@ -169,6 +174,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         reasoning,
         show_reasoning,
         quiet,
+        merge_config,
     };
     if !continue_conversation {
         Ok(Cmd::Prompt(prompt_opts))
