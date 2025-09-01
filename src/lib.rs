@@ -79,14 +79,13 @@ impl fmt::Display for Stats {
     }
 }
 
-pub fn list_models(api_key: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+/// Returns raw JSON
+pub fn list_models(api_key: &str) -> anyhow::Result<String> {
     let mut req = ureq::get(MODELS_URL);
     req = req.header("Authorization", &format!("Bearer {api_key}",));
     let mut resp = req.call()?;
     let body = resp.body_mut().read_to_string()?;
-    let mut doc: serde_json::Value = serde_json::from_str(&body)?;
-    let models: Vec<serde_json::Value> = doc["data"].take().as_array().unwrap().to_vec();
-    Ok(models)
+    Ok(body)
 }
 
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.

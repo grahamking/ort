@@ -25,20 +25,18 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 }
 
 pub fn run(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
-    let models = ort::list_models(api_key)?;
+    let models_json = ort::list_models(api_key)?;
 
     if opts.is_json {
-        // pretty-print the full JSON
-        for m in models {
-            println!("{}", serde_json::to_string_pretty(&m).unwrap());
-        }
+        // The full JSON. User should use `jq` or similar to pretty it.
+        println!("{models_json}");
     } else {
-        // extract and print canonical_slug fields alphabetically
-        let mut slugs: Vec<_> = models
-            .into_iter()
-            .map(|mut m| m["canonical_slug"].take().as_str().unwrap().to_string())
+        // Extract and print canonical_slug fields alphabetically
+        let mut slugs: Vec<&str> = models_json
+            .split(r#""canonical_slug":""#)
+            .skip(1)
+            .map(until_quote)
             .collect();
-
         slugs.sort();
         slugs.dedup();
         for s in slugs {
@@ -46,4 +44,16 @@ pub fn run(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The prefix of this string until the first double quote.
+/// Slugs never contain a doube quote.
+fn until_quote(s: &str) -> &str {
+    let mut qp = 0;
+    let len = s.len();
+    let b = s.as_bytes();
+    while b[qp] != b'"' && qp < len {
+        qp += 1;
+    }
+    &s[..qp]
 }
