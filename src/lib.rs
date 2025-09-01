@@ -17,7 +17,8 @@ mod data;
 mod resolver;
 pub mod utils;
 pub use data::{
-    DEFAULT_MODEL, LastData, Message, Priority, PromptOpts, ReasoningConfig, ReasoningEffort, Role,
+    ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
+    ReasoningConfig, ReasoningEffort, Role, Usage,
 };
 pub mod parser;
 pub mod serializer;
@@ -162,7 +163,6 @@ pub fn prompt(
                     return;
                 }
             };
-            //eprintln!("{line}");
 
             if is_start {
                 // Very first message from server, usually
@@ -182,23 +182,24 @@ pub fn prompt(
                 }
 
                 // Each data: line is a JSON chunk in OpenAI streaming format
-                match serde_json::from_str::<serde_json::Value>(data) {
-                    Ok(v) => {
+                match ChatCompletionsResponse::from_json(data) {
+                    Ok(mut v) => {
                         // Standard OpenAI stream delta shape
-                        let Some(delta) = v
-                            .get("choices")
-                            .and_then(|c| c.get(0))
-                            .and_then(|c0| c0.get("delta"))
-                        else {
+                        let Some(delta) = v.choices.pop().map(|c| c.delta) else {
                             continue;
                         };
 
-                        let maybe_reasoning = delta.get("reasoning").and_then(|c| c.as_str());
-                        let maybe_content = delta.get("content").and_then(|c| c.as_str());
-
-                        let has_reasoning = maybe_reasoning.map(|x| !x.is_empty()).unwrap_or(false);
-                        let has_content = maybe_content.map(|x| !x.is_empty()).unwrap_or(false);
-                        let has_usage = v.get("usage").is_some();
+                        let has_reasoning = delta
+                            .reasoning
+                            .as_ref()
+                            .map(|x| !x.is_empty())
+                            .unwrap_or(false);
+                        let has_content = delta
+                            .content
+                            .as_ref()
+                            .map(|x| !x.is_empty())
+                            .unwrap_or(false);
+                        let has_usage = v.usage.is_some();
 
                         if !(has_reasoning || has_content || has_usage) {
                             continue;
@@ -211,7 +212,7 @@ pub fn prompt(
                         }
 
                         // Handle reasoning content
-                        if let Some(reasoning_content) = maybe_reasoning
+                        if let Some(reasoning_content) = delta.reasoning.as_ref()
                             && !reasoning_content.is_empty()
                         {
                             num_tokens += 1;
@@ -229,7 +230,7 @@ pub fn prompt(
                         }
 
                         // Handle regular content
-                        if let Some(content) = maybe_content
+                        if let Some(content) = delta.content.as_ref()
                             && !content.is_empty()
                         {
                             num_tokens += 1;
@@ -248,18 +249,10 @@ pub fn prompt(
                         }
 
                         // Handle last message which contains the "usage" key
-                        if let Some(usage) = v.get("usage") {
-                            if let Some(c) = usage.get("cost") {
-                                stats.cost_in_cents = c.as_f64().unwrap() * 100.0; // convert to cents
-                            }
-                            stats.provider = v
-                                .get("provider")
-                                .map(|p| p.as_str().unwrap().to_string())
-                                .unwrap();
-                            stats.used_model = v
-                                .get("model")
-                                .map(|m| m.as_str().unwrap().to_string())
-                                .unwrap();
+                        if let Some(usage) = v.usage {
+                            stats.cost_in_cents = usage.cost as f64 * 100.0; // convert to cents
+                            stats.provider = v.provider.expect("Last message was missing provider");
+                            stats.used_model = v.model.expect("Last message was missing mode");
                         }
                     }
                     Err(_err) => {

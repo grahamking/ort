@@ -7,9 +7,191 @@
 use core::str::FromStr;
 
 use crate::{
-    LastData, Message, Priority, PromptOpts, ReasoningConfig, ReasoningEffort, Role,
+    ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
+    ReasoningEffort, Role, Usage,
     config::{ApiKey, ConfigFile, Settings},
 };
+
+impl ChatCompletionsResponse {
+    pub fn from_json(json: &str) -> Result<Self, &'static str> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut provider = None;
+        let mut model = None;
+        let mut choices = vec![];
+        let mut usage = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("ChatCompletionsResponse parsing key: {err}"))?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "provider" => {
+                    if provider.is_some() {
+                        return Err("duplicate field: provider");
+                    }
+                    provider = Some(p.parse_string()?);
+                }
+                "model" => {
+                    if model.is_some() {
+                        return Err("duplicate field: model");
+                    }
+                    model = Some(p.parse_string()?);
+                }
+                "choices" => {
+                    if !choices.is_empty() {
+                        return Err("duplicate field: choices");
+                    }
+                    if !p.try_consume(b'[') {
+                        return Err("keys: Expected array");
+                    }
+                    loop {
+                        let j = p.value_slice()?;
+                        let choice = Choice::from_json(j)?;
+                        choices.push(choice);
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b']') {
+                            break;
+                        }
+                    }
+                }
+                "usage" => {
+                    let j = p.value_slice()?;
+                    usage = Some(Usage::from_json(j)?);
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(ChatCompletionsResponse {
+            provider,
+            model,
+            choices,
+            usage,
+        })
+    }
+}
+
+impl Choice {
+    pub fn from_json(json: &str) -> Result<Self, &'static str> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut delta = None;
+
+        'top: loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("Choice parsing key: {err}"))?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "delta" => {
+                    let j = p.value_slice()?;
+                    delta = Some(Message::from_json(j)?);
+                    break 'top;
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(Choice {
+            delta: delta.expect("Missing delta in message"),
+        })
+    }
+}
+
+impl Usage {
+    pub fn from_json(json: &str) -> Result<Self, &'static str> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        // Currently we only extract cost
+        let mut cost = 0.0;
+
+        'top: loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("Usage parsing key: {err}"))?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "cost" => {
+                    cost = p.parse_f32()?;
+                    // As we only care about cost, we are done as soon as we have it
+                    break 'top;
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(Usage { cost })
+    }
+}
 
 impl LastData {
     pub fn from_json(json: &str) -> Result<Self, &'static str> {
@@ -27,13 +209,13 @@ impl LastData {
             }
 
             let key = p
-                .parse_string()
-                .inspect_err(|err| eprintln!("ApiKey parsing key: {err}"))?;
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("LastData parsing key: {err}"))?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
-            match key.as_str() {
+            match key {
                 "opts" => {
                     if opts.is_some() {
                         return Err("duplicate field: opts");
@@ -90,6 +272,7 @@ impl Message {
 
         let mut role = None;
         let mut content = None;
+        let mut reasoning = None;
 
         loop {
             p.skip_ws();
@@ -98,27 +281,45 @@ impl Message {
             }
 
             let key = p
-                .parse_string()
-                .inspect_err(|err| eprintln!("ApiKey parsing key: {err}"))?;
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("Message parsing key: {err}"))?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
-            match key.as_str() {
+            match key {
                 "role" => {
                     if role.is_some() {
                         return Err("duplicate field: role");
                     }
-                    let r = p.parse_string()?;
-                    role = Some(Role::from_str(&r)?);
+                    let r = p.parse_simple_str()?;
+                    role = Some(Role::from_str(r)?);
                 }
                 "content" => {
                     if content.is_some() {
                         return Err("duplicate field: content");
                     }
-                    content = Some(p.parse_string()?);
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        content = None;
+                    } else {
+                        content = Some(p.parse_string()?);
+                    }
                 }
-                _ => return Err("unknown field"),
+                "reasoning" => {
+                    if reasoning.is_some() {
+                        return Err("duplicate field: reasoning");
+                    }
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        reasoning = None
+                    } else {
+                        reasoning = Some(p.parse_string()?);
+                    }
+                }
+                _ => {
+                    p.skip_value()?;
+                }
             }
 
             p.skip_ws();
@@ -133,7 +334,8 @@ impl Message {
 
         Ok(Message::new(
             role.expect("Missing Role"),
-            content.expect("Missing content"),
+            content,
+            reasoning,
         ))
     }
 }
@@ -155,13 +357,13 @@ impl ConfigFile {
             }
 
             let key = p
-                .parse_string()
-                .inspect_err(|err| eprintln!("ApiKey parsing key: {err}"))?;
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("ConfigFile parsing key: {err}"))?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
-            match key.as_str() {
+            match key {
                 "settings" => {
                     if settings.is_some() {
                         return Err("duplicate field: settings");
@@ -234,13 +436,13 @@ impl Settings {
             }
 
             let key = p
-                .parse_string()
-                .inspect_err(|err| eprintln!("ApiKey parsing key: {err}"))?;
+                .parse_simple_str()
+                .inspect_err(|err| eprintln!("Settings parsing key: {err}"))?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
-            match key.as_str() {
+            match key {
                 "save_to_file" => {
                     if save_to_file.is_some() {
                         return Err("duplicate field: save_to_file");
@@ -328,13 +530,13 @@ impl ApiKey {
             }
 
             let key = p
-                .parse_string()
+                .parse_simple_str()
                 .inspect_err(|err| eprintln!("ApiKey parsing key: {err}"))?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
-            match key.as_str() {
+            match key {
                 "name" => {
                     if name.is_some() {
                         return Err("duplicate field: name");
@@ -389,14 +591,14 @@ impl ReasoningConfig {
 
             // Key
             let key = p
-                .parse_string()
+                .parse_simple_str()
                 .inspect_err(|err| eprintln!("ReasoningConfig parsing key: {err}"))?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
             // Value by key
-            match key.as_str() {
+            match key {
                 "enabled" => {
                     if enabled.is_some() {
                         return Err("duplicate field: enabled");
@@ -417,7 +619,7 @@ impl ReasoningConfig {
                         effort = None;
                     } else {
                         let v = p
-                            .parse_string()
+                            .parse_simple_str()
                             .inspect_err(|err| eprintln!("Parsing effort: {err}"))?;
                         let e = if v.eq_ignore_ascii_case("low") {
                             ReasoningEffort::Low
@@ -512,12 +714,12 @@ impl PromptOpts {
 
         loop {
             p.skip_ws();
-            let key = p.parse_string()?;
+            let key = p.parse_simple_str()?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
 
-            match key.as_str() {
+            match key {
                 "prompt" => {
                     prompt = p.parse_opt_string()?;
                 }
@@ -535,8 +737,8 @@ impl PromptOpts {
                         p.parse_null()?;
                         priority = None;
                     } else {
-                        let s = p.parse_string()?;
-                        priority = Some(Priority::from_str(&s).map_err(|_| "invalid priority")?);
+                        let s = p.parse_simple_str()?;
+                        priority = Some(Priority::from_str(s).map_err(|_| "invalid priority")?);
                     }
                 }
                 "reasoning" => {
@@ -724,6 +926,181 @@ impl<'a> Parser<'a> {
             return Err("expected integer");
         }
         Ok(val)
+    }
+
+    fn parse_f32(&mut self) -> Result<f32, &'static str> {
+        self.skip_ws();
+        if self.eof() {
+            return Err("expected number");
+        }
+
+        let len = self.b.len();
+
+        // Sign
+        let mut neg = false;
+        if let Some(c) = self.peek() {
+            if c == b'-' {
+                neg = true;
+                self.i += 1;
+            } else if c == b'+' {
+                self.i += 1;
+            }
+        }
+
+        // Mantissa accumulation (up to 9 significant digits)
+        let mut mant: u32 = 0;
+        let mut mant_digits: i32 = 0;
+        let mut ints: i32 = 0;
+
+        // Integer part
+        while self.i < len {
+            let c = self.b[self.i];
+            if c.is_ascii_digit() {
+                if mant_digits < 9 {
+                    mant = mant.saturating_mul(10).wrapping_add((c - b'0') as u32);
+                    mant_digits += 1;
+                }
+                self.i += 1;
+                ints += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Fractional part
+        let mut frac_any = false;
+        if self.peek() == Some(b'.') {
+            self.i += 1;
+            let start_frac = self.i;
+            while self.i < len {
+                let c = self.b[self.i];
+                if c.is_ascii_digit() {
+                    if mant_digits < 9 {
+                        mant = mant.saturating_mul(10).wrapping_add((c - b'0') as u32);
+                        mant_digits += 1;
+                    }
+                    self.i += 1;
+                } else {
+                    break;
+                }
+            }
+            frac_any = self.i > start_frac;
+        }
+
+        if ints == 0 && !frac_any {
+            return Err("expected number");
+        }
+
+        // Exponent part
+        let mut exp_part: i32 = 0;
+        if let Some(ech) = self.peek()
+            && (ech == b'e' || ech == b'E')
+        {
+            self.i += 1;
+            let mut eneg = false;
+            if let Some(signch) = self.peek() {
+                if signch == b'-' {
+                    eneg = true;
+                    self.i += 1;
+                } else if signch == b'+' {
+                    self.i += 1;
+                }
+            }
+            if self.eof() || !self.b[self.i].is_ascii_digit() {
+                return Err("expected exponent");
+            }
+            let mut eacc: i32 = 0;
+            while self.i < len {
+                let c = self.b[self.i];
+                if c.is_ascii_digit() {
+                    let d = (c - b'0') as i32;
+                    if eacc < 1_000_000_000 / 10 {
+                        eacc = eacc * 10 + d;
+                    } else {
+                        eacc = 1_000_000_000; // clamp large exponents
+                    }
+                    self.i += 1;
+                } else {
+                    break;
+                }
+            }
+            exp_part = if eneg { -eacc } else { eacc };
+        }
+
+        // Effective base-10 exponent relative to the mantissa we built
+        let exp10 = ints - mant_digits + exp_part;
+
+        // Scale using f64 to avoid premature underflow; cast to f32 at the end
+        let mut val = mant as f64;
+
+        const POW10_POS: [f64; 39] = [
+            1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+            1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22, 1e23, 1e24, 1e25, 1e26, 1e27, 1e28, 1e29,
+            1e30, 1e31, 1e32, 1e33, 1e34, 1e35, 1e36, 1e37, 1e38,
+        ];
+        const POW10_NEG: [f64; 46] = [
+            1.0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13,
+            1e-14, 1e-15, 1e-16, 1e-17, 1e-18, 1e-19, 1e-20, 1e-21, 1e-22, 1e-23, 1e-24, 1e-25,
+            1e-26, 1e-27, 1e-28, 1e-29, 1e-30, 1e-31, 1e-32, 1e-33, 1e-34, 1e-35, 1e-36, 1e-37,
+            1e-38, 1e-39, 1e-40, 1e-41, 1e-42, 1e-43, 1e-44, 1e-45,
+        ];
+
+        if exp10 > 0 {
+            let mut e = exp10;
+            while e > 0 {
+                let chunk = if e > 38 { 38 } else { e } as usize;
+                val *= POW10_POS[chunk];
+                if !val.is_finite() {
+                    return Err("f32 overflow");
+                }
+                e -= chunk as i32;
+            }
+        } else if exp10 < 0 {
+            let mut e = -exp10;
+            while e > 0 {
+                let chunk = if e > 45 { 45 } else { e } as usize;
+                val *= POW10_NEG[chunk];
+                if val == 0.0 {
+                    break;
+                }
+                e -= chunk as i32;
+            }
+        }
+
+        let mut out = val as f32;
+        if !out.is_finite() {
+            return Err("f32 overflow");
+        }
+        if neg {
+            out = -out;
+        }
+        Ok(out)
+    }
+
+    fn parse_simple_str(&mut self) -> Result<&'a str, &'static str> {
+        self.skip_ws();
+        if self.peek() != Some(b'"') {
+            return Err("expected string");
+        }
+        self.i += 1;
+        let start = self.i;
+        let len = self.b.len();
+        while self.i < len {
+            let c = self.b[self.i];
+            if c == b'\\' {
+                // For maximum speed and simplicity, we reject escapes.
+                return Err("string escapes are not supported");
+            }
+            if c == b'"' {
+                let end = self.i;
+                self.i += 1; // consume closing quote
+                // Safety: start and end are at UTF-8 code point boundaries (quotes),
+                // so slicing is valid even if contents contain non-ASCII.
+                return Ok(&self.s[start..end]);
+            }
+            self.i += 1;
+        }
+        Err("unterminated string")
     }
 
     fn parse_string(&mut self) -> Result<String, &'static str> {
@@ -1160,5 +1537,58 @@ mod tests {
         let l = LastData::from_json(s).unwrap();
         assert_eq!(l.opts.provider.as_deref(), Some("google-ai-studio"));
         assert_eq!(l.messages.len(), 2);
+    }
+
+    #[test]
+    fn test_usage() {
+        let s = r#"{"prompt_tokens":42,"completion_tokens":2,"total_tokens":44,"cost":0.0534,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0,"upstream_inference_completions_cost":0},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}"#;
+        let usage = Usage::from_json(s).unwrap();
+        assert_eq!(usage.cost, 0.0534);
+    }
+
+    #[test]
+    fn test_choice() {
+        let s = r#"{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}"#;
+        let choice = Choice::from_json(s).unwrap();
+        assert_eq!(choice.delta.content.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn test_chat_completions_response_simple() {
+        let arr = [
+            r#"{"id":"gen-1756743299-7ytIBcjALWQQShwMQfw9","provider":"Meta","model":"meta-llama/llama-3.3-8b-instruct:free","object":"chat.completion.chunk","created":1756743300,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756743299-7ytIBcjALWQQShwMQfw9","provider":"Meta","model":"meta-llama/llama-3.3-8b-instruct:free","object":"chat.completion.chunk","created":1756743300,"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}]}"#,
+            r#"{"id":"gen-1756743299-7ytIBcjALWQQShwMQfw9","provider":"Meta","model":"meta-llama/llama-3.3-8b-instruct:free","object":"chat.completion.chunk","created":1756743300,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":42,"completion_tokens":2,"total_tokens":44,"cost":0,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0,"upstream_inference_completions_cost":0},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}}"#,
+        ];
+        for a in arr {
+            let ccr = ChatCompletionsResponse::from_json(a).unwrap();
+            assert_eq!(ccr.provider.as_deref(), Some("Meta"));
+            assert_eq!(
+                ccr.model.as_deref(),
+                Some("meta-llama/llama-3.3-8b-instruct:free")
+            );
+            assert_eq!(ccr.choices.len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_chat_completions_response_more() {
+        let arr = [
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"Rea","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"l","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":" Madrid, 14 times.","reasoning":null,"reasoning_details":[]},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":33,"completion_tokens":8,"total_tokens":41,"cost":0.0000310365,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0.00001815,"upstream_inference_completions_cost":0.0000132},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}}"#,
+        ];
+        for a in arr {
+            let ccr = ChatCompletionsResponse::from_json(a).unwrap();
+            assert_eq!(ccr.provider.as_deref(), Some("WandB"));
+            assert_eq!(ccr.model.as_deref(), Some("deepseek/deepseek-chat-v3.1"));
+            assert_eq!(ccr.choices.len(), 1);
+        }
     }
 }

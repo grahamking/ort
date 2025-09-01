@@ -68,7 +68,7 @@ pub fn build_body(opts: &PromptOpts, messages: &[Message]) -> anyhow::Result<Str
 }
 
 impl LastData {
-    pub fn to_json_writer<W: io::Write>(&self, writer: W) -> io::Result<()> {
+    pub fn to_json_writer<W: io::Write>(&self, writer: W) -> anyhow::Result<()> {
         // Use a buffered writer for fewer syscalls when writing to files.
         let mut w = io::BufWriter::with_capacity(4096, writer);
 
@@ -168,7 +168,7 @@ impl LastData {
         Message::write_json_array(&self.messages, &mut w)?;
 
         w.write_all(b"}")?;
-        w.flush()
+        Ok(w.flush()?)
     }
 }
 
@@ -197,7 +197,7 @@ fn write_u32<W: io::Write>(w: &mut W, mut n: u32) -> io::Result<()> {
 }
 
 impl Message {
-    pub fn write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> io::Result<()> {
+    pub fn write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> anyhow::Result<()> {
         w.write_all(b"[")?;
         for (i, msg) in msgs.iter().enumerate() {
             if i != 0 {
@@ -209,11 +209,22 @@ impl Message {
         Ok(())
     }
 
-    pub fn write_json<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
+    pub fn write_json<W: io::Write>(&self, w: &mut W) -> anyhow::Result<()> {
         w.write_all(b"{\"role\":")?;
         write_json_str_simple(w, self.role.as_str())?;
-        w.write_all(b",\"content\":")?;
-        write_json_str(w, &self.content)?;
+        match (&self.content, &self.reasoning) {
+            (Some(_), Some(_)) | (None, None) => {
+                anyhow::bail!("Message must have exactly one of 'content' or 'reasoning'.");
+            }
+            (Some(content), _) => {
+                w.write_all(b",\"content\":")?;
+                write_json_str(w, content)?;
+            }
+            (_, Some(reasoning)) => {
+                w.write_all(b",\"reasoning\":")?;
+                write_json_str(w, reasoning)?;
+            }
+        }
         w.write_all(b"}")?;
         Ok(())
     }

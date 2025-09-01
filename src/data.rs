@@ -11,6 +11,47 @@ const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 
+// {
+//  "id":"gen-1756743299-7ytIBcjALWQQShwMQfw9",
+//  "provider":"Meta",
+//  "model":"meta-llama/llama-3.3-8b-instruct:free",
+//  "object":"chat.completion.chunk",
+//  "created":1756743300,
+//  "choices":[
+//      {
+//      "index":0,
+//      "delta":{"role":"assistant","content":""},
+//      "finish_reason":null,
+//      "native_finish_reason":null,
+//      "logprobs":null
+//      }
+//  ],
+//  "usage":{
+//      "prompt_tokens":42,
+//      "completion_tokens":2,
+//      "total_tokens":44,
+//      "cost":0,"
+//      is_byok":false,
+//      "prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},
+//      "cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0,"upstream_inference_completions_cost":0},
+//      "completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}
+//  }
+
+pub struct ChatCompletionsResponse {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub choices: Vec<Choice>,
+    pub usage: Option<Usage>,
+}
+
+pub struct Choice {
+    pub delta: Message,
+}
+
+pub struct Usage {
+    pub cost: f32, // In dollars, usually a very small fraction
+}
+
 #[derive(Default, Debug)]
 pub struct LastData {
     pub opts: PromptOpts,
@@ -168,26 +209,36 @@ impl fmt::Display for ReasoningEffort {
 #[derive(Debug, Clone)]
 pub struct Message {
     pub(crate) role: Role,
-    pub(crate) content: String,
+    pub(crate) content: Option<String>,
+    pub(crate) reasoning: Option<String>,
 }
 
 impl Message {
-    pub(crate) fn new(role: Role, content: String) -> Self {
-        Message { role, content }
+    pub(crate) fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
+        Message {
+            role,
+            content,
+            reasoning,
+        }
     }
     pub fn system(content: String) -> Self {
-        Self::new(Role::System, content)
+        Self::new(Role::System, Some(content), None)
     }
     pub fn user(content: String) -> Self {
-        Self::new(Role::User, content)
+        Self::new(Role::User, Some(content), None)
     }
     pub fn assistant(content: String) -> Self {
-        Self::new(Role::Assistant, content)
+        Self::new(Role::Assistant, Some(content), None)
     }
 
     /// Estimate size in bytes
     pub fn size(&self) -> u32 {
-        self.content.len() as u32 + 10
+        self.content
+            .as_ref()
+            .or(self.reasoning.as_ref())
+            .map(|c| c.len())
+            .unwrap_or(0) as u32
+            + 10
     }
 }
 
