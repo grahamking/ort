@@ -24,6 +24,7 @@ pub mod parser;
 pub mod serializer;
 pub mod writer;
 
+const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
 
@@ -112,7 +113,7 @@ pub fn prompt(
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_recv_response(None)
             .https_only(true)
-            .user_agent("ort/0.1.0")
+            .user_agent(USER_AGENT)
             .http_status_as_error(false)
             .tls_config(tls_config.build())
             .build();
