@@ -5,7 +5,6 @@
 //! Copyright (c) 2025 Graham King
 
 use std::fmt;
-use std::io::BufRead;
 use std::net::Ipv4Addr;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -21,10 +20,6 @@ pub use data::{
 pub mod parser;
 pub mod serializer;
 pub mod writer;
-
-const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
-
-const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 
 #[derive(Debug, Clone)]
 pub enum Response {
@@ -79,12 +74,11 @@ impl fmt::Display for Stats {
 }
 
 /// Returns raw JSON
-pub fn list_models(api_key: &str) -> anyhow::Result<String> {
-    let mut req = ureq::get(MODELS_URL);
-    req = req.header("Authorization", &format!("Bearer {api_key}",));
-    let mut resp = req.call()?;
-    let body = resp.body_mut().read_to_string()?;
-    Ok(body)
+pub fn list_models(
+    api_key: &str,
+) -> anyhow::Result<impl Iterator<Item = Result<String, std::io::Error>>> {
+    let reader = net::list_models(api_key, ("openrouter.ai", 443))?;
+    Ok(net::read_header(reader)?)
 }
 
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
@@ -109,34 +103,13 @@ pub fn prompt(
             let addr = (dns[0].parse::<Ipv4Addr>().unwrap(), 443);
             net::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
         };
-        let mut response_lines = reader.lines();
-
-        let Some(Ok(status)) = response_lines.next() else {
-            let _ = tx.send(Response::Error(
-                "Request failed. Missing initial status line".to_string(),
-            ));
-            return;
-        };
-        if status.trim() != EXPECTED_HTTP_200 {
-            // Usually the body explains the error so gather that.
-
-            let mut response_lines = response_lines
-                // Skip the rest of the headers
-                .skip_while(|line| line.as_ref().map(|l| l.trim().len()).unwrap_or(0) > 0)
-                // Then skip until the actual error
-                .skip_while(|line| line.as_ref().map(|l| l.trim().len()).unwrap_or(0) < 5);
-            match response_lines.next() {
-                Some(Ok(err)) => {
-                    // TODO parse JSON. It looks like this:
-                    // {"error":{"message":"openai/gpt-oss-90b is not a valid model ID","code":400},"user_id":"user_30mJ0GpP57Kj9wLQ4mDCfMS5nk0"}
-                    let _ = tx.send(Response::Error(format!("HTTP error {status}: {err}")));
-                }
-                _ => {
-                    let _ = tx.send(Response::Error(format!("HTTP error {status}")));
-                }
+        let response_lines = match net::read_header(reader) {
+            Ok(r) => r,
+            Err(err) => {
+                let _ = tx.send(Response::Error(err.to_string()));
+                return;
             }
-            return;
-        }
+        };
 
         let mut stats: Stats = Default::default();
         let mut token_stream_start = None;

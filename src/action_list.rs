@@ -5,6 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 use crate::{ArgParseError, Cmd, ListOpts};
+use std::io::Write as _;
 
 pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     let mut is_json = false;
@@ -25,20 +26,42 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 }
 
 pub fn run(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
-    let models_json = ort::list_models(api_key)?;
+    let models_iter = ort::list_models(api_key)?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
-        println!("{models_json}");
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        for models_json in models_iter {
+            let models_json = models_json?;
+            let b = models_json.as_bytes();
+            if b.is_empty() {
+                break;
+            }
+            if b.len() < 5 {
+                // TODO: What are these? Maybe rustls related?
+                // Every second read is one of these.
+                continue;
+            }
+            handle.write_all(b)?;
+            handle.flush()?;
+        }
+        drop(handle);
     } else {
-        // Extract and print canonical_slug fields alphabetically
-        let mut slugs: Vec<&str> = models_json
-            .split(r#""canonical_slug":""#)
-            .skip(1)
-            .map(until_quote)
-            .collect();
+        // Extract and print model ids alphabetically
+        let mut full = String::with_capacity(512 * 1024 * 1024);
+        for models_json in models_iter {
+            let models_json = models_json?;
+            if models_json.is_empty() {
+                break;
+            }
+            if models_json.len() < 5 {
+                continue;
+            }
+            full += &models_json;
+        }
+        let mut slugs: Vec<&str> = full.split(r#""id":""#).skip(1).map(until_quote).collect();
         slugs.sort();
-        slugs.dedup();
         for s in slugs {
             println!("{s}");
         }

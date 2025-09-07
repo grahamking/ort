@@ -2,7 +2,7 @@
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a modest 2 MiB ELF binary.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a modest <2 MiB ELF binary.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -16,7 +16,7 @@ Like a good friend, it remembers. `-c` will continue a conversation. And like a 
 
 As an honest CLI, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
 
-Harking from a time when we trusted each other, it doesn't check TLS certificates if `verify_certs` in the config is false, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up.
+Harking from a time when we trusted each other, it doesn't check TLS certificates if `verify_certs` in the config is false, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up. (`verify_certs` is true right now, under construction)
 
 In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
@@ -90,7 +90,7 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
 Here are the settings that are not available on the command line:
 
 - `save_to_file`: Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
-- `verify_certs`: Whether to verify the TLS (HTTPS) certificate that `openrouter.ai` presents. Note we *disable this by default*, because `ort` is *that* committed to speed. The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat we are concerned with.
+- `verify_certs`: Whether to verify the TLS (HTTPS) certificate that `openrouter.ai` presents. Note we *disable this by default*, because `ort` is *that* committed to speed. The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat we are concerned with. (TEMP: this is always treated as true right now).
 - `dns`: The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Allows up to 16 addresses, although fewer is probably better.
 
 ## Reasoning model configuration
@@ -113,14 +113,12 @@ Optional reasoning with tokens, pass e.g `-r off|4096`:
 
 Always fixed reasoning, cannot be configured or disabled:
 
-- deepseek/deepseek-r1-0528
 - qwen/qwen3-235b-a22b-thinking-2507
 
 No reasoning:
 
-- deepseek/deepseek-chat-v3-0324
 - qwen/qwen3-235b-a22b-07-25
-- moonshotai/kimi-k2
+- moonshotai/kimi-k2-0905
 
 ## tmux
 
@@ -136,8 +134,8 @@ Here's an advanced example of how I use it in tmux:
 
 SYSTEM_PROMPT="Make your answer concise but complete. No yapping. Direct professional tone. No emoji."
 MODEL_1=z-ai/glm-4.5                # Hybrid reasoning, -r useful here
-MODEL_2=moonshotai/kimi-k2          # No reasoning
-MODEL_3=deepseek/deepseek-r1-0528   # Always reasoning, cannot disable
+MODEL_2=moonshotai/kimi-k2-0905     # No reasoning
+MODEL_3=deepseek/deepseek-chat-v3.1 # Hybrid
 
 # Close all other panes in the current window (keep only the current one)
 tmux kill-pane -a
