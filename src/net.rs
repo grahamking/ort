@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ pub fn chat_completions<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
     json_body: &str,
-) -> io::Result<Box<dyn BufRead>> {
+) -> io::Result<BufReader<StreamOwned<ClientConnection, TcpStream>>> {
     let tcp = TcpStream::connect(addr)?;
     tcp.set_nodelay(true)?;
 
@@ -63,5 +63,5 @@ pub fn chat_completions<A: ToSocketAddrs>(
     tls.write_all(body)?;
     tls.flush()?;
 
-    Ok(Box::new(BufReader::new(tls)))
+    Ok(BufReader::new(tls))
 }
