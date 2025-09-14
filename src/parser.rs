@@ -426,7 +426,6 @@ impl Settings {
         p.expect(b'{')?;
 
         let mut save_to_file = None;
-        let mut verify_certs = None;
         let mut dns = vec![];
 
         loop {
@@ -452,17 +451,6 @@ impl Settings {
                         save_to_file = None;
                     } else {
                         save_to_file = Some(p.parse_bool()?);
-                    }
-                }
-                "verify_certs" => {
-                    if verify_certs.is_some() {
-                        return Err("duplicate field: verify_certs");
-                    }
-                    if p.peek_is_null() {
-                        p.parse_null()?;
-                        verify_certs = None;
-                    } else {
-                        verify_certs = Some(p.parse_bool()?);
                     }
                 }
                 "dns" => {
@@ -508,7 +496,6 @@ impl Settings {
         let default = Settings::default();
         Ok(Settings {
             save_to_file: save_to_file.unwrap_or(default.save_to_file),
-            verify_certs: verify_certs.unwrap_or(default.verify_certs),
             dns,
         })
     }

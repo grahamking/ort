@@ -19,6 +19,7 @@ pub use data::{
 };
 pub mod parser;
 pub mod serializer;
+mod tls;
 pub mod writer;
 
 #[derive(Debug, Clone)]
@@ -84,7 +85,6 @@ pub fn list_models(
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
 pub fn prompt(
     api_key: &str,
-    _verify_certs: bool,
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,

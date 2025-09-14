@@ -2,7 +2,7 @@
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a modest <2 MiB ELF binary.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a reasonable ~800 KiB ELF binary.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -16,7 +16,7 @@ Like a good friend, it remembers. `-c` will continue a conversation. And like a 
 
 As an honest CLI, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
 
-Harking from a time when we trusted each other, it doesn't check TLS certificates if `verify_certs` in the config is false, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up. (`verify_certs` is true right now, under construction)
+Harking from a time when we trusted each other, it doesn't check TLS certificates, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up.
 
 In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
@@ -70,7 +70,6 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
     "keys": [{"name": "openrouter", "value": "sk-..."}],
     "settings": {
         "save_to_file": true,
-        "verify_certs": false,
         "dns": ["104.18.2.115", "104.18.3.115"]
     },
     "prompt_opts": {
@@ -90,8 +89,13 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which i
 Here are the settings that are not available on the command line:
 
 - `save_to_file`: Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
-- `verify_certs`: Whether to verify the TLS (HTTPS) certificate that `openrouter.ai` presents. Note we *disable this by default*, because `ort` is *that* committed to speed. The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat we are concerned with. (TEMP: this is always treated as true right now).
 - `dns`: The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Allows up to 16 addresses, although fewer is probably better.
+
+## Security
+
+`ort` does not validate TLS certificates. This makes the binary smaller and the connection start faster. It also makes it vunlerable to man-in-the-middle attacks. You can verify easily enough by browsing to openrouter.ai to see if your browser shows an alert. If it doesn't you're likely fine.
+
+The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat I am concerned with. If your prompts are secret you should not be using openrouter, or any of the major providers as they are usually required to retain your data. Self-hosting will be your best option, although that's complex and expensive.
 
 ## Reasoning model configuration
 

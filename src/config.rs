@@ -12,7 +12,6 @@ const CONFIG_FILE: &str = "ort.json";
 const OPENROUTER_KEY: &str = "openrouter";
 
 const DEFAULT_SAVE_TO_FILE: bool = true;
-const DEFAULT_VERIFY_CERTS: bool = false;
 
 #[derive(Default)]
 pub struct ConfigFile {
@@ -33,20 +32,12 @@ impl ConfigFile {
             .map(|s| s.save_to_file)
             .unwrap_or(DEFAULT_SAVE_TO_FILE)
     }
-    pub fn _verify_certs(&self) -> bool {
-        self.settings
-            .as_ref()
-            .map(|s| s.verify_certs)
-            .unwrap_or(DEFAULT_VERIFY_CERTS)
-    }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Settings {
     /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
     pub save_to_file: bool,
-    /// Yes to verify TLS certificates. Many people choose yes.
-    pub verify_certs: bool,
     /// IP addresses of openrouter.ai. Saves time resolving them.
     pub dns: Vec<String>,
 }
@@ -55,7 +46,6 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             save_to_file: DEFAULT_SAVE_TO_FILE,
-            verify_certs: DEFAULT_VERIFY_CERTS,
             dns: vec![],
         }
     }

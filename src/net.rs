@@ -7,11 +7,6 @@
 use std::fmt;
 use std::io::{self, BufRead as _, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::Arc;
-
-use rustls::pki_types::ServerName;
-use rustls::version::TLS13;
-use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const HOST: &str = "openrouter.ai";
@@ -20,8 +15,12 @@ const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 pub fn list_models<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
-) -> io::Result<BufReader<StreamOwned<ClientConnection, TcpStream>>> {
-    let mut tls = tls_stream(addr)?;
+) -> io::Result<BufReader<crate::tls::TlsStream>> {
+    let tcp = TcpStream::connect(addr)?;
+    tcp.set_nodelay(true)?;
+    //let mut tls = tls_stream(addr)?;
+    let mut tls = crate::tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
+
     let prefix = format!(
         concat!(
             "GET /api/v1/models HTTP/1.1\r\n",
@@ -40,6 +39,45 @@ pub fn list_models<A: ToSocketAddrs>(
     Ok(BufReader::new(tls))
 }
 
+pub fn chat_completions<A: ToSocketAddrs>(
+    api_key: &str,
+    addr: A,
+    json_body: &str,
+) -> io::Result<BufReader<crate::tls::TlsStream>> {
+    let tcp = TcpStream::connect(addr)?;
+    tcp.set_nodelay(true)?;
+    //tcp.set_read_timeout(Some(Duration::from_secs(30)))?;
+    //tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
+
+    let mut tls = crate::tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
+
+    // 2) Write HTTP/1.1 request
+    let body = json_body.as_bytes();
+    let prefix = format!(
+        concat!(
+            "POST /api/v1/chat/completions HTTP/1.1\r\n",
+            "Content-Type: application/json\r\n",
+            "Accept: text/event-stream\r\n",
+            "Host: {}\r\n",
+            "Authorization: Bearer {}\r\n",
+            "User-Agent: {}\r\n",
+            "Content-Length: {}\r\n",
+            "\r\n"
+        ),
+        HOST,
+        api_key,
+        USER_AGENT,
+        body.len()
+    );
+
+    tls.write_all(prefix.as_bytes())?;
+    tls.write_all(body)?;
+    tls.flush()?;
+
+    Ok(BufReader::new(tls))
+}
+
+/*
 pub fn chat_completions<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
@@ -70,6 +108,7 @@ pub fn chat_completions<A: ToSocketAddrs>(
 
     Ok(BufReader::new(tls))
 }
+*/
 
 #[derive(Debug)]
 pub struct HttpError {
@@ -98,14 +137,20 @@ impl fmt::Display for HttpError {
     }
 }
 
-/// Consume the reader, returning either a Lines reader pointing at the body if HTTP status 200, or
-/// an error if status other than 200.
+/// Consume the reader, returning either a Lines reader pointing at the body
+/// if HTTP status 200, or an error if status other than 200.
 pub fn read_header(
-    reader: BufReader<StreamOwned<ClientConnection, TcpStream>>,
+    reader: BufReader<crate::tls::TlsStream>,
 ) -> Result<impl Iterator<Item = Result<String, io::Error>>, HttpError> {
     let mut response_lines = reader.lines();
-    let Some(Ok(status)) = response_lines.next() else {
-        return Err(HttpError::status("Missing initial status line".to_string()));
+    let status = match response_lines.next() {
+        Some(Ok(status)) => status,
+        Some(Err(err)) => {
+            return Err(HttpError::status(format!("Internal TLS error: {err}")));
+        }
+        None => {
+            return Err(HttpError::status("Missing initial status line".to_string()));
+        }
     };
 
     // Skip to the content
@@ -128,27 +173,4 @@ pub fn read_header(
         }
         _ => Err(HttpError::status(status)),
     }
-}
-
-fn tls_stream<A: ToSocketAddrs>(addr: A) -> io::Result<StreamOwned<ClientConnection, TcpStream>> {
-    let tcp = TcpStream::connect(addr)?;
-    tcp.set_nodelay(true)?;
-
-    let root_store = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
-    };
-
-    let cfg = ClientConfig::builder_with_provider(rustls::crypto::ring::default_provider().into())
-        .with_protocol_versions(&[&TLS13])
-        .unwrap()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    //cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
-
-    let server_name = ServerName::try_from(HOST)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid DNS name"))?;
-    let conn = ClientConnection::new(Arc::new(cfg), server_name)
-        .map_err(|e| io::Error::other(format!("TLS error: {e}")))?;
-
-    Ok(StreamOwned::new(conn, tcp))
 }

@@ -194,13 +194,7 @@ pub fn run(
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = ort::prompt(
-        api_key,
-        settings.verify_certs,
-        settings.dns,
-        opts.clone(),
-        messages.clone(),
-    )?;
+    let rx_main = ort::prompt(api_key, settings.dns, opts.clone(), messages.clone())?;
     std::thread::yield_now();
 
     let (tx_stdout, rx_stdout) = mpsc::channel();

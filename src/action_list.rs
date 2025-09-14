@@ -39,8 +39,7 @@ pub fn run(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
                 break;
             }
             if b.len() < 5 {
-                // TODO: What are these? Maybe rustls related?
-                // Every second read is one of these.
+                // TODO: Do these still happen? I think it was rustls.
                 continue;
             }
             handle.write_all(b)?;
