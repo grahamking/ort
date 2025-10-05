@@ -6,7 +6,8 @@
 
 use std::fmt;
 use std::net::Ipv4Addr;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 pub mod config;
@@ -84,6 +85,7 @@ pub fn list_models(
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
 pub fn prompt(
     api_key: &str,
+    is_running: Arc<AtomicBool>,
     _verify_certs: bool,
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
@@ -119,6 +121,9 @@ pub fn prompt(
         let mut is_first_content = true;
 
         for line_res in response_lines {
+            if !is_running.load(Ordering::Relaxed) {
+                break;
+            }
             let line = match line_res {
                 Ok(l) => l,
                 Err(e) => {
@@ -225,12 +230,19 @@ pub fn prompt(
                 }
             }
         }
-        let now = Instant::now();
-        stats.elapsed_time = now - start;
-        let stream_elapsed_time = now - token_stream_start.unwrap();
-        stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
 
-        let _ = tx.send(Response::Stats(stats));
+        if is_running.load(Ordering::Relaxed) {
+            // Clean finish, send stats
+            let now = Instant::now();
+            stats.elapsed_time = now - start;
+            let stream_elapsed_time = now - token_stream_start.unwrap();
+            stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
+
+            let _ = tx.send(Response::Stats(stats));
+        } else {
+            // Usually user did Ctrl-C
+            let _ = tx.send(Response::Error("Interrupted".to_string()));
+        }
     });
 
     Ok(rx)

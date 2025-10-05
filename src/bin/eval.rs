@@ -21,6 +21,9 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ort::Response;
@@ -65,6 +68,8 @@ fn main() -> anyhow::Result<()> {
             std::process::exit(1);
         }
     };
+    // This is how we would stop all the running evals on ctrl-c, see main.rs
+    let is_running = Arc::new(AtomicBool::new(true));
 
     let args = parse_args();
 
@@ -80,7 +85,14 @@ fn main() -> anyhow::Result<()> {
         .collect();
 
     for (eval_num, prompt) in prompts.into_iter().enumerate() {
-        run_prompt(&api_key, eval_num, &prompt, &models, &args.out_dir)?;
+        run_prompt(
+            &api_key,
+            is_running.clone(),
+            eval_num,
+            &prompt,
+            &models,
+            &args.out_dir,
+        )?;
     }
     Ok(())
 }
@@ -158,6 +170,7 @@ fn parse_args() -> Args {
 
 fn run_prompt(
     api_key: &str,
+    is_running: Arc<AtomicBool>,
     eval_num: usize,
     prompt: &str,
     models: &[String],
@@ -209,8 +222,18 @@ fn run_prompt(
 
         let messages = vec![ort::Message::user(prompt.to_string())];
         let verify_certs = false; // we doing evals
-        let rx = ort::prompt(api_key, verify_certs, vec![], common, messages)?;
+        let rx = ort::prompt(
+            api_key,
+            is_running.clone(),
+            verify_certs,
+            vec![],
+            common,
+            messages,
+        )?;
         while let Ok(data) = rx.recv() {
+            if !is_running.load(Ordering::Relaxed) {
+                break;
+            }
             match data {
                 Response::Start => {}
                 Response::Think(think) => match think {

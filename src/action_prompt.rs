@@ -7,6 +7,8 @@
 use std::io;
 use std::io::Read as _;
 use std::io::Write as _;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::thread;
 
@@ -185,6 +187,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 
 pub fn run(
     api_key: &str,
+    is_running: Arc<AtomicBool>,
     settings: config::Settings,
     opts: ort::PromptOpts,
     messages: Vec<ort::Message>,
@@ -196,6 +199,7 @@ pub fn run(
     // Start network connection before almost anything else, this takes time
     let rx_main = ort::prompt(
         api_key,
+        is_running.clone(),
         settings.verify_certs,
         settings.dns,
         opts.clone(),
@@ -272,7 +276,7 @@ pub fn run(
 
     for h in handles {
         if let Err(err) = h.join().unwrap() {
-            eprintln!("Thread error: {err}");
+            eprintln!("\nThread error: {err}");
             // The errors are all the same so only print the first
             break;
         }

@@ -4,6 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 use std::{
     fs,
@@ -18,6 +20,7 @@ use crate::action_prompt;
 
 pub fn run_continue(
     api_key: &str,
+    is_running: Arc<AtomicBool>,
     settings: config::Settings,
     mut opts: ort::PromptOpts,
 ) -> anyhow::Result<()> {
@@ -41,7 +44,7 @@ pub fn run_continue(
     last.messages
         .push(ort::Message::user(opts.prompt.take().unwrap()));
 
-    action_prompt::run(api_key, settings, opts, last.messages)
+    action_prompt::run(api_key, is_running, settings, opts, last.messages)
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
