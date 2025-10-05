@@ -8,8 +8,6 @@ use core::fmt;
 use std::borrow::Cow;
 use std::env;
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use std::sync::{Arc, OnceLock};
 
 use ort::PromptOpts;
 
@@ -17,15 +15,6 @@ mod action_history;
 mod action_list;
 mod action_prompt;
 mod multi_channel;
-
-// How the Ctrl-C handler asks the prompt thread to stop.
-// This gymnastics is necessary because a POSIX signal handler is very limited
-// in terms of code it can safely run.
-
-// Keep the Arc/Atomic alive, not otherwise used
-static IS_RUNNING: OnceLock<Arc<AtomicBool>> = OnceLock::new();
-// Signal handlers can't use Arc directly so they use this
-static IS_RUNNING_PTR: AtomicPtr<AtomicBool> = AtomicPtr::new(std::ptr::null_mut());
 
 #[derive(Debug)]
 enum Cmd {
@@ -91,32 +80,6 @@ fn parse_args() -> Result<Cmd, ArgParseError> {
     }
 }
 
-/// Ctrl-C handler
-unsafe extern "C" fn sigint_handler(_sig: libc::c_int) {
-    unsafe {
-        let p = IS_RUNNING_PTR.load(Ordering::Acquire);
-        if !p.is_null() {
-            (*p).store(false, Ordering::SeqCst);
-        }
-    }
-}
-
-// Attach a Ctrl-C handler for clean shutdown, particularly switching back
-// on the ANSI cursor.
-// Returns a boolean that will toggle to false when we need to stop.
-fn install_ctrl_c_handler() -> Arc<AtomicBool> {
-    let is_running = Arc::new(AtomicBool::new(true));
-    IS_RUNNING_PTR.store(
-        Arc::as_ptr(&is_running) as *mut AtomicBool,
-        Ordering::Release,
-    );
-    let _ = IS_RUNNING.set(is_running.clone()); // keep it alive
-    unsafe {
-        libc::signal(libc::SIGINT, sigint_handler as libc::sighandler_t);
-    };
-    is_running
-}
-
 fn main() -> ExitCode {
     // Load ~/.config/ort.json
     let cfg = match ort::config::load() {
@@ -147,7 +110,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let is_running = install_ctrl_c_handler();
+    let cancel_token = ort::CancelToken::init();
 
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
@@ -164,7 +127,7 @@ fn main() -> ExitCode {
             messages.push(ort::Message::user(cli_opts.prompt.take().unwrap()));
             action_prompt::run(
                 &api_key,
-                is_running.clone(),
+                cancel_token,
                 cfg.settings.unwrap_or_default(),
                 cli_opts,
                 messages,
@@ -172,7 +135,7 @@ fn main() -> ExitCode {
         }
         Cmd::ContinueConversation(cli_opts) => action_history::run_continue(
             &api_key,
-            is_running.clone(),
+            cancel_token,
             cfg.settings.unwrap_or_default(),
             cli_opts,
         ),

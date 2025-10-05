@@ -11,6 +11,7 @@
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
 use anyhow::Context as _;
+use ort::CancelToken;
 use ort::PromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
@@ -21,9 +22,6 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ort::Response;
@@ -69,7 +67,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
     // This is how we would stop all the running evals on ctrl-c, see main.rs
-    let is_running = Arc::new(AtomicBool::new(true));
+    let cancel_token = CancelToken::init();
 
     let args = parse_args();
 
@@ -87,7 +85,7 @@ fn main() -> anyhow::Result<()> {
     for (eval_num, prompt) in prompts.into_iter().enumerate() {
         run_prompt(
             &api_key,
-            is_running.clone(),
+            cancel_token,
             eval_num,
             &prompt,
             &models,
@@ -170,7 +168,7 @@ fn parse_args() -> Args {
 
 fn run_prompt(
     api_key: &str,
-    is_running: Arc<AtomicBool>,
+    cancel_token: CancelToken,
     eval_num: usize,
     prompt: &str,
     models: &[String],
@@ -224,14 +222,14 @@ fn run_prompt(
         let verify_certs = false; // we doing evals
         let rx = ort::prompt(
             api_key,
-            is_running.clone(),
+            cancel_token,
             verify_certs,
             vec![],
             common,
             messages,
         )?;
         while let Ok(data) = rx.recv() {
-            if !is_running.load(Ordering::Relaxed) {
+            if cancel_token.is_cancelled() {
                 break;
             }
             match data {

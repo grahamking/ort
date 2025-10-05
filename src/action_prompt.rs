@@ -7,11 +7,10 @@
 use std::io;
 use std::io::Read as _;
 use std::io::Write as _;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::thread;
 
+use ort::CancelToken;
 use ort::Priority;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
@@ -187,7 +186,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 
 pub fn run(
     api_key: &str,
-    is_running: Arc<AtomicBool>,
+    cancel_token: CancelToken,
     settings: config::Settings,
     opts: ort::PromptOpts,
     messages: Vec<ort::Message>,
@@ -199,7 +198,7 @@ pub fn run(
     // Start network connection before almost anything else, this takes time
     let rx_main = ort::prompt(
         api_key,
-        is_running.clone(),
+        cancel_token,
         settings.verify_certs,
         settings.dns,
         opts.clone(),
