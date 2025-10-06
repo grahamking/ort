@@ -10,6 +10,7 @@ use std::io::Write as _;
 use std::sync::mpsc;
 use std::thread;
 
+use ort::CancelToken;
 use ort::Priority;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
@@ -185,6 +186,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 
 pub fn run(
     api_key: &str,
+    cancel_token: CancelToken,
     settings: config::Settings,
     opts: ort::PromptOpts,
     messages: Vec<ort::Message>,
@@ -194,7 +196,13 @@ pub fn run(
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = ort::prompt(api_key, settings.dns, opts.clone(), messages.clone())?;
+    let rx_main = ort::prompt(
+        api_key,
+        cancel_token,
+        settings.dns,
+        opts.clone(),
+        messages.clone(),
+    )?;
     std::thread::yield_now();
 
     let (tx_stdout, rx_stdout) = mpsc::channel();
@@ -266,7 +274,7 @@ pub fn run(
 
     for h in handles {
         if let Err(err) = h.join().unwrap() {
-            eprintln!("Thread error: {err}");
+            eprintln!("\nThread error: {err}");
             // The errors are all the same so only print the first
             break;
         }

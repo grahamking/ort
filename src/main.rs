@@ -4,11 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-// TODO: `ort providers model1,model2,model3`
-// Queries endpoints for a model: curl https://openrouter.ai/api/v1/models/:author/:slug/endpoints
-// Exclude providers that quantize "unknow" and below 16, keeping above and "null"
-// Sort them by pricing/completion
-
 use core::fmt;
 use std::borrow::Cow;
 use std::env;
@@ -115,6 +110,8 @@ fn main() -> ExitCode {
         }
     };
 
+    let cancel_token = ort::CancelToken::init();
+
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
@@ -130,14 +127,18 @@ fn main() -> ExitCode {
             messages.push(ort::Message::user(cli_opts.prompt.take().unwrap()));
             action_prompt::run(
                 &api_key,
+                cancel_token,
                 cfg.settings.unwrap_or_default(),
                 cli_opts,
                 messages,
             )
         }
-        Cmd::ContinueConversation(cli_opts) => {
-            action_history::run_continue(&api_key, cfg.settings.unwrap_or_default(), cli_opts)
-        }
+        Cmd::ContinueConversation(cli_opts) => action_history::run_continue(
+            &api_key,
+            cancel_token,
+            cfg.settings.unwrap_or_default(),
+            cli_opts,
+        ),
         Cmd::List(args) => action_list::run(&api_key, args),
     };
     match cmd_result {

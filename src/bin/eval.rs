@@ -11,6 +11,7 @@
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
 use anyhow::Context as _;
+use ort::CancelToken;
 use ort::PromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
@@ -65,6 +66,8 @@ fn main() -> anyhow::Result<()> {
             std::process::exit(1);
         }
     };
+    // This is how we would stop all the running evals on ctrl-c, see main.rs
+    let cancel_token = CancelToken::init();
 
     let args = parse_args();
 
@@ -80,7 +83,14 @@ fn main() -> anyhow::Result<()> {
         .collect();
 
     for (eval_num, prompt) in prompts.into_iter().enumerate() {
-        run_prompt(&api_key, eval_num, &prompt, &models, &args.out_dir)?;
+        run_prompt(
+            &api_key,
+            cancel_token,
+            eval_num,
+            &prompt,
+            &models,
+            &args.out_dir,
+        )?;
     }
     Ok(())
 }
@@ -158,6 +168,7 @@ fn parse_args() -> Args {
 
 fn run_prompt(
     api_key: &str,
+    cancel_token: CancelToken,
     eval_num: usize,
     prompt: &str,
     models: &[String],
@@ -208,8 +219,11 @@ fn run_prompt(
         let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))?;
 
         let messages = vec![ort::Message::user(prompt.to_string())];
-        let rx = ort::prompt(api_key, vec![], common, messages)?;
+        let rx = ort::prompt(api_key, cancel_token, vec![], common, messages)?;
         while let Ok(data) = rx.recv() {
+            if cancel_token.is_cancelled() {
+                break;
+            }
             match data {
                 Response::Start => {}
                 Response::Think(think) => match think {

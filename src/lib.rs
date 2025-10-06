@@ -17,6 +17,8 @@ pub use data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Role, Usage,
 };
+mod cancel_token;
+pub use cancel_token::CancelToken;
 pub mod parser;
 pub mod serializer;
 mod tls;
@@ -85,6 +87,7 @@ pub fn list_models(
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
 pub fn prompt(
     api_key: &str,
+    cancel_token: CancelToken,
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
@@ -119,6 +122,9 @@ pub fn prompt(
         let mut is_first_content = true;
 
         for line_res in response_lines {
+            if cancel_token.is_cancelled() {
+                break;
+            }
             let line = match line_res {
                 Ok(l) => l,
                 Err(e) => {
@@ -225,12 +231,19 @@ pub fn prompt(
                 }
             }
         }
-        let now = Instant::now();
-        stats.elapsed_time = now - start;
-        let stream_elapsed_time = now - token_stream_start.unwrap();
-        stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
 
-        let _ = tx.send(Response::Stats(stats));
+        if cancel_token.is_cancelled() {
+            // Probaby user did Ctrl-C
+            let _ = tx.send(Response::Error("Interrupted".to_string()));
+        } else {
+            // Clean finish, send stats
+            let now = Instant::now();
+            stats.elapsed_time = now - start;
+            let stream_elapsed_time = now - token_stream_start.unwrap();
+            stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
+
+            let _ = tx.send(Response::Stats(stats));
+        }
     });
 
     Ok(rx)
