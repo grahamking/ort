@@ -93,9 +93,13 @@ Here are the settings that are not available on the command line:
 
 ## Security
 
-`ort` does not validate TLS certificates. This makes the binary smaller and the connection start faster. It also makes it vunlerable to man-in-the-middle attacks. You can verify easily enough by browsing to openrouter.ai to see if your browser shows an alert. If it doesn't you're likely fine.
+`ort` does not validate TLS certificates. This makes the binary smaller and the connection start faster. It also makes it vunlerable to man-in-the-middle attacks. You can verify easily enough by browsing to openrouter.ai to see if your browser shows an alert. If it doesn't you're likely fine. It would be _possible_ to identify an `ort` request vs a browser request, by fingerprinting the TLS `ClientHello`, but it is extremely unlikely at this stage.
 
-The AI provider is saving all my prompts for training, so man-in-the-middle attacks are not a threat I am concerned with. If your prompts are secret you should not be using openrouter, or any of the major providers as they are usually required to retain your data. Self-hosting will be your best option, although that's complex and expensive.
+The biggest risk is a man-in-the-middle gaining your OpenRouter API key. I have a $5 daily limit on mine, which I recommend. Your prompts are already likely saved by the provider, so hopefully you weren't expecting those to be secret anyway.
+
+A man-in-the-middle attack could be perpetrated by the owner of the wi-fi router (so use a VPN when not at home!), your ISP, or a major network provider between your ISP and openrouter.
+
+To summarize, we gain a smaller binary and faster requests, in exchange for a very small risk of losing up to $5 a day, that you can mitigate simply by browsing to openrouter.ai. Security engineers hate this one weird trick.
 
 ## Reasoning model configuration
 
