@@ -139,7 +139,12 @@ fn main() -> ExitCode {
             cfg.settings.unwrap_or_default(),
             cli_opts,
         ),
-        Cmd::List(args) => action_list::run(&api_key, args),
+        Cmd::List(args) => action_list::run(
+            &api_key,
+            cancel_token,
+            cfg.settings.unwrap_or_default(),
+            args,
+        ),
     };
     match cmd_result {
         Ok(()) => ExitCode::SUCCESS,

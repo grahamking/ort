@@ -4,6 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use ort::{CancelToken, config};
+
 use crate::{ArgParseError, Cmd, ListOpts};
 use std::io::Write as _;
 
@@ -25,8 +27,13 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     Ok(Cmd::List(ListOpts { is_json }))
 }
 
-pub fn run(api_key: &str, opts: ListOpts) -> anyhow::Result<()> {
-    let models_iter = ort::list_models(api_key)?;
+pub fn run(
+    api_key: &str,
+    _cancel_token: CancelToken, // TODO use CancelToken
+    settings: config::Settings,
+    opts: ListOpts,
+) -> anyhow::Result<()> {
+    let models_iter = ort::list_models(api_key, settings.dns)?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.

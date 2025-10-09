@@ -5,7 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -79,8 +79,20 @@ impl fmt::Display for Stats {
 /// Returns raw JSON
 pub fn list_models(
     api_key: &str,
+    dns: Vec<String>,
 ) -> anyhow::Result<impl Iterator<Item = Result<String, std::io::Error>>> {
-    let reader = net::list_models(api_key, ("openrouter.ai", 443))?;
+    let reader = if dns.is_empty() {
+        net::list_models(api_key, ("openrouter.ai", 443))?
+    } else {
+        let addrs: Vec<_> = dns
+            .into_iter()
+            .map(|a| {
+                let ip_addr = a.parse::<Ipv4Addr>().unwrap();
+                SocketAddr::new(IpAddr::V4(ip_addr), 443)
+            })
+            .collect();
+        net::list_models(api_key, &addrs[..])?
+    };
     Ok(net::read_header(reader)?)
 }
 
@@ -103,8 +115,14 @@ pub fn prompt(
             let addr = ("openrouter.ai", 443);
             net::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
         } else {
-            let addr = (dns[0].parse::<Ipv4Addr>().unwrap(), 443);
-            net::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
+            let addrs: Vec<_> = dns
+                .into_iter()
+                .map(|a| {
+                    let ip_addr = a.parse::<Ipv4Addr>().unwrap();
+                    SocketAddr::new(IpAddr::V4(ip_addr), 443)
+                })
+                .collect();
+            net::chat_completions(&api_key, &addrs[..], &body).unwrap() // TODO unwrap
         };
         let response_lines = match net::read_header(reader) {
             Ok(r) => r,
