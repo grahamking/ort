@@ -24,6 +24,9 @@ use crate::multi_channel;
 use crate::print_usage_and_exit;
 use ort::writer;
 
+const STDIN_FILENO: i32 = 0;
+const STDOUT_FILENO: i32 = 1;
+
 pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
     // or default.
@@ -155,7 +158,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         prompt = prompt_parts.join(" ");
     };
 
-    let is_pipe_input = unsafe { libc::isatty(libc::STDIN_FILENO) == 0 };
+    let is_pipe_input = unsafe { isatty(STDIN_FILENO) == 0 };
     if is_pipe_input {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer).unwrap();
@@ -215,7 +218,7 @@ pub fn run(
     //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
     //let path_display = path.display().to_string();
 
-    let is_pipe_output = unsafe { libc::isatty(libc::STDOUT_FILENO) == 0 };
+    let is_pipe_output = unsafe { isatty(STDOUT_FILENO) == 0 };
     let jh_stdout = thread::spawn(move || -> anyhow::Result<()> {
         let stdout = std::io::stdout();
         let handle = stdout.lock();
@@ -281,4 +284,8 @@ pub fn run(
     }
 
     Ok(())
+}
+
+unsafe extern "C" {
+    pub fn isatty(fd: i32) -> i32;
 }
