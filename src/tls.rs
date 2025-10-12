@@ -333,34 +333,12 @@ impl TlsStream {
         //write_record_plain(&mut io, REC_TYPE_CHANGE_CIPHER_SPEC, &[0x01])?;
 
         // ---- Send our Finished (under handshake keys) ----
-        {
-            let mut c_finished_key = [0u8; 32];
-            let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.client_hs_ts);
-            hkdf_expand_label(&c_prk, "finished", &[], &mut c_finished_key);
-            debug_print("c_finished", &c_finished_key);
-
-            let thash_client_fin = digest_bytes(&transcript);
-            let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &c_finished_key);
-            let verify_data = ring::hmac::sign(&key, &thash_client_fin);
-            debug_print("verify_data", verify_data.as_ref());
-
-            let mut fin = Vec::with_capacity(4 + verify_data.as_ref().len());
-            fin.push(HS_FINISHED);
-            put_u24(&mut fin, verify_data.as_ref().len());
-            fin.extend_from_slice(verify_data.as_ref());
-
-            // append to transcript before switching keys
-            transcript.extend_from_slice(&fin);
-
-            write_record_cipher(
-                &mut io,
-                REC_TYPE_HANDSHAKE,
-                &fin,
-                &handshake.aead_enc_hs,
-                &handshake.client_handshake_iv,
-                &mut seq_enc_hs,
-            )?;
-        }
+        Self::send_client_finished(
+            &mut io,
+            &handshake,
+            &mut transcript,
+            &mut seq_enc_hs,
+        )?;
         // From now on we use application traffic keys.
         Ok(TlsStream {
             io,
@@ -593,6 +571,42 @@ impl TlsStream {
             iv_enc: caiv,
             iv_dec: saiv,
         })
+    }
+
+    fn send_client_finished(
+        io: &mut TcpStream,
+        handshake: &HandshakeState,
+        transcript: &mut Vec<u8>,
+        seq_enc_hs: &mut u64,
+    ) -> anyhow::Result<()> {
+        let mut c_finished_key = [0u8; 32];
+        let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.client_hs_ts);
+        hkdf_expand_label(&c_prk, "finished", &[], &mut c_finished_key);
+        debug_print("c_finished", &c_finished_key);
+
+        let thash_client_fin = digest_bytes(transcript.as_slice());
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &c_finished_key);
+        let verify_data = ring::hmac::sign(&key, &thash_client_fin);
+        debug_print("verify_data", verify_data.as_ref());
+
+        let mut fin = Vec::with_capacity(4 + verify_data.as_ref().len());
+        fin.push(HS_FINISHED);
+        put_u24(&mut fin, verify_data.as_ref().len());
+        fin.extend_from_slice(verify_data.as_ref());
+
+        // append to transcript before switching keys
+        transcript.extend_from_slice(&fin);
+
+        write_record_cipher(
+            io,
+            REC_TYPE_HANDSHAKE,
+            &fin,
+            &handshake.aead_enc_hs,
+            &handshake.client_handshake_iv,
+            seq_enc_hs,
+        )?;
+
+        Ok(())
     }
 }
 
