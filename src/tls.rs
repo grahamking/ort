@@ -298,46 +298,12 @@ impl TlsStream {
 
         Self::receive_dummy_change_cipher_spec(&mut io)?;
 
-        // ---- Receive EncryptedExtensions, (Certificate, CertVerify), Finished ----
-        let (typ, ct, _inner_type) = read_record_cipher(
+        Self::receive_server_encrypted_flight(
             &mut io,
-            &handshake.aead_dec_hs,
-            &handshake.server_handshake_iv,
             &mut seq_dec_hs,
+            &handshake,
+            &mut transcript,
         )?;
-        if typ != REC_TYPE_APPDATA {
-            anyhow::bail!("expected encrypted records");
-        }
-
-        // Decrypted TLSInnerPlaintext: ... | content_type
-        // May contain multiple handshake messages; parse & append to transcript.
-        let mut p = &ct[..];
-        while !p.is_empty() {
-            // On TLS 1.3: content_type is last byte; but ring decrypt gives only plaintext,
-            // here ct already stripped of content-type 0x16 by read_record_cipher().
-            let (mtyp, body, full) = match read_handshake_message(&mut p) {
-                Ok(x) => x,
-                Err(_) => anyhow::bail!("bad handshake fragment"),
-            };
-            transcript.extend_from_slice(full);
-
-            if mtyp == HS_FINISHED {
-                // verify server Finished
-                let mut s_finished_key = [0u8; 32];
-                let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.server_hs_ts);
-                hkdf_expand_label(&s_prk, "finished", &[], &mut s_finished_key);
-
-                let thash = digest_bytes(&transcript[..transcript.len() - full.len()]);
-                let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &s_finished_key);
-                let expected = ring::hmac::sign(&key, &thash);
-                if expected.as_ref() != body {
-                    anyhow::bail!("server Finished verify failed");
-                }
-                // Done collecting server handshake.
-                break;
-            }
-            // Ignore other handshake types’ contents (no cert validation).
-        }
 
         // ---- Derive application traffic keys ----
         // This is correct
@@ -459,6 +425,54 @@ impl TlsStream {
         let (typ, _) = read_record_plain(io)?;
         if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
             anyhow::bail!("Expected server to send dummy Change Cipher Spec");
+        }
+        Ok(())
+    }
+
+    fn receive_server_encrypted_flight(
+        io: &mut TcpStream,
+        seq_dec_hs: &mut u64,
+        handshake: &HandshakeState,
+        transcript: &mut Vec<u8>,
+    ) -> anyhow::Result<()> {
+        let (typ, ct, _inner_type) = read_record_cipher(
+            io,
+            &handshake.aead_dec_hs,
+            &handshake.server_handshake_iv,
+            seq_dec_hs,
+        )?;
+        if typ != REC_TYPE_APPDATA {
+            anyhow::bail!("expected encrypted records");
+        }
+
+        // Decrypted TLSInnerPlaintext: ... | content_type
+        // May contain multiple handshake messages; parse & append to transcript.
+        let mut p = &ct[..];
+        while !p.is_empty() {
+            // On TLS 1.3: content_type is last byte; but ring decrypt gives only plaintext,
+            // here ct already stripped of content-type 0x16 by read_record_cipher().
+            let (mtyp, body, full) = match read_handshake_message(&mut p) {
+                Ok(x) => x,
+                Err(_) => anyhow::bail!("bad handshake fragment"),
+            };
+            transcript.extend_from_slice(full);
+
+            if mtyp == HS_FINISHED {
+                // verify server Finished
+                let mut s_finished_key = [0u8; 32];
+                let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.server_hs_ts);
+                hkdf_expand_label(&s_prk, "finished", &[], &mut s_finished_key);
+
+                let thash = digest_bytes(&transcript[..transcript.len() - full.len()]);
+                let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &s_finished_key);
+                let expected = ring::hmac::sign(&key, &thash);
+                if expected.as_ref() != body {
+                    anyhow::bail!("server Finished verify failed");
+                }
+                // Done collecting server handshake.
+                break;
+            }
+            // Ignore other handshake types’ contents (no cert validation).
         }
         Ok(())
     }
