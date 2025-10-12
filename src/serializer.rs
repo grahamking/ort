@@ -6,11 +6,11 @@
 
 use std::io::{self, Cursor, Write};
 
-use crate::{LastData, Message, PromptOpts};
+use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
-pub fn build_body(opts: &PromptOpts, messages: &[Message]) -> anyhow::Result<String> {
+pub fn build_body(opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
     let capacity: u32 = messages.iter().map(|m| m.size()).sum::<u32>() + 100;
     let mut w = Cursor::new(Vec::with_capacity(capacity as usize));
 
@@ -68,7 +68,7 @@ pub fn build_body(opts: &PromptOpts, messages: &[Message]) -> anyhow::Result<Str
 }
 
 impl LastData {
-    pub fn to_json_writer<W: io::Write>(&self, writer: W) -> anyhow::Result<()> {
+    pub fn to_json_writer<W: io::Write>(&self, writer: W) -> OrtResult<()> {
         // Use a buffered writer for fewer syscalls when writing to files.
         let mut w = io::BufWriter::with_capacity(4096, writer);
 
@@ -197,7 +197,7 @@ fn write_u32<W: io::Write>(w: &mut W, mut n: u32) -> io::Result<()> {
 }
 
 impl Message {
-    pub fn write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> anyhow::Result<()> {
+    pub fn write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
         w.write_all(b"[")?;
         for (i, msg) in msgs.iter().enumerate() {
             if i != 0 {
@@ -209,12 +209,12 @@ impl Message {
         Ok(())
     }
 
-    pub fn write_json<W: io::Write>(&self, w: &mut W) -> anyhow::Result<()> {
+    pub fn write_json<W: io::Write>(&self, w: &mut W) -> OrtResult<()> {
         w.write_all(b"{\"role\":")?;
         write_json_str_simple(w, self.role.as_str())?;
         match (&self.content, &self.reasoning) {
             (Some(_), Some(_)) | (None, None) => {
-                anyhow::bail!("Message must have exactly one of 'content' or 'reasoning'.");
+                return ort_err("Message must have exactly one of 'content' or 'reasoning'.");
             }
             (Some(content), _) => {
                 w.write_all(b",\"content\":")?;

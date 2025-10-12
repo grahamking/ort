@@ -10,8 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context as _;
-use ort::{CancelToken, LastData};
+use ort::{CancelToken, LastData, OrtError, OrtResult, ort_err, ort_error};
 use ort::{config, utils};
 
 use crate::action_prompt;
@@ -21,7 +20,7 @@ pub fn run_continue(
     cancel_token: CancelToken,
     settings: config::Settings,
     mut opts: ort::PromptOpts,
-) -> anyhow::Result<()> {
+) -> OrtResult<()> {
     let dir = config::cache_dir()?;
     let mut last_file = dir.join(format!("last-{}.json", utils::tmux_pane_id()));
     if !last_file.exists() {
@@ -29,12 +28,14 @@ pub fn run_continue(
     }
     let mut last = match fs::read_to_string(&last_file) {
         Ok(hist_str) => LastData::from_json(&hist_str)
-            .map_err(|err| anyhow::anyhow!("Failed to parse last: {err}"))?,
+            .map_err(|err| ort_error(format!("Failed to parse last: {err}")))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            anyhow::bail!("No last conversation, cannot continue")
+            return ort_err("No last conversation, cannot continue");
         }
         Err(e) => {
-            return Err(e).context(last_file.display().to_string());
+            let mut err: OrtError = e.into();
+            err.context(last_file.display().to_string());
+            return Err(err);
         }
     };
 
@@ -47,7 +48,7 @@ pub fn run_continue(
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
 /// Uses the minimal amount of disk access to go as fast as possible.
-fn most_recent(dir: &Path, filename_prefix: &str) -> anyhow::Result<PathBuf> {
+fn most_recent(dir: &Path, filename_prefix: &str) -> OrtResult<PathBuf> {
     let mut most_recent_file: Option<(PathBuf, SystemTime)> = None;
 
     for entry in fs::read_dir(dir)? {
@@ -79,8 +80,8 @@ fn most_recent(dir: &Path, filename_prefix: &str) -> anyhow::Result<PathBuf> {
     most_recent_file
         .map(|(path, _)| Ok(path))
         .unwrap_or_else(|| {
-            Err(anyhow::anyhow!(
-                "No files found starting with prefix: {filename_prefix}",
+            ort_err(format!(
+                "No files found starting with prefix: {filename_prefix}"
             ))
         })
 }

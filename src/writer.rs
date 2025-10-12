@@ -8,7 +8,10 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::mpsc::Receiver;
 
-use crate::{Message, PromptOpts, Response, Stats, ThinkEvent, config, data::LastData, utils};
+use crate::{
+    Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, config, data::LastData, ort_err,
+    utils,
+};
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -20,7 +23,7 @@ const CLEAR_LINE: &str = "\x1b[2K";
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
 pub trait Writer {
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats>;
+    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats>;
     fn inner(&mut self) -> &mut Box<dyn Write>;
 }
 
@@ -33,7 +36,7 @@ impl Writer for ConsoleWriter {
     fn inner(&mut self) -> &mut Box<dyn Write> {
         &mut self.writer
     }
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
+    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
@@ -94,7 +97,7 @@ impl Writer for ConsoleWriter {
                 Response::Error(err) => {
                     let _ = write!(self.writer, "{CURSOR_ON}");
                     let _ = self.writer.flush();
-                    anyhow::bail!("{err}");
+                    return ort_err(err.to_string());
                 }
             }
         }
@@ -103,7 +106,7 @@ impl Writer for ConsoleWriter {
         let _ = self.writer.flush();
 
         let Some(stats) = stats_out else {
-            anyhow::bail!("OpenRouter did not return usage stats");
+            return ort_err("OpenRouter did not return usage stats");
         };
         Ok(stats)
     }
@@ -118,7 +121,7 @@ impl Writer for FileWriter {
     fn inner(&mut self) -> &mut Box<dyn Write> {
         &mut self.writer
     }
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
+    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let mut stats_out = None;
         while let Ok(data) = rx.recv() {
             match data {
@@ -145,13 +148,13 @@ impl Writer for FileWriter {
                     stats_out = Some(stats);
                 }
                 Response::Error(err) => {
-                    anyhow::bail!("{err}");
+                    return ort_err(err.to_string());
                 }
             }
         }
 
         let Some(stats) = stats_out else {
-            anyhow::bail!("OpenRouter did not return usage stats");
+            return ort_err("OpenRouter did not return usage stats");
         };
         Ok(stats)
     }
@@ -163,7 +166,7 @@ pub struct LastWriter {
 }
 
 impl LastWriter {
-    pub fn new(opts: PromptOpts, messages: Vec<Message>) -> anyhow::Result<Self> {
+    pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
         let last_filename = format!("last-{}.json", utils::tmux_pane_id());
         let last_path = config::cache_dir()?.join(last_filename);
         let last_file = Box::new(File::create(last_path)?);
@@ -177,7 +180,7 @@ impl Writer for LastWriter {
         &mut self.w
     }
 
-    fn run(&mut self, rx: Receiver<Response>) -> anyhow::Result<Stats> {
+    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let mut contents = Vec::with_capacity(1024);
         while let Ok(data) = rx.recv() {
             match data {
@@ -190,7 +193,7 @@ impl Writer for LastWriter {
                     self.data.opts.provider = Some(utils::slug(stats.provider()));
                 }
                 Response::Error(err) => {
-                    anyhow::bail!("LastWriter: {err}");
+                    return ort_err(format!("LastWriter: {err}"));
                 }
             }
         }

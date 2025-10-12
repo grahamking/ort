@@ -19,10 +19,12 @@ pub use data::{
 };
 mod cancel_token;
 pub use cancel_token::CancelToken;
+mod error;
 pub mod parser;
 pub mod serializer;
 mod tls;
 pub mod writer;
+pub use error::{Context, OrtError, OrtResult, ort_err, ort_error};
 
 #[derive(Debug, Clone)]
 pub enum Response {
@@ -80,7 +82,7 @@ impl fmt::Display for Stats {
 pub fn list_models(
     api_key: &str,
     dns: Vec<String>,
-) -> anyhow::Result<impl Iterator<Item = Result<String, std::io::Error>>> {
+) -> OrtResult<impl Iterator<Item = Result<String, std::io::Error>>> {
     let reader = if dns.is_empty() {
         net::list_models(api_key, ("openrouter.ai", 443))?
     } else {
@@ -104,7 +106,7 @@ pub fn prompt(
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
     messages: Vec<Message>,
-) -> anyhow::Result<mpsc::Receiver<Response>> {
+) -> mpsc::Receiver<Response> {
     let (tx, rx) = mpsc::channel();
     let api_key = api_key.to_string();
 
@@ -264,7 +266,7 @@ pub fn prompt(
         }
     });
 
-    Ok(rx)
+    rx
 }
 
 // Format the Duration as minutes, seconds and milliseconds.

@@ -17,6 +17,8 @@ use ring::hkdf;
 use ring::hkdf::KeyType;
 use ring::rand::{SecureRandom as _, SystemRandom};
 
+use crate::{OrtResult, ort_error};
+
 const DEBUG_LOG: bool = false;
 
 const REC_TYPE_CHANGE_CIPHER_SPEC: u8 = 20; // 0x14
@@ -113,11 +115,7 @@ pub struct TlsStream {
     rpos: usize,
 }
 
-fn client_hello_body(
-    rng: &SystemRandom,
-    sni_host: &str,
-    client_pub: &PublicKey,
-) -> anyhow::Result<Vec<u8>> {
+fn client_hello_body(rng: &SystemRandom, sni_host: &str, client_pub: &PublicKey) -> Vec<u8> {
     let mut ch_body = Vec::with_capacity(512);
 
     // X25519
@@ -217,7 +215,7 @@ fn client_hello_body(
     put_u16(&mut ch_body, exts.len() as u16);
     ch_body.extend_from_slice(&exts);
 
-    Ok(ch_body)
+    ch_body
 }
 
 /// --- Build ClientHello (single cipher: TLS_AES_128_GCM_SHA256) ---
@@ -225,12 +223,12 @@ fn client_hello_msg(
     rng: &SystemRandom,
     sni_host: &str,
     client_private_key: &EphemeralPrivateKey,
-) -> anyhow::Result<Vec<u8>> {
+) -> OrtResult<Vec<u8>> {
     let client_pub = client_private_key
         .compute_public_key()
-        .map_err(|_| anyhow::anyhow!("x25519 pub"))?;
+        .map_err(|_| ort_error("x25519 pub"))?;
 
-    let ch_body = client_hello_body(rng, sni_host, &client_pub)?;
+    let ch_body = client_hello_body(rng, sni_host, &client_pub);
 
     // Handshake framing: ClientHello
     let mut ch_msg = Vec::with_capacity(4 + ch_body.len());
@@ -242,10 +240,10 @@ fn client_hello_msg(
 }
 
 /// Read ServerHello (plaintext Handshake record)
-fn read_server_hello(io: &mut TcpStream) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+fn read_server_hello(io: &mut TcpStream) -> OrtResult<(Vec<u8>, Vec<u8>)> {
     let (typ, payload) = read_record_plain(io)?;
     if typ != REC_TYPE_HANDSHAKE {
-        anyhow::bail!("expected Handshake");
+        return Err(ort_error("expected Handshake"));
     }
     let sh_buf = payload;
 
@@ -253,7 +251,7 @@ fn read_server_hello(io: &mut TcpStream) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
     let mut rd = &sh_buf[..];
     let (sh_typ, sh_body, sh_full) = read_handshake_message(&mut rd)?;
     if sh_typ != HS_SERVER_HELLO {
-        anyhow::bail!("expected ServerHello");
+        return Err(ort_error("expected ServerHello"));
     }
 
     // TODO: later remove the copy. The slices are into sh_buf
@@ -279,14 +277,14 @@ struct ApplicationKeys {
 }
 
 impl TlsStream {
-    pub fn connect(mut io: TcpStream, sni_host: &str) -> anyhow::Result<Self> {
+    pub fn connect(mut io: TcpStream, sni_host: &str) -> OrtResult<Self> {
         let rng = ring::rand::SystemRandom::new();
 
         // transcript = full Handshake message encodings (headers + bodies)
         let mut transcript = Vec::with_capacity(1024);
 
-        let client_private_key = EphemeralPrivateKey::generate(&X25519, &rng)
-            .map_err(|_| anyhow::anyhow!("x25519 keygen"))?;
+        let client_private_key =
+            EphemeralPrivateKey::generate(&X25519, &rng).map_err(|_| ort_error("x25519 keygen"))?;
 
         Self::send_client_hello(
             &mut io,
@@ -321,7 +319,7 @@ impl TlsStream {
             &handshake.handshake_secret,
             &handshake.empty_hash,
             &transcript,
-        )?;
+        );
 
         let seq_app_enc = 0u64;
         let seq_app_dec = 0u64;
@@ -351,27 +349,26 @@ impl TlsStream {
         transcript: &mut Vec<u8>,
         rng: &SystemRandom,
         client_private_key: &EphemeralPrivateKey,
-    ) -> anyhow::Result<()> {
+    ) -> OrtResult<()> {
         let ch_msg = client_hello_msg(rng, sni_host, client_private_key)?;
         write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)?;
         transcript.extend_from_slice(&ch_msg);
         Ok(())
     }
 
-    fn receive_server_hello(
-        io: &mut TcpStream,
-        transcript: &mut Vec<u8>,
-    ) -> anyhow::Result<Vec<u8>> {
+    fn receive_server_hello(io: &mut TcpStream, transcript: &mut Vec<u8>) -> OrtResult<Vec<u8>> {
         let (sh_body, sh_full) = read_server_hello(io)?;
         transcript.extend_from_slice(&sh_full);
         Ok(sh_body)
     }
 
-    fn receive_dummy_change_cipher_spec(io: &mut TcpStream) -> anyhow::Result<()> {
+    fn receive_dummy_change_cipher_spec(io: &mut TcpStream) -> OrtResult<()> {
         // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
         let (typ, _) = read_record_plain(io)?;
         if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
-            anyhow::bail!("Expected server to send dummy Change Cipher Spec");
+            return Err(ort_error(
+                "Expected server to send dummy Change Cipher Spec",
+            ));
         }
         Ok(())
     }
@@ -381,7 +378,7 @@ impl TlsStream {
         seq_dec_hs: &mut u64,
         handshake: &HandshakeState,
         transcript: &mut Vec<u8>,
-    ) -> anyhow::Result<()> {
+    ) -> OrtResult<()> {
         let (typ, ct, _inner_type) = read_record_cipher(
             io,
             &handshake.aead_dec_hs,
@@ -389,7 +386,7 @@ impl TlsStream {
             seq_dec_hs,
         )?;
         if typ != REC_TYPE_APPDATA {
-            anyhow::bail!("expected encrypted records");
+            return Err(ort_error("expected encrypted records"));
         }
 
         // Decrypted TLSInnerPlaintext: ... | content_type
@@ -400,7 +397,7 @@ impl TlsStream {
             // here ct already stripped of content-type 0x16 by read_record_cipher().
             let (mtyp, body, full) = match read_handshake_message(&mut p) {
                 Ok(x) => x,
-                Err(_) => anyhow::bail!("bad handshake fragment"),
+                Err(_) => return Err(ort_error("bad handshake fragment")),
             };
             transcript.extend_from_slice(full);
 
@@ -414,7 +411,7 @@ impl TlsStream {
                 let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &s_finished_key);
                 let expected = ring::hmac::sign(&key, &thash);
                 if expected.as_ref() != body {
-                    anyhow::bail!("server Finished verify failed");
+                    return Err(ort_error("server Finished verify failed"));
                 }
                 // Done collecting server handshake.
                 break;
@@ -428,11 +425,11 @@ impl TlsStream {
         client_private_key: EphemeralPrivateKey,
         sh_body: &[u8],
         transcript: &[u8],
-    ) -> anyhow::Result<HandshakeState> {
+    ) -> OrtResult<HandshakeState> {
         // Parse minimal ServerHello to get cipher & key_share
         let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(sh_body)?;
         if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
-            anyhow::bail!("server picked unsupported cipher");
+            return Err(ort_error("server picked unsupported cipher"));
         }
 
         // ECDH(X25519) shared secret
@@ -443,7 +440,7 @@ impl TlsStream {
             agreement::agree_ephemeral(client_private_key, &server_public_key, |secret| {
                 secret.to_vec()
             })
-            .map_err(|_| anyhow::anyhow!("ECDH failed"))?;
+            .map_err(|_| ort_error("ECDH failed"))?;
         debug_print("hs shared secret", &hs_shared_secret);
 
         // Same as: `echo -n "" | openssl sha256`
@@ -514,7 +511,7 @@ impl TlsStream {
         handshake_secret: &hkdf::Prk,
         empty_hash: &[u8; 32],
         transcript: &[u8],
-    ) -> anyhow::Result<ApplicationKeys> {
+    ) -> ApplicationKeys {
         let mut derived2_bytes = [0u8; 32];
         hkdf_expand_label(handshake_secret, "derived", empty_hash, &mut derived2_bytes);
         debug_print("derived2_bytes", &derived2_bytes);
@@ -550,12 +547,12 @@ impl TlsStream {
         let aead_app_enc = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
         let aead_app_dec = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
 
-        Ok(ApplicationKeys {
+        ApplicationKeys {
             aead_app_enc,
             aead_app_dec,
             iv_enc: caiv,
             iv_dec: saiv,
-        })
+        }
     }
 
     fn send_client_finished(
@@ -563,7 +560,7 @@ impl TlsStream {
         handshake: &HandshakeState,
         transcript: &mut Vec<u8>,
         seq_enc_hs: &mut u64,
-    ) -> anyhow::Result<()> {
+    ) -> OrtResult<()> {
         let mut c_finished_key = [0u8; 32];
         let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.client_hs_ts);
         hkdf_expand_label(&c_prk, "finished", &[], &mut c_finished_key);

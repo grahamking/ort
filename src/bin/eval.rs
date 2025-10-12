@@ -10,12 +10,14 @@
 //! Writes the results in a directory hierarchy.
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
-use anyhow::Context as _;
 use ort::CancelToken;
+use ort::Context;
+use ort::OrtResult;
 use ort::PromptOpts;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
 use ort::ThinkEvent;
+use ort::ort_err;
 use std::io::Write as _;
 
 use std::env;
@@ -58,7 +60,7 @@ struct Args {
     out_dir: PathBuf,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> OrtResult<()> {
     let api_key = match env::var("OPENROUTER_API_KEY") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -173,7 +175,7 @@ fn run_prompt(
     prompt: &str,
     models: &[String],
     out_dir: &Path,
-) -> anyhow::Result<()> {
+) -> OrtResult<()> {
     println!("\n-- {prompt}");
 
     // Randomize so their names are not predictable
@@ -219,7 +221,7 @@ fn run_prompt(
         let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))?;
 
         let messages = vec![ort::Message::user(prompt.to_string())];
-        let rx = ort::prompt(api_key, cancel_token, vec![], common, messages)?;
+        let rx = ort::prompt(api_key, cancel_token, vec![], common, messages);
         while let Ok(data) = rx.recv() {
             if cancel_token.is_cancelled() {
                 break;
@@ -244,7 +246,7 @@ fn run_prompt(
                     let _ = writeln!(key_file, "{cat_name}: {stats}");
                 }
                 Response::Error(err) => {
-                    anyhow::bail!("{err}");
+                    return ort_err(err.to_string());
                 }
             }
         }

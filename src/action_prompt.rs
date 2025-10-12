@@ -11,6 +11,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use ort::CancelToken;
+use ort::OrtResult;
 use ort::Priority;
 use ort::ReasoningConfig;
 use ort::ReasoningEffort;
@@ -193,7 +194,7 @@ pub fn run(
     settings: config::Settings,
     opts: ort::PromptOpts,
     messages: Vec<ort::Message>,
-) -> anyhow::Result<()> {
+) -> OrtResult<()> {
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
     //let model_name = opts.common.model.clone().unwrap();
@@ -205,7 +206,7 @@ pub fn run(
         settings.dns,
         opts.clone(),
         messages.clone(),
-    )?;
+    );
     std::thread::yield_now();
 
     let (tx_stdout, rx_stdout) = mpsc::channel();
@@ -219,7 +220,7 @@ pub fn run(
     //let path_display = path.display().to_string();
 
     let is_pipe_output = unsafe { isatty(STDOUT_FILENO) == 0 };
-    let jh_stdout = thread::spawn(move || -> anyhow::Result<()> {
+    let jh_stdout = thread::spawn(move || -> OrtResult<()> {
         let stdout = std::io::stdout();
         let handle = stdout.lock();
         let mut stdout_writer: Box<dyn writer::Writer> = if is_pipe_output {
@@ -250,7 +251,7 @@ pub fn run(
 
     if settings.save_to_file {
         /*
-        let jh_file = thread::spawn(move || -> anyhow::Result<()> {
+        let jh_file = thread::spawn(move || -> OrtResult<()> {
             let f = File::create(&path)?;
             let mut file_writer = writer::FileWriter {
                 writer: Box::new(f),
@@ -267,7 +268,7 @@ pub fn run(
         handles.push(jh_file);
         */
 
-        let jh_last = thread::spawn(move || -> anyhow::Result<()> {
+        let jh_last = thread::spawn(move || -> OrtResult<()> {
             let mut last_writer = writer::LastWriter::new(opts, messages)?;
             last_writer.run(rx_last)?;
             Ok(())

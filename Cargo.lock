@@ -3,12 +3,6 @@
 version = 4
 
 [[package]]
-name = "anyhow"
-version = "1.0.99"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
-
-[[package]]
 name = "cc"
 version = "1.2.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -44,7 +38,6 @@ checksum = "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
 name = "ort"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "libc",
  "ring",
 ]

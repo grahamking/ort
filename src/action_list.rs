@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use ort::{CancelToken, config};
+use ort::{CancelToken, OrtResult, config};
 
 use crate::{ArgParseError, Cmd, ListOpts};
 use std::io::Write as _;
@@ -32,7 +32,7 @@ pub fn run(
     _cancel_token: CancelToken, // TODO use CancelToken
     settings: config::Settings,
     opts: ListOpts,
-) -> anyhow::Result<()> {
+) -> OrtResult<()> {
     let models_iter = ort::list_models(api_key, settings.dns)?;
 
     if opts.is_json {
