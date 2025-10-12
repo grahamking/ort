@@ -270,10 +270,13 @@ impl TlsStream {
         let client_private_key = EphemeralPrivateKey::generate(&X25519, &rng)
             .map_err(|_| anyhow::anyhow!("x25519 keygen"))?;
 
-        // Write ClientHello
-        let ch_msg = client_hello_msg(&rng, sni_host, &client_private_key)?;
-        write_record_plain(&mut io, REC_TYPE_HANDSHAKE, &ch_msg)?;
-        transcript.extend_from_slice(&ch_msg);
+        Self::send_client_hello(
+            &mut io,
+            sni_host,
+            &mut transcript,
+            &rng,
+            &client_private_key,
+        )?;
 
         // Read ServerHello
         let (sh_body, sh_full) = read_server_hello(&mut io)?;
@@ -487,6 +490,19 @@ impl TlsStream {
             rbuf: Vec::with_capacity(16 * 1024),
             rpos: 0,
         })
+    }
+
+    fn send_client_hello(
+        io: &mut TcpStream,
+        sni_host: &str,
+        transcript: &mut Vec<u8>,
+        rng: &SystemRandom,
+        client_private_key: &EphemeralPrivateKey,
+    ) -> anyhow::Result<()> {
+        let ch_msg = client_hello_msg(rng, sni_host, client_private_key)?;
+        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)?;
+        transcript.extend_from_slice(&ch_msg);
+        Ok(())
     }
 }
 
