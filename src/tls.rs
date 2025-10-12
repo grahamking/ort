@@ -271,6 +271,13 @@ struct HandshakeState {
     empty_hash: [u8; 32],
 }
 
+struct ApplicationKeys {
+    aead_app_enc: aead::LessSafeKey,
+    aead_app_dec: aead::LessSafeKey,
+    iv_enc: [u8; 12],
+    iv_dec: [u8; 12],
+}
+
 impl TlsStream {
     pub fn connect(mut io: TcpStream, sni_host: &str) -> anyhow::Result<Self> {
         let rng = ring::rand::SystemRandom::new();
@@ -307,47 +314,17 @@ impl TlsStream {
 
         // ---- Derive application traffic keys ----
         // This is correct
-        let mut derived2_bytes = [0u8; 32];
-        hkdf_expand_label(
+        let ApplicationKeys {
+            aead_app_enc,
+            aead_app_dec,
+            iv_enc: caiv,
+            iv_dec: saiv,
+        } = Self::derive_application_keys(
             &handshake.handshake_secret,
-            "derived",
             &handshake.empty_hash,
-            &mut derived2_bytes,
-        );
-        debug_print("derived2_bytes", &derived2_bytes);
+            &transcript,
+        )?;
 
-        let zero: [u8; 32] = [0u8; 32];
-        let master_secret = hkdf_extract(&derived2_bytes, &zero);
-        let thash_srv_fin = digest_bytes(&transcript);
-
-        let mut c_ap_ts = [0u8; 32];
-        let mut s_ap_ts = [0u8; 32];
-        hkdf_expand_label(&master_secret, "c ap traffic", &thash_srv_fin, &mut c_ap_ts);
-        hkdf_expand_label(&master_secret, "s ap traffic", &thash_srv_fin, &mut s_ap_ts);
-        debug_print("c_ap_ts", &c_ap_ts);
-        debug_print("s_ap_ts", &s_ap_ts);
-
-        let mut cak = [0u8; 16];
-        let mut caiv = [0u8; 12];
-        let mut sak = [0u8; 16];
-        let mut saiv = [0u8; 12];
-        {
-            let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &c_ap_ts);
-            let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &s_ap_ts);
-            let (key_len, iv_len) = (16, 12);
-            hkdf_expand_label(&c_prk, "key", &[], &mut cak[..key_len]);
-            hkdf_expand_label(&c_prk, "iv", &[], &mut caiv[..iv_len]);
-            hkdf_expand_label(&s_prk, "key", &[], &mut sak[..key_len]);
-            hkdf_expand_label(&s_prk, "iv", &[], &mut saiv[..iv_len]);
-            debug_print("cak", &cak);
-            debug_print("caiv", &caiv);
-            debug_print("sak", &sak);
-            debug_print("saiv", &saiv);
-        }
-
-        let aead_alg = &aead::AES_128_GCM;
-        let aead_app_enc = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
-        let aead_app_dec = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
         let seq_app_enc = 0u64;
         let seq_app_dec = 0u64;
 
@@ -560,6 +537,61 @@ impl TlsStream {
             aead_enc_hs,
             aead_dec_hs,
             empty_hash,
+        })
+    }
+
+    fn derive_application_keys(
+        handshake_secret: &hkdf::Prk,
+        empty_hash: &[u8; 32],
+        transcript: &[u8],
+    ) -> anyhow::Result<ApplicationKeys> {
+        let mut derived2_bytes = [0u8; 32];
+        hkdf_expand_label(
+            handshake_secret,
+            "derived",
+            empty_hash,
+            &mut derived2_bytes,
+        );
+        debug_print("derived2_bytes", &derived2_bytes);
+
+        let zero: [u8; 32] = [0u8; 32];
+        let master_secret = hkdf_extract(&derived2_bytes, &zero);
+        let thash_srv_fin = digest_bytes(transcript);
+
+        let mut c_ap_ts = [0u8; 32];
+        let mut s_ap_ts = [0u8; 32];
+        hkdf_expand_label(&master_secret, "c ap traffic", &thash_srv_fin, &mut c_ap_ts);
+        hkdf_expand_label(&master_secret, "s ap traffic", &thash_srv_fin, &mut s_ap_ts);
+        debug_print("c_ap_ts", &c_ap_ts);
+        debug_print("s_ap_ts", &s_ap_ts);
+
+        let mut cak = [0u8; 16];
+        let mut caiv = [0u8; 12];
+        let mut sak = [0u8; 16];
+        let mut saiv = [0u8; 12];
+        let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &c_ap_ts);
+        let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &s_ap_ts);
+        let (key_len, iv_len) = (16, 12);
+        hkdf_expand_label(&c_prk, "key", &[], &mut cak[..key_len]);
+        hkdf_expand_label(&c_prk, "iv", &[], &mut caiv[..iv_len]);
+        hkdf_expand_label(&s_prk, "key", &[], &mut sak[..key_len]);
+        hkdf_expand_label(&s_prk, "iv", &[], &mut saiv[..iv_len]);
+        debug_print("cak", &cak);
+        debug_print("caiv", &caiv);
+        debug_print("sak", &sak);
+        debug_print("saiv", &saiv);
+
+        let aead_alg = &aead::AES_128_GCM;
+        let aead_app_enc =
+            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
+        let aead_app_dec =
+            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
+
+        Ok(ApplicationKeys {
+            aead_app_enc,
+            aead_app_dec,
+            iv_enc: caiv,
+            iv_dec: saiv,
         })
     }
 }
