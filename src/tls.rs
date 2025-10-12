@@ -296,14 +296,14 @@ impl TlsStream {
             &client_private_key,
         )?;
 
-        let (sh_body, sh_full) = Self::receive_server_hello(&mut io, &mut transcript)?;
+        let sh_body = Self::receive_server_hello(&mut io, &mut transcript)?;
 
         let handshake = Self::derive_handshake_keys(client_private_key, &sh_body, &transcript)?;
 
+        Self::receive_dummy_change_cipher_spec(&mut io)?;
+
         let mut seq_dec_hs = 0u64;
         let mut seq_enc_hs = 0u64;
-
-        Self::receive_dummy_change_cipher_spec(&mut io)?;
 
         Self::receive_server_encrypted_flight(
             &mut io,
@@ -312,8 +312,6 @@ impl TlsStream {
             &mut transcript,
         )?;
 
-        // ---- Derive application traffic keys ----
-        // This is correct
         let ApplicationKeys {
             aead_app_enc,
             aead_app_dec,
@@ -332,14 +330,8 @@ impl TlsStream {
         // This is optional, to "confuse middleboxes" which expect TLS 1.2. Works without.
         //write_record_plain(&mut io, REC_TYPE_CHANGE_CIPHER_SPEC, &[0x01])?;
 
-        // ---- Send our Finished (under handshake keys) ----
-        Self::send_client_finished(
-            &mut io,
-            &handshake,
-            &mut transcript,
-            &mut seq_enc_hs,
-        )?;
-        // From now on we use application traffic keys.
+        Self::send_client_finished(&mut io, &handshake, &mut transcript, &mut seq_enc_hs)?;
+
         Ok(TlsStream {
             io,
             aead_enc: aead_app_enc,
@@ -369,10 +361,10 @@ impl TlsStream {
     fn receive_server_hello(
         io: &mut TcpStream,
         transcript: &mut Vec<u8>,
-    ) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+    ) -> anyhow::Result<Vec<u8>> {
         let (sh_body, sh_full) = read_server_hello(io)?;
         transcript.extend_from_slice(&sh_full);
-        Ok((sh_body, sh_full))
+        Ok(sh_body)
     }
 
     fn receive_dummy_change_cipher_spec(io: &mut TcpStream) -> anyhow::Result<()> {
@@ -524,12 +516,7 @@ impl TlsStream {
         transcript: &[u8],
     ) -> anyhow::Result<ApplicationKeys> {
         let mut derived2_bytes = [0u8; 32];
-        hkdf_expand_label(
-            handshake_secret,
-            "derived",
-            empty_hash,
-            &mut derived2_bytes,
-        );
+        hkdf_expand_label(handshake_secret, "derived", empty_hash, &mut derived2_bytes);
         debug_print("derived2_bytes", &derived2_bytes);
 
         let zero: [u8; 32] = [0u8; 32];
@@ -560,10 +547,8 @@ impl TlsStream {
         debug_print("saiv", &saiv);
 
         let aead_alg = &aead::AES_128_GCM;
-        let aead_app_enc =
-            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
-        let aead_app_dec =
-            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
+        let aead_app_enc = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
+        let aead_app_dec = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
 
         Ok(ApplicationKeys {
             aead_app_enc,
