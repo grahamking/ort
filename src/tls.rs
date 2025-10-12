@@ -296,12 +296,7 @@ impl TlsStream {
         let mut seq_dec_hs = 0u64;
         let mut seq_enc_hs = 0u64;
 
-        // --- Skip Change Cipher Spec. We could do this earlier, before calculating keys.
-        // In TLS 1.3 it is used to confuse middleboxes expecting TLS 1.2
-        let (typ, _) = read_record_plain(&mut io)?;
-        if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
-            anyhow::bail!("Expected server to send dummy Change Cipher Spec");
-        }
+        Self::receive_dummy_change_cipher_spec(&mut io)?;
 
         // ---- Receive EncryptedExtensions, (Certificate, CertVerify), Finished ----
         let (typ, ct, _inner_type) = read_record_cipher(
@@ -457,6 +452,15 @@ impl TlsStream {
         let (sh_body, sh_full) = read_server_hello(io)?;
         transcript.extend_from_slice(&sh_full);
         Ok((sh_body, sh_full))
+    }
+
+    fn receive_dummy_change_cipher_spec(io: &mut TcpStream) -> anyhow::Result<()> {
+        // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
+        let (typ, _) = read_record_plain(io)?;
+        if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
+            anyhow::bail!("Expected server to send dummy Change Cipher Spec");
+        }
+        Ok(())
     }
 
     fn derive_handshake_keys(
