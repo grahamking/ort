@@ -260,6 +260,17 @@ fn read_server_hello(io: &mut TcpStream) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
     Ok((sh_body.to_vec(), sh_full.to_vec()))
 }
 
+struct HandshakeState {
+    handshake_secret: hkdf::Prk,
+    client_hs_ts: [u8; 32],
+    server_hs_ts: [u8; 32],
+    client_handshake_iv: [u8; 12],
+    server_handshake_iv: [u8; 12],
+    aead_enc_hs: aead::LessSafeKey,
+    aead_dec_hs: aead::LessSafeKey,
+    empty_hash: [u8; 32],
+}
+
 impl TlsStream {
     pub fn connect(mut io: TcpStream, sni_host: &str) -> anyhow::Result<Self> {
         let rng = ring::rand::SystemRandom::new();
@@ -280,78 +291,7 @@ impl TlsStream {
 
         let (sh_body, sh_full) = Self::receive_server_hello(&mut io, &mut transcript)?;
 
-        // Parse minimal ServerHello to get cipher & key_share
-        let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(&sh_body)?;
-        if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
-            anyhow::bail!("server picked unsupported cipher");
-        }
-
-        // ECDH(X25519) shared secret
-        let server_public_key = UnparsedPublicKey::new(&X25519, &server_public_key_bytes);
-
-        // This shared secret is correct, I checked it with `curve25519-mult`
-        let hs_shared_secret =
-            agreement::agree_ephemeral(client_private_key, &server_public_key, |secret| {
-                secret.to_vec()
-            })
-            .map_err(|_| anyhow::anyhow!("ECDH failed"))?;
-        debug_print("hs shared secret", &hs_shared_secret);
-
-        // Derive handshake traffic keys -----
-
-        // Same as: `echo -n "" | openssl sha256`
-        let empty_hash = digest_bytes(&[]);
-        debug_print("empty_hash", &empty_hash);
-
-        let zero: [u8; 32] = [0u8; 32];
-        let early_secret = hkdf_extract(&zero, &zero);
-
-        let mut derived_secret_bytes = [0u8; 32];
-        hkdf_expand_label(
-            &early_secret,
-            "derived",
-            &empty_hash,
-            &mut derived_secret_bytes,
-        );
-        debug_print("derived", &derived_secret_bytes);
-
-        let handshake_secret = hkdf_extract(&derived_secret_bytes, &hs_shared_secret);
-
-        let ch_sh_hash = digest_bytes(&transcript);
-        debug_print("digest bytes", &ch_sh_hash);
-
-        let mut c_hs_ts = [0u8; 32];
-        let mut s_hs_ts = [0u8; 32];
-        hkdf_expand_label(&handshake_secret, "c hs traffic", &ch_sh_hash, &mut c_hs_ts);
-        hkdf_expand_label(&handshake_secret, "s hs traffic", &ch_sh_hash, &mut s_hs_ts);
-        debug_print("c hs traffic", &c_hs_ts);
-        debug_print("s hs traffic", &s_hs_ts);
-
-        // handshake AEAD keys/IVs
-        let (key_len, iv_len) = (16, 12);
-
-        let mut client_handshake_key = [0u8; 16];
-        let mut client_handshake_iv = [0u8; 12];
-        let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &c_hs_ts);
-        hkdf_expand_label(&c_prk, "key", &[], &mut client_handshake_key);
-        hkdf_expand_label(&c_prk, "iv", &[], &mut client_handshake_iv);
-
-        let mut server_handshake_key = [0u8; 16];
-        let mut server_handshake_iv = [0u8; 12];
-        let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &s_hs_ts);
-        hkdf_expand_label(&s_prk, "key", &[], &mut server_handshake_key);
-        hkdf_expand_label(&s_prk, "iv", &[], &mut server_handshake_iv);
-
-        debug_print("client_handshake_key", &client_handshake_key);
-        debug_print("client_handshake_iv", &client_handshake_iv);
-        debug_print("server_handshake_key", &server_handshake_key);
-        debug_print("server_handshake_iv", &server_handshake_iv);
-
-        let aead_alg = &aead::AES_128_GCM;
-        let aead_dec_hs =
-            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &server_handshake_key).unwrap());
-        let aead_enc_hs =
-            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &client_handshake_key).unwrap());
+        let handshake = Self::derive_handshake_keys(client_private_key, &sh_body, &transcript)?;
 
         let mut seq_dec_hs = 0u64;
         let mut seq_enc_hs = 0u64;
@@ -364,8 +304,12 @@ impl TlsStream {
         }
 
         // ---- Receive EncryptedExtensions, (Certificate, CertVerify), Finished ----
-        let (typ, ct, _inner_type) =
-            read_record_cipher(&mut io, &aead_dec_hs, &server_handshake_iv, &mut seq_dec_hs)?;
+        let (typ, ct, _inner_type) = read_record_cipher(
+            &mut io,
+            &handshake.aead_dec_hs,
+            &handshake.server_handshake_iv,
+            &mut seq_dec_hs,
+        )?;
         if typ != REC_TYPE_APPDATA {
             anyhow::bail!("expected encrypted records");
         }
@@ -385,7 +329,7 @@ impl TlsStream {
             if mtyp == HS_FINISHED {
                 // verify server Finished
                 let mut s_finished_key = [0u8; 32];
-                let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &s_hs_ts);
+                let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.server_hs_ts);
                 hkdf_expand_label(&s_prk, "finished", &[], &mut s_finished_key);
 
                 let thash = digest_bytes(&transcript[..transcript.len() - full.len()]);
@@ -404,13 +348,14 @@ impl TlsStream {
         // This is correct
         let mut derived2_bytes = [0u8; 32];
         hkdf_expand_label(
-            &handshake_secret,
+            &handshake.handshake_secret,
             "derived",
-            &empty_hash,
+            &handshake.empty_hash,
             &mut derived2_bytes,
         );
         debug_print("derived2_bytes", &derived2_bytes);
 
+        let zero: [u8; 32] = [0u8; 32];
         let master_secret = hkdf_extract(&derived2_bytes, &zero);
         let thash_srv_fin = digest_bytes(&transcript);
 
@@ -428,6 +373,7 @@ impl TlsStream {
         {
             let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &c_ap_ts);
             let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &s_ap_ts);
+            let (key_len, iv_len) = (16, 12);
             hkdf_expand_label(&c_prk, "key", &[], &mut cak[..key_len]);
             hkdf_expand_label(&c_prk, "iv", &[], &mut caiv[..iv_len]);
             hkdf_expand_label(&s_prk, "key", &[], &mut sak[..key_len]);
@@ -438,6 +384,7 @@ impl TlsStream {
             debug_print("saiv", &saiv);
         }
 
+        let aead_alg = &aead::AES_128_GCM;
         let aead_app_enc = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
         let aead_app_dec = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
         let seq_app_enc = 0u64;
@@ -450,7 +397,7 @@ impl TlsStream {
         // ---- Send our Finished (under handshake keys) ----
         {
             let mut c_finished_key = [0u8; 32];
-            let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &c_hs_ts);
+            let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &handshake.client_hs_ts);
             hkdf_expand_label(&c_prk, "finished", &[], &mut c_finished_key);
             debug_print("c_finished", &c_finished_key);
 
@@ -471,8 +418,8 @@ impl TlsStream {
                 &mut io,
                 REC_TYPE_HANDSHAKE,
                 &fin,
-                &aead_enc_hs,
-                &client_handshake_iv,
+                &handshake.aead_enc_hs,
+                &handshake.client_handshake_iv,
                 &mut seq_enc_hs,
             )?;
         }
@@ -510,6 +457,92 @@ impl TlsStream {
         let (sh_body, sh_full) = read_server_hello(io)?;
         transcript.extend_from_slice(&sh_full);
         Ok((sh_body, sh_full))
+    }
+
+    fn derive_handshake_keys(
+        client_private_key: EphemeralPrivateKey,
+        sh_body: &[u8],
+        transcript: &[u8],
+    ) -> anyhow::Result<HandshakeState> {
+        // Parse minimal ServerHello to get cipher & key_share
+        let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(sh_body)?;
+        if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
+            anyhow::bail!("server picked unsupported cipher");
+        }
+
+        // ECDH(X25519) shared secret
+        let server_public_key = UnparsedPublicKey::new(&X25519, &server_public_key_bytes);
+
+        // This shared secret is correct, I checked it with `curve25519-mult`
+        let hs_shared_secret =
+            agreement::agree_ephemeral(client_private_key, &server_public_key, |secret| {
+                secret.to_vec()
+            })
+            .map_err(|_| anyhow::anyhow!("ECDH failed"))?;
+        debug_print("hs shared secret", &hs_shared_secret);
+
+        // Same as: `echo -n "" | openssl sha256`
+        let empty_hash = digest_bytes(&[]);
+        debug_print("empty_hash", &empty_hash);
+
+        let zero: [u8; 32] = [0u8; 32];
+        let early_secret = hkdf_extract(&zero, &zero);
+
+        let mut derived_secret_bytes = [0u8; 32];
+        hkdf_expand_label(
+            &early_secret,
+            "derived",
+            &empty_hash,
+            &mut derived_secret_bytes,
+        );
+        debug_print("derived", &derived_secret_bytes);
+
+        let handshake_secret = hkdf_extract(&derived_secret_bytes, &hs_shared_secret);
+
+        let ch_sh_hash = digest_bytes(transcript);
+        debug_print("digest bytes", &ch_sh_hash);
+
+        let mut c_hs_ts = [0u8; 32];
+        let mut s_hs_ts = [0u8; 32];
+        hkdf_expand_label(&handshake_secret, "c hs traffic", &ch_sh_hash, &mut c_hs_ts);
+        hkdf_expand_label(&handshake_secret, "s hs traffic", &ch_sh_hash, &mut s_hs_ts);
+        debug_print("c hs traffic", &c_hs_ts);
+        debug_print("s hs traffic", &s_hs_ts);
+
+        // handshake AEAD keys/IVs
+        let mut client_handshake_key = [0u8; 16];
+        let mut client_handshake_iv = [0u8; 12];
+        let c_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &c_hs_ts);
+        hkdf_expand_label(&c_prk, "key", &[], &mut client_handshake_key);
+        hkdf_expand_label(&c_prk, "iv", &[], &mut client_handshake_iv);
+
+        let mut server_handshake_key = [0u8; 16];
+        let mut server_handshake_iv = [0u8; 12];
+        let s_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &s_hs_ts);
+        hkdf_expand_label(&s_prk, "key", &[], &mut server_handshake_key);
+        hkdf_expand_label(&s_prk, "iv", &[], &mut server_handshake_iv);
+
+        debug_print("client_handshake_key", &client_handshake_key);
+        debug_print("client_handshake_iv", &client_handshake_iv);
+        debug_print("server_handshake_key", &server_handshake_key);
+        debug_print("server_handshake_iv", &server_handshake_iv);
+
+        let aead_alg = &aead::AES_128_GCM;
+        let aead_dec_hs =
+            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &server_handshake_key).unwrap());
+        let aead_enc_hs =
+            aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &client_handshake_key).unwrap());
+
+        Ok(HandshakeState {
+            handshake_secret,
+            client_hs_ts: c_hs_ts,
+            server_hs_ts: s_hs_ts,
+            client_handshake_iv,
+            server_handshake_iv,
+            aead_enc_hs,
+            aead_dec_hs,
+            empty_hash,
+        })
     }
 }
 
