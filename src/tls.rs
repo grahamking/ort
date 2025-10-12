@@ -278,9 +278,7 @@ impl TlsStream {
             &client_private_key,
         )?;
 
-        // Read ServerHello
-        let (sh_body, sh_full) = read_server_hello(&mut io)?;
-        transcript.extend_from_slice(&sh_full);
+        let (sh_body, sh_full) = Self::receive_server_hello(&mut io, &mut transcript)?;
 
         // Parse minimal ServerHello to get cipher & key_share
         let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(&sh_body)?;
@@ -503,6 +501,15 @@ impl TlsStream {
         write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)?;
         transcript.extend_from_slice(&ch_msg);
         Ok(())
+    }
+
+    fn receive_server_hello(
+        io: &mut TcpStream,
+        transcript: &mut Vec<u8>,
+    ) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+        let (sh_body, sh_full) = read_server_hello(io)?;
+        transcript.extend_from_slice(&sh_full);
+        Ok((sh_body, sh_full))
     }
 }
 
