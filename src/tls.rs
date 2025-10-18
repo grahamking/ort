@@ -6,9 +6,12 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
-use std::fs::File;
+use std::env;
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ring::aead;
 use ring::agreement::{self, EphemeralPrivateKey, PublicKey, UnparsedPublicKey, X25519};
@@ -29,7 +32,7 @@ const LEGACY_REC_VER: u16 = 0x0303;
 
 const HS_CLIENT_HELLO: u8 = 1;
 const HS_SERVER_HELLO: u8 = 2;
-//const HS_NEW_SESSION_TICKET: u8 = 4;
+const HS_NEW_SESSION_TICKET: u8 = 4;
 //const HS_ENCRYPTED_EXTENSIONS: u8 = 8;
 //const HS_CERTIFICATE: u8 = 11;
 //const HS_CERT_VERIFY: u8 = 15;
@@ -47,12 +50,20 @@ const EXT_SERVER_NAME: u16 = 0x0000;
 const EXT_SUPPORTED_GROUPS: u16 = 0x000a;
 const EXT_SIGNATURE_ALGS: u16 = 0x000d;
 //const EXT_ALPN: u16 = 0x0010;
+const EXT_SESSION_TICKET: u16 = 0x0023;
 const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
 //const EXT_PSK_MODES: u16 = 0x002d;
 const EXT_KEY_SHARE: u16 = 0x0033;
+const EXT_TICKET_REQUEST: u16 = 0x003a;
+
+// Desired number of session tickets when requesting new connections.
+const TICKET_REQUEST_NEW_COUNT: u8 = 2;
+// No resumption tickets requested yet; this will be updated when resumption is wired in.
+const TICKET_REQUEST_RESUME_COUNT: u8 = 0;
 
 // AEAD tag length (GCM)
 const AEAD_TAG_LEN: usize = 16;
+const MAX_TICKETS_PER_HOST: usize = 4;
 
 // Tiny helper to write BE ints
 fn put_u16(buf: &mut Vec<u8>, v: u16) {
@@ -113,6 +124,8 @@ pub struct TlsStream {
     // read buffer for decrypted application data
     rbuf: Vec<u8>,
     rpos: usize,
+    server_name: String,
+    resumption_master_secret: [u8; 32],
 }
 
 fn client_hello_body(rng: &SystemRandom, sni_host: &str, client_pub: &PublicKey) -> Vec<u8> {
@@ -193,6 +206,20 @@ fn client_hello_body(rng: &SystemRandom, sni_host: &str, client_pub: &PublicKey)
         put_u16(&mut exts, EXT_SIGNATURE_ALGS);
         put_u16(&mut exts, sa.len() as u16);
         exts.extend_from_slice(&sa);
+    }
+
+    // session_ticket: empty request signals support for session tickets
+    {
+        put_u16(&mut exts, EXT_SESSION_TICKET);
+        put_u16(&mut exts, 0);
+    }
+
+    // ticket_request: ask server to send new session tickets post-handshake (RFC 9149)
+    {
+        let tr_body = [TICKET_REQUEST_NEW_COUNT, TICKET_REQUEST_RESUME_COUNT];
+        put_u16(&mut exts, EXT_TICKET_REQUEST);
+        put_u16(&mut exts, tr_body.len() as u16);
+        exts.extend_from_slice(&tr_body);
     }
 
     // key_share: x25519
@@ -276,6 +303,26 @@ struct ApplicationKeys {
     iv_dec: [u8; 12],
 }
 
+struct ParsedNewSessionTicket {
+    lifetime: u32,
+    age_add: u32,
+    nonce: Vec<u8>,
+    ticket: Vec<u8>,
+    _extensions: Vec<u8>,
+}
+
+#[derive(Clone)]
+struct CachedTicket {
+    host: String,
+    cipher_suite: u16,
+    lifetime: u32,
+    age_add: u32,
+    nonce: Vec<u8>,
+    ticket: Vec<u8>,
+    psk: [u8; 32],
+    received_at: u64,
+}
+
 impl TlsStream {
     pub fn connect(mut io: TcpStream, sni_host: &str) -> OrtResult<Self> {
         let rng = ring::rand::SystemRandom::new();
@@ -310,16 +357,17 @@ impl TlsStream {
             &mut transcript,
         )?;
 
+        let (application_keys, master_secret) = Self::derive_application_keys(
+            &handshake.handshake_secret,
+            &handshake.empty_hash,
+            &transcript,
+        );
         let ApplicationKeys {
             aead_app_enc,
             aead_app_dec,
             iv_enc: caiv,
             iv_dec: saiv,
-        } = Self::derive_application_keys(
-            &handshake.handshake_secret,
-            &handshake.empty_hash,
-            &transcript,
-        );
+        } = application_keys;
 
         let seq_app_enc = 0u64;
         let seq_app_dec = 0u64;
@@ -329,6 +377,9 @@ impl TlsStream {
         //write_record_plain(&mut io, REC_TYPE_CHANGE_CIPHER_SPEC, &[0x01])?;
 
         Self::send_client_finished(&mut io, &handshake, &mut transcript, &mut seq_enc_hs)?;
+
+        let resumption_master_secret =
+            Self::derive_resumption_master_secret(&master_secret, &transcript);
 
         Ok(TlsStream {
             io,
@@ -340,6 +391,8 @@ impl TlsStream {
             seq_dec: seq_app_dec,
             rbuf: Vec::with_capacity(16 * 1024),
             rpos: 0,
+            server_name: sni_host.to_string(),
+            resumption_master_secret,
         })
     }
 
@@ -390,7 +443,12 @@ impl TlsStream {
         }
 
         // Decrypted TLSInnerPlaintext: ... | content_type
-        // May contain multiple handshake messages; parse & append to transcript.
+        // Contains multiple handshake messages; parse & append to transcript.
+        // Contains these mtyp:
+        // 8 HS_ENCRYPTED_EXTENSIONS
+        // 11 HS_CERTIFICATE
+        // 15 HS_CERT_VERIFY
+        // 20 HS_FINISHED
         let mut p = &ct[..];
         while !p.is_empty() {
             // On TLS 1.3: content_type is last byte; but ring decrypt gives only plaintext,
@@ -399,6 +457,7 @@ impl TlsStream {
                 Ok(x) => x,
                 Err(_) => return Err(ort_error("bad handshake fragment")),
             };
+
             transcript.extend_from_slice(full);
 
             if mtyp == HS_FINISHED {
@@ -511,7 +570,7 @@ impl TlsStream {
         handshake_secret: &hkdf::Prk,
         empty_hash: &[u8; 32],
         transcript: &[u8],
-    ) -> ApplicationKeys {
+    ) -> (ApplicationKeys, hkdf::Prk) {
         let mut derived2_bytes = [0u8; 32];
         hkdf_expand_label(handshake_secret, "derived", empty_hash, &mut derived2_bytes);
         debug_print("derived2_bytes", &derived2_bytes);
@@ -547,12 +606,27 @@ impl TlsStream {
         let aead_app_enc = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &cak).unwrap());
         let aead_app_dec = aead::LessSafeKey::new(aead::UnboundKey::new(aead_alg, &sak).unwrap());
 
-        ApplicationKeys {
-            aead_app_enc,
-            aead_app_dec,
-            iv_enc: caiv,
-            iv_dec: saiv,
-        }
+        (
+            ApplicationKeys {
+                aead_app_enc,
+                aead_app_dec,
+                iv_enc: caiv,
+                iv_dec: saiv,
+            },
+            master_secret,
+        )
+    }
+
+    fn derive_resumption_master_secret(master_secret: &hkdf::Prk, transcript: &[u8]) -> [u8; 32] {
+        let thash = digest_bytes(transcript);
+        let mut resumption_master_secret = [0u8; 32];
+        hkdf_expand_label(
+            master_secret,
+            "res master",
+            &thash,
+            &mut resumption_master_secret,
+        );
+        resumption_master_secret
     }
 
     fn send_client_finished(
@@ -589,6 +663,52 @@ impl TlsStream {
         )?;
 
         Ok(())
+    }
+
+    fn handle_post_handshake_handshake(&mut self, mut data: &[u8]) -> io::Result<()> {
+        eprintln!("handle_post_handshake_handshake");
+        while !data.is_empty() {
+            let (msg_type, body, _full) = read_handshake_message(&mut data)?;
+            if msg_type == HS_NEW_SESSION_TICKET {
+                eprintln!("[tls] received NewSessionTicket ({} bytes)", body.len());
+                self.process_new_session_ticket(body)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn process_new_session_ticket(&mut self, body: &[u8]) -> io::Result<()> {
+        let parsed = parse_new_session_ticket(body)?;
+        eprintln!(
+            "[tls] parsed NST lifetime={} age_add={} nonce_len={} ticket_len={}",
+            parsed.lifetime,
+            parsed.age_add,
+            parsed.nonce.len(),
+            parsed.ticket.len()
+        );
+
+        let res_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &self.resumption_master_secret);
+        let mut psk = [0u8; 32];
+        hkdf_expand_label(&res_prk, "resumption", &parsed.nonce, &mut psk);
+        eprintln!("[tls] derived resumption PSK using nonce");
+
+        let received_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| io_err("system time before unix epoch"))?
+            .as_secs();
+
+        let cached = CachedTicket {
+            host: self.server_name.clone(),
+            cipher_suite: CIPHER_TLS_AES_128_GCM_SHA256,
+            lifetime: parsed.lifetime,
+            age_add: parsed.age_add,
+            nonce: parsed.nonce,
+            ticket: parsed.ticket,
+            psk,
+            received_at,
+        };
+
+        store_session_ticket(cached)
     }
 }
 
@@ -628,16 +748,12 @@ impl Read for TlsStream {
                 &self.iv_dec,
                 &mut self.seq_dec,
             )?;
-            if typ != REC_TYPE_APPDATA {
-                // Ignore unexpected (e.g., post-handshake Handshake like NewSessionTicket)
-                continue;
-            }
-            // plaintext ends with inner content type byte; for app data it is 0x17.
-            if plaintext.is_empty() {
-                continue;
-            }
+
+            eprintln!("{typ} {inner_type}");
+
             if inner_type == REC_TYPE_HANDSHAKE {
-                // Drop post-handshake messages (tickets, etc.)
+                eprintln!("Post handshake");
+                self.handle_post_handshake_handshake(&plaintext)?;
                 continue;
             }
             if inner_type == REC_TYPE_ALERT {
@@ -649,6 +765,10 @@ impl Read for TlsStream {
                 // See https://www.rfc-editor.org/rfc/rfc8446#appendix-B search for
                 // "unexpected_message" for all types
                 return Err(io_err(&format!("{level} alert: {}", plaintext[1])));
+            }
+            if typ != REC_TYPE_APPDATA {
+                // Ignore unexpected (e.g., post-handshake Handshake like NewSessionTicket)
+                continue;
             }
             if inner_type != REC_TYPE_APPDATA {
                 // Some servers pad with 0x00.. then type; we already consumed type.
@@ -791,6 +911,321 @@ fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> io::Result<(u8, &'a [u8], &'
     let body = &rd[4..4 + len];
     *rd = &rd[4 + len..];
     Ok((typ, body, full))
+}
+
+fn parse_new_session_ticket(data: &[u8]) -> io::Result<ParsedNewSessionTicket> {
+    let mut p = data;
+    if p.len() < 4 + 4 + 1 {
+        return Err(io_err("nst too short"));
+    }
+
+    let lifetime = u32::from_be_bytes([p[0], p[1], p[2], p[3]]);
+    p = &p[4..];
+    let age_add = u32::from_be_bytes([p[0], p[1], p[2], p[3]]);
+    p = &p[4..];
+
+    let nonce_len = p[0] as usize;
+    p = &p[1..];
+    if p.len() < nonce_len {
+        return Err(io_err("nst nonce"));
+    }
+    let nonce = p[..nonce_len].to_vec();
+    p = &p[nonce_len..];
+
+    if p.len() < 2 {
+        return Err(io_err("nst ticket len"));
+    }
+    let ticket_len = u16::from_be_bytes([p[0], p[1]]) as usize;
+    p = &p[2..];
+    if p.len() < ticket_len {
+        return Err(io_err("nst ticket data"));
+    }
+    let ticket = p[..ticket_len].to_vec();
+    p = &p[ticket_len..];
+
+    if p.len() < 2 {
+        return Err(io_err("nst ext len"));
+    }
+    let ext_len = u16::from_be_bytes([p[0], p[1]]) as usize;
+    p = &p[2..];
+    if p.len() < ext_len {
+        return Err(io_err("nst ext data"));
+    }
+    let extensions = p[..ext_len].to_vec();
+
+    Ok(ParsedNewSessionTicket {
+        lifetime,
+        age_add,
+        nonce,
+        ticket,
+        _extensions: extensions,
+    })
+}
+
+fn store_session_ticket(ticket: CachedTicket) -> io::Result<()> {
+    let path = session_cache_path()?;
+    eprintln!("[tls] storing ticket to {:?}", path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut tickets = load_cached_tickets(&path)?;
+    eprintln!("[tls] loaded {} existing tickets", tickets.len());
+
+    tickets.retain(|t| !(t.host == ticket.host && t.ticket == ticket.ticket));
+    tickets.push(ticket);
+
+    tickets.sort_by_key(|t| t.received_at);
+
+    let mut filtered: Vec<CachedTicket> = Vec::new();
+    for t in tickets.into_iter().rev() {
+        let count = filtered
+            .iter()
+            .filter(|existing| existing.host == t.host)
+            .count();
+        if count < MAX_TICKETS_PER_HOST {
+            filtered.push(t);
+        }
+    }
+    filtered.sort_by_key(|t| t.received_at);
+    let last_host = filtered.last().map(|t| t.host.clone()).unwrap_or_default();
+    let per_last_host = filtered.iter().filter(|t| t.host == last_host).count();
+    eprintln!(
+        "[tls] cached {} tickets after filtering ({} for host {:?})",
+        filtered.len(),
+        per_last_host,
+        last_host
+    );
+
+    write_cached_tickets(&path, &filtered)
+}
+
+fn session_cache_path() -> io::Result<PathBuf> {
+    if let Some(path) = env::var_os("ORT_SESSION_CACHE") {
+        return Ok(PathBuf::from(path));
+    }
+
+    let base = if let Some(xdg) = env::var_os("XDG_CACHE_HOME") {
+        PathBuf::from(xdg)
+    } else if let Some(home) = env::var_os("HOME") {
+        Path::new(&home).join(".cache")
+    } else {
+        return Err(io_err("HOME not set"));
+    };
+
+    Ok(base.join("ort_session_tickets.json"))
+}
+
+fn load_cached_tickets(path: &Path) -> io::Result<Vec<CachedTicket>> {
+    match fs::read_to_string(path) {
+        Ok(contents) => {
+            eprintln!("[tls] read existing cache ({} bytes)", contents.len());
+            parse_cached_tickets(&contents)
+        }
+        Err(err) => {
+            if err.kind() == io::ErrorKind::NotFound {
+                eprintln!("[tls] cache file not found at {:?}", path);
+                Ok(Vec::new())
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+fn parse_cached_tickets(contents: &str) -> io::Result<Vec<CachedTicket>> {
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let start = trimmed.find('[').ok_or_else(|| io_err("cache missing ["))?;
+    let end = trimmed
+        .rfind(']')
+        .ok_or_else(|| io_err("cache missing ]"))?;
+    if end <= start {
+        return Err(io_err("cache brackets"));
+    }
+    let inner = &trimmed[start + 1..end];
+    let inner = inner.trim();
+    if inner.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut tickets = Vec::new();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut start_idx: Option<usize> = None;
+    for (idx, ch) in inner.char_indices() {
+        match ch {
+            '"' => {
+                if idx == 0 || inner.as_bytes()[idx - 1] != b'\\' {
+                    in_string = !in_string;
+                }
+            }
+            '{' if !in_string => {
+                if depth == 0 {
+                    start_idx = Some(idx);
+                }
+                depth += 1;
+            }
+            '}' if !in_string => {
+                if depth == 0 {
+                    return Err(io_err("cache braces"));
+                }
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(start) = start_idx {
+                        let obj = inner[start..=idx].to_string();
+                        tickets.push(parse_ticket_object(&obj)?);
+                        start_idx = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if depth != 0 || in_string {
+        return Err(io_err("cache parse"));
+    }
+
+    Ok(tickets)
+}
+
+fn parse_ticket_object(obj: &str) -> io::Result<CachedTicket> {
+    let host = extract_string_field(obj, "host")?;
+    let cipher_suite: u16 = extract_number_field(obj, "cipher_suite")?;
+    let lifetime: u32 = extract_number_field(obj, "ticket_lifetime")?;
+    let age_add: u32 = extract_number_field(obj, "ticket_age_add")?;
+    let nonce_hex = extract_string_field(obj, "ticket_nonce")?;
+    let ticket_hex = extract_string_field(obj, "ticket")?;
+    let psk_hex = extract_string_field(obj, "psk")?;
+    let received_at: u64 = extract_number_field(obj, "received_at")?;
+
+    let nonce = hex_decode(&nonce_hex)?;
+    let ticket_bytes = hex_decode(&ticket_hex)?;
+    let psk_bytes = hex_decode(&psk_hex)?;
+    if psk_bytes.len() != 32 {
+        return Err(io_err("psk len"));
+    }
+    let mut psk = [0u8; 32];
+    psk.copy_from_slice(&psk_bytes);
+
+    Ok(CachedTicket {
+        host,
+        cipher_suite,
+        lifetime,
+        age_add,
+        nonce,
+        ticket: ticket_bytes,
+        psk,
+        received_at,
+    })
+}
+
+fn extract_string_field(obj: &str, field: &str) -> io::Result<String> {
+    let pattern = format!("\"{}\":\"", field);
+    let start = obj.find(&pattern).ok_or_else(|| io_err("field missing"))? + pattern.len();
+    let rest = &obj[start..];
+    let end = rest
+        .find('"')
+        .ok_or_else(|| io_err("unterminated string"))?;
+    Ok(rest[..end].to_string())
+}
+
+fn extract_number_field<T>(obj: &str, field: &str) -> io::Result<T>
+where
+    T: std::str::FromStr,
+{
+    let pattern = format!("\"{}\":", field);
+    let start = obj.find(&pattern).ok_or_else(|| io_err("field missing"))? + pattern.len();
+    let rest = &obj[start..];
+    let end = rest
+        .find(|c: char| c == ',' || c == '}')
+        .ok_or_else(|| io_err("unterminated number"))?;
+    let value = rest[..end].trim();
+    value.parse().map_err(|_| io_err("number parse"))
+}
+
+fn write_cached_tickets(path: &Path, tickets: &[CachedTicket]) -> io::Result<()> {
+    let mut out = String::new();
+    out.push_str("{\"tickets\":[");
+    for (idx, ticket) in tickets.iter().enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        out.push_str(&ticket_to_json(ticket));
+    }
+    out.push_str("]}");
+
+    let tmp = path.with_extension("tmp");
+    let mut file = File::create(&tmp)?;
+    file.write_all(out.as_bytes())?;
+    file.sync_all()?;
+    fs::rename(tmp, path)?;
+    eprintln!(
+        "[tls] wrote {} tickets ({} bytes) to {:?}",
+        tickets.len(),
+        out.len(),
+        path
+    );
+    Ok(())
+}
+
+fn ticket_to_json(ticket: &CachedTicket) -> String {
+    format!(
+        "{{\"host\":\"{}\",\"cipher_suite\":{},\"ticket_lifetime\":{},\"ticket_age_add\":{},\"ticket_nonce\":\"{}\",\"ticket\":\"{}\",\"psk\":\"{}\",\"received_at\":{}}}",
+        json_escape(&ticket.host),
+        ticket.cipher_suite,
+        ticket.lifetime,
+        ticket.age_add,
+        hex_encode(&ticket.nonce),
+        hex_encode(&ticket.ticket),
+        hex_encode(&ticket.psk),
+        ticket.received_at
+    )
+}
+
+fn json_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 4);
+    for ch in input.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn hex_encode(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn hex_decode(hex: &str) -> io::Result<Vec<u8>> {
+    if hex.len() % 2 != 0 {
+        return Err(io_err("hex length"));
+    }
+    let mut out = Vec::with_capacity(hex.len() / 2);
+    let bytes = hex.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let hi = from_hex_digit(bytes[i])?;
+        let lo = from_hex_digit(bytes[i + 1])?;
+        out.push((hi << 4) | lo);
+        i += 2;
+    }
+    Ok(out)
+}
+
+fn from_hex_digit(b: u8) -> io::Result<u8> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        _ => Err(io_err("hex digit")),
+    }
 }
 
 fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
