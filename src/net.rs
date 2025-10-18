@@ -7,6 +7,7 @@
 use std::fmt;
 use std::io::{self, BufRead as _, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::os::fd::AsRawFd as _;
 use std::time::Duration;
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
@@ -150,6 +151,7 @@ fn connect<A: ToSocketAddrs>(addrs: A) -> io::Result<TcpStream> {
     for addr in addrs {
         match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
             Ok(tcp) => {
+                set_tcp_fastopen(&tcp);
                 return Ok(tcp);
             }
             Err(err) => {
@@ -162,4 +164,18 @@ fn connect<A: ToSocketAddrs>(addrs: A) -> io::Result<TcpStream> {
         .map(|(addr, err)| format!("Failed connecting to {addr:?}: {err}"))
         .collect();
     Err(io::Error::other(err_msg.join("; ")))
+}
+
+fn set_tcp_fastopen(tcp: &TcpStream) {
+    let fd = tcp.as_raw_fd();
+    let optval: i32 = 1; // Enable
+    unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_TCP,
+            libc::TCP_FASTOPEN,
+            &optval as *const _ as *const libc::c_void,
+            std::mem::size_of::<i32>() as libc::socklen_t,
+        );
+    }
 }
