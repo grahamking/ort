@@ -25,6 +25,12 @@ pub mod serializer;
 mod tls;
 pub mod writer;
 pub use error::{Context, OrtError, OrtResult, ort_err, ort_error};
+pub mod cli;
+
+mod action_history;
+mod action_list;
+mod action_prompt;
+mod multi_channel;
 
 #[derive(Debug, Clone)]
 pub enum Response {

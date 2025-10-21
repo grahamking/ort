@@ -10,20 +10,21 @@ use std::io::Write as _;
 use std::sync::mpsc;
 use std::thread;
 
-use ort::CancelToken;
-use ort::OrtResult;
-use ort::Priority;
-use ort::ReasoningConfig;
-use ort::ReasoningEffort;
-use ort::config;
-use ort::utils;
-use ort::writer::Writer as _;
+use crate::CancelToken;
+use crate::OrtResult;
+use crate::Priority;
+use crate::PromptOpts;
+use crate::ReasoningConfig;
+use crate::ReasoningEffort;
+use crate::config;
+use crate::utils;
+use crate::writer::Writer as _;
 
-use crate::ArgParseError;
-use crate::Cmd;
+use crate::cli::ArgParseError;
+use crate::cli::Cmd;
+use crate::cli::print_usage_and_exit;
 use crate::multi_channel;
-use crate::print_usage_and_exit;
-use ort::writer;
+use crate::writer;
 
 const STDIN_FILENO: i32 = 0;
 const STDOUT_FILENO: i32 = 1;
@@ -170,7 +171,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     if prompt.is_empty() {
         return Err(ArgParseError::new_str("Missing prompt."));
     };
-    let prompt_opts = ort::PromptOpts {
+    let prompt_opts = PromptOpts {
         prompt: Some(prompt),
         model,
         provider,
@@ -192,15 +193,15 @@ pub fn run(
     api_key: &str,
     cancel_token: CancelToken,
     settings: config::Settings,
-    opts: ort::PromptOpts,
-    messages: Vec<ort::Message>,
+    opts: PromptOpts,
+    messages: Vec<crate::Message>,
 ) -> OrtResult<()> {
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = ort::prompt(
+    let rx_main = crate::prompt(
         api_key,
         cancel_token,
         settings.dns,

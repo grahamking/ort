@@ -4,9 +4,9 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use ort::{CancelToken, OrtResult, config};
+use crate::{CancelToken, OrtResult, config};
 
-use crate::{ArgParseError, Cmd, ListOpts};
+use crate::cli::{ArgParseError, Cmd, ListOpts};
 use std::io::Write as _;
 
 pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
@@ -33,7 +33,7 @@ pub fn run(
     settings: config::Settings,
     opts: ListOpts,
 ) -> OrtResult<()> {
-    let models_iter = ort::list_models(api_key, settings.dns)?;
+    let models_iter = crate::list_models(api_key, settings.dns)?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.

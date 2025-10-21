@@ -10,8 +10,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ort::{CancelToken, LastData, OrtError, OrtResult, ort_err, ort_error};
-use ort::{config, utils};
+use crate::{CancelToken, LastData, OrtError, OrtResult, ort_err, ort_error};
+use crate::{config, utils};
 
 use crate::action_prompt;
 
@@ -19,7 +19,7 @@ pub fn run_continue(
     api_key: &str,
     cancel_token: CancelToken,
     settings: config::Settings,
-    mut opts: ort::PromptOpts,
+    mut opts: crate::PromptOpts,
 ) -> OrtResult<()> {
     let dir = config::cache_dir()?;
     let mut last_file = dir.join(format!("last-{}.json", utils::tmux_pane_id()));
@@ -41,7 +41,7 @@ pub fn run_continue(
 
     opts.merge(last.opts);
     last.messages
-        .push(ort::Message::user(opts.prompt.take().unwrap()));
+        .push(crate::Message::user(opts.prompt.take().unwrap()));
 
     action_prompt::run(api_key, cancel_token, settings, opts, last.messages)
 }

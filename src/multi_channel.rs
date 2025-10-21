@@ -7,7 +7,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
-use ort::OrtResult;
+use crate::OrtResult;
 
 // Returning OrtResult makes the Vec<JoinHandle> work, and gives options for
 // error handling in the future.
