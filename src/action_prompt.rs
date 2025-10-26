@@ -27,7 +27,6 @@ use crate::multi_channel;
 use crate::writer;
 
 const STDIN_FILENO: i32 = 0;
-const STDOUT_FILENO: i32 = 1;
 
 pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
@@ -195,6 +194,9 @@ pub fn run(
     settings: config::Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
+    is_pipe_output: bool, // Are we redirecting stdout?
+    //w: impl io::Write + Send,
+    w: std::io::Stdout,
 ) -> OrtResult<()> {
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
@@ -213,76 +215,84 @@ pub fn run(
     let (tx_stdout, rx_stdout) = mpsc::channel();
     //let (tx_file, rx_file) = mpsc::channel();
     let (tx_last, rx_last) = mpsc::channel();
+
     let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_last]);
-    let mut handles = vec![jh_broadcast];
 
     //let cache_dir = config::cache_dir()?;
     //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
     //let path_display = path.display().to_string();
 
-    let is_pipe_output = unsafe { isatty(STDOUT_FILENO) == 0 };
-    let jh_stdout = thread::spawn(move || -> OrtResult<()> {
-        let stdout = std::io::stdout();
-        let handle = stdout.lock();
-        let mut stdout_writer: Box<dyn writer::Writer> = if is_pipe_output {
-            Box::new(writer::FileWriter {
-                writer: Box::new(handle),
-                show_reasoning,
-            })
-        } else {
-            Box::new(writer::ConsoleWriter {
-                writer: Box::new(handle),
-                show_reasoning,
-            })
-        };
-        let stats = stdout_writer.run(rx_stdout)?;
-        let handle = stdout_writer.inner();
-        let _ = writeln!(handle);
-        if !is_quiet {
-            //if settings.save_to_file {
-            //    let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
-            //} else {
-            let _ = write!(handle, "\nStats: {stats}\n");
-            //}
-        }
-
-        Ok(())
-    });
-    handles.push(jh_stdout);
-
-    if settings.save_to_file {
-        /*
-        let jh_file = thread::spawn(move || -> OrtResult<()> {
-            let f = File::create(&path)?;
-            let mut file_writer = writer::FileWriter {
-                writer: Box::new(f),
-                show_reasoning,
+    let writer = Box::new(w);
+    thread::scope(|scope| {
+        let mut handles = vec![];
+        let jh_stdout = scope.spawn(move || -> OrtResult<()> {
+            let (stats, mut w) = if is_pipe_output {
+                let mut fw = writer::FileWriter {
+                    writer,
+                    show_reasoning,
+                };
+                let stats = fw.run(rx_stdout)?;
+                let w = fw.into_inner();
+                (stats, w)
+            } else {
+                let mut cw = writer::ConsoleWriter {
+                    writer,
+                    show_reasoning,
+                };
+                let stats = cw.run(rx_stdout)?;
+                let w = cw.into_inner();
+                (stats, w)
             };
-            let stats = file_writer.run(rx_file)?;
-            let f = file_writer.inner();
-            let _ = writeln!(f);
+            let _ = writeln!(w);
             if !is_quiet {
-                let _ = write!(f, "\nStats: {stats}\n");
+                //if settings.save_to_file {
+                //    let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
+                //} else {
+                let _ = write!(w, "\nStats: {stats}\n");
+                //}
             }
+
             Ok(())
         });
-        handles.push(jh_file);
-        */
+        handles.push(jh_stdout);
 
-        let jh_last = thread::spawn(move || -> OrtResult<()> {
-            let mut last_writer = writer::LastWriter::new(opts, messages)?;
-            last_writer.run(rx_last)?;
-            Ok(())
-        });
-        handles.push(jh_last);
-    }
+        if settings.save_to_file {
+            /*
+            let jh_file = thread::spawn(move || -> OrtResult<()> {
+                let f = File::create(&path)?;
+                let mut file_writer = writer::FileWriter {
+                    writer: Box::new(f),
+                    show_reasoning,
+                };
+                let stats = file_writer.run(rx_file)?;
+                let f = file_writer.inner();
+                let _ = writeln!(f);
+                if !is_quiet {
+                    let _ = write!(f, "\nStats: {stats}\n");
+                }
+                Ok(())
+            });
+            handles.push(jh_file);
+            */
 
-    for h in handles {
-        if let Err(err) = h.join().unwrap() {
-            eprintln!("\nThread error: {err}");
-            // The errors are all the same so only print the first
-            break;
+            let jh_last = scope.spawn(move || -> OrtResult<()> {
+                let mut last_writer = writer::LastWriter::new(opts, messages)?;
+                last_writer.run(rx_last)?;
+                Ok(())
+            });
+            handles.push(jh_last);
         }
+
+        for h in handles {
+            if let Err(err) = h.join().unwrap() {
+                eprintln!("\nThread error: {err}");
+                // The errors are all the same so only print the first
+                break;
+            }
+        }
+    });
+    if let Err(err) = jh_broadcast.join().unwrap() {
+        eprintln!("\nThread error: {err}");
     }
 
     Ok(())

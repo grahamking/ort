@@ -20,6 +20,9 @@ pub fn run_continue(
     cancel_token: CancelToken,
     settings: config::Settings,
     mut opts: crate::PromptOpts,
+    is_pipe_output: bool,
+    //w: impl io::Write + Send,
+    w: std::io::Stdout,
 ) -> OrtResult<()> {
     let dir = config::cache_dir()?;
     let mut last_file = dir.join(format!("last-{}.json", utils::tmux_pane_id()));
@@ -43,7 +46,15 @@ pub fn run_continue(
     last.messages
         .push(crate::Message::user(opts.prompt.take().unwrap()));
 
-    action_prompt::run(api_key, cancel_token, settings, opts, last.messages)
+    action_prompt::run(
+        api_key,
+        cancel_token,
+        settings,
+        opts,
+        last.messages,
+        is_pipe_output,
+        w,
+    )
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.

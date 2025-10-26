@@ -24,7 +24,7 @@ const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
 pub trait Writer {
     fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats>;
-    fn inner(&mut self) -> &mut Box<dyn Write>;
+    fn into_inner(self) -> Box<dyn Write>;
 }
 
 pub struct ConsoleWriter {
@@ -33,8 +33,8 @@ pub struct ConsoleWriter {
 }
 
 impl Writer for ConsoleWriter {
-    fn inner(&mut self) -> &mut Box<dyn Write> {
-        &mut self.writer
+    fn into_inner(self) -> Box<dyn Write> {
+        self.writer
     }
     fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
@@ -118,8 +118,8 @@ pub struct FileWriter {
 }
 
 impl Writer for FileWriter {
-    fn inner(&mut self) -> &mut Box<dyn Write> {
-        &mut self.writer
+    fn into_inner(self) -> Box<dyn Write> {
+        self.writer
     }
     fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let mut stats_out = None;
@@ -176,8 +176,8 @@ impl LastWriter {
 }
 
 impl Writer for LastWriter {
-    fn inner(&mut self) -> &mut Box<dyn Write> {
-        &mut self.w
+    fn into_inner(self) -> Box<dyn Write> {
+        self.w
     }
 
     fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {

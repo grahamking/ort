@@ -7,6 +7,7 @@
 use core::fmt;
 use std::borrow::Cow;
 use std::env;
+use std::io;
 use std::process::ExitCode;
 
 use crate::PromptOpts;
@@ -77,7 +78,7 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     }
 }
 
-pub fn main(args: Vec<String>) -> ExitCode {
+pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> ExitCode {
     // Load ~/.config/ort.json
     let cfg = match crate::config::load() {
         Ok(cfg) => cfg,
@@ -128,6 +129,8 @@ pub fn main(args: Vec<String>) -> ExitCode {
                 cfg.settings.unwrap_or_default(),
                 cli_opts,
                 messages,
+                !is_terminal,
+                std::io::stdout(), // TODO pass w
             )
         }
         Cmd::ContinueConversation(cli_opts) => action_history::run_continue(
@@ -135,12 +138,15 @@ pub fn main(args: Vec<String>) -> ExitCode {
             cancel_token,
             cfg.settings.unwrap_or_default(),
             cli_opts,
+            !is_terminal,
+            std::io::stdout(), // TODO pass w
         ),
         Cmd::List(args) => action_list::run(
             &api_key,
             cancel_token,
             cfg.settings.unwrap_or_default(),
             args,
+            w,
         ),
     };
     match cmd_result {

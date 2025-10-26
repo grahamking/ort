@@ -7,7 +7,7 @@
 use crate::{CancelToken, OrtResult, config};
 
 use crate::cli::{ArgParseError, Cmd, ListOpts};
-use std::io::Write as _;
+use std::io;
 
 pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     let mut is_json = false;
@@ -32,13 +32,12 @@ pub fn run(
     _cancel_token: CancelToken, // TODO use CancelToken
     settings: config::Settings,
     opts: ListOpts,
+    mut w: impl io::Write,
 ) -> OrtResult<()> {
     let models_iter = crate::list_models(api_key, settings.dns)?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
         for models_json in models_iter {
             let models_json = models_json?;
             let b = models_json.as_bytes();
@@ -49,10 +48,9 @@ pub fn run(
                 // TODO: Do these still happen? I think it was rustls.
                 continue;
             }
-            handle.write_all(b)?;
-            handle.flush()?;
+            w.write_all(b)?;
+            w.flush()?;
         }
-        drop(handle);
     } else {
         // Extract and print model ids alphabetically
         let mut full = String::with_capacity(512 * 1024 * 1024);
@@ -69,7 +67,7 @@ pub fn run(
         let mut slugs: Vec<&str> = full.split(r#""id":""#).skip(1).map(until_quote).collect();
         slugs.sort();
         for s in slugs {
-            println!("{s}");
+            let _ = writeln!(w, "{s}");
         }
     }
     Ok(())
