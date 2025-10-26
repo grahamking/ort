@@ -12,7 +12,6 @@ use std::net::TcpStream;
 
 use ring::aead;
 use ring::agreement::{self, EphemeralPrivateKey, PublicKey, UnparsedPublicKey, X25519};
-use ring::digest;
 use ring::hkdf;
 use ring::hkdf::KeyType;
 use ring::rand::{SecureRandom as _, SystemRandom};
@@ -83,7 +82,7 @@ fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> hkdf::Prk {
 }
 
 fn digest_bytes(data: &[u8]) -> [u8; 32] {
-    let d = digest::digest(&digest::SHA256, data);
+    let d = crate::digest::sha256(data);
     let mut out = [0u8; 32];
     out.copy_from_slice(d.as_ref());
     out

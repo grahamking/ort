@@ -19,6 +19,7 @@ pub use data::{
 };
 mod cancel_token;
 pub use cancel_token::CancelToken;
+pub mod digest;
 mod error;
 pub mod parser;
 pub mod serializer;
