@@ -6,6 +6,7 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
+use std::ffi::{c_uint, c_void};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
@@ -14,7 +15,7 @@ use ring::aead;
 use ring::agreement::{self, EphemeralPrivateKey, PublicKey, UnparsedPublicKey, X25519};
 use ring::hkdf;
 use ring::hkdf::KeyType;
-use ring::rand::{SecureRandom as _, SystemRandom};
+use ring::rand::SystemRandom;
 
 use crate::{OrtResult, ort_error};
 
@@ -114,14 +115,17 @@ pub struct TlsStream {
     rpos: usize,
 }
 
-fn client_hello_body(rng: &SystemRandom, sni_host: &str, client_pub: &PublicKey) -> Vec<u8> {
+fn client_hello_body(sni_host: &str, client_pub: &PublicKey) -> Vec<u8> {
     let mut ch_body = Vec::with_capacity(512);
 
     // X25519
     let mut random = [0u8; 32];
-    let _ = rng.fill(&mut random);
+    let got_bytes = unsafe { getrandom(random.as_mut_ptr() as *mut c_void, 32, 0) };
+    debug_assert_eq!(got_bytes, 32);
+
     let mut session_id = [0u8; 32];
-    let _ = rng.fill(&mut session_id);
+    let got_bytes = unsafe { getrandom(session_id.as_mut_ptr() as *mut c_void, 32, 0) };
+    debug_assert_eq!(got_bytes, 32);
 
     // legacy_version
     ch_body.extend_from_slice(&0x0303u16.to_be_bytes());
@@ -219,7 +223,6 @@ fn client_hello_body(rng: &SystemRandom, sni_host: &str, client_pub: &PublicKey)
 
 /// --- Build ClientHello (single cipher: TLS_AES_128_GCM_SHA256) ---
 fn client_hello_msg(
-    rng: &SystemRandom,
     sni_host: &str,
     client_private_key: &EphemeralPrivateKey,
 ) -> OrtResult<Vec<u8>> {
@@ -227,7 +230,7 @@ fn client_hello_msg(
         .compute_public_key()
         .map_err(|_| ort_error("x25519 pub"))?;
 
-    let ch_body = client_hello_body(rng, sni_host, &client_pub);
+    let ch_body = client_hello_body(sni_host, &client_pub);
 
     // Handshake framing: ClientHello
     let mut ch_msg = Vec::with_capacity(4 + ch_body.len());
@@ -277,21 +280,14 @@ struct ApplicationKeys {
 
 impl TlsStream {
     pub fn connect(mut io: TcpStream, sni_host: &str) -> OrtResult<Self> {
-        let rng = ring::rand::SystemRandom::new();
-
         // transcript = full Handshake message encodings (headers + bodies)
         let mut transcript = Vec::with_capacity(1024);
 
+        let rng = SystemRandom::new();
         let client_private_key =
             EphemeralPrivateKey::generate(&X25519, &rng).map_err(|_| ort_error("x25519 keygen"))?;
 
-        Self::send_client_hello(
-            &mut io,
-            sni_host,
-            &mut transcript,
-            &rng,
-            &client_private_key,
-        )?;
+        Self::send_client_hello(&mut io, sni_host, &mut transcript, &client_private_key)?;
 
         let sh_body = Self::receive_server_hello(&mut io, &mut transcript)?;
 
@@ -346,10 +342,9 @@ impl TlsStream {
         io: &mut TcpStream,
         sni_host: &str,
         transcript: &mut Vec<u8>,
-        rng: &SystemRandom,
         client_private_key: &EphemeralPrivateKey,
     ) -> OrtResult<()> {
-        let ch_msg = client_hello_msg(rng, sni_host, client_private_key)?;
+        let ch_msg = client_hello_msg(sni_host, client_private_key)?;
         write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)?;
         transcript.extend_from_slice(&ch_msg);
         Ok(())
@@ -900,4 +895,8 @@ fn write_bytes_to_file(bytes: &[u8], file_path: &str) -> std::io::Result<()> {
     let mut file = File::create(file_path)?;
     file.write_all(bytes)?;
     Ok(())
+}
+
+unsafe extern "C" {
+    pub fn getrandom(buf: *mut c_void, buflen: usize, flags: c_uint) -> isize;
 }
