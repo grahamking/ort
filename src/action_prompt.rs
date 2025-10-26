@@ -6,7 +6,6 @@
 
 use std::io;
 use std::io::Read as _;
-use std::io::Write as _;
 use std::sync::mpsc;
 use std::thread;
 
@@ -18,7 +17,7 @@ use crate::ReasoningConfig;
 use crate::ReasoningEffort;
 use crate::config;
 use crate::utils;
-use crate::writer::Writer as _;
+//use crate::writer::Writer as _;
 
 use crate::cli::ArgParseError;
 use crate::cli::Cmd;
@@ -195,8 +194,7 @@ pub fn run(
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
-    //w: impl io::Write + Send,
-    w: std::io::Stdout,
+    w: impl io::Write + Send,
 ) -> OrtResult<()> {
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
@@ -222,13 +220,12 @@ pub fn run(
     //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
     //let path_display = path.display().to_string();
 
-    let writer = Box::new(w);
     thread::scope(|scope| {
         let mut handles = vec![];
         let jh_stdout = scope.spawn(move || -> OrtResult<()> {
             let (stats, mut w) = if is_pipe_output {
                 let mut fw = writer::FileWriter {
-                    writer,
+                    writer: w,
                     show_reasoning,
                 };
                 let stats = fw.run(rx_stdout)?;
@@ -236,7 +233,7 @@ pub fn run(
                 (stats, w)
             } else {
                 let mut cw = writer::ConsoleWriter {
-                    writer,
+                    writer: w,
                     show_reasoning,
                 };
                 let stats = cw.run(rx_stdout)?;
@@ -285,6 +282,7 @@ pub fn run(
 
         for h in handles {
             if let Err(err) = h.join().unwrap() {
+                // TODO: Pass an io::Write to use as stderr, for unit testing
                 eprintln!("\nThread error: {err}");
                 // The errors are all the same so only print the first
                 break;

@@ -22,21 +22,21 @@ const CLEAR_LINE: &str = "\x1b[2K";
 
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
-pub trait Writer {
-    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats>;
-    fn into_inner(self) -> Box<dyn Write>;
-}
+//pub trait Writer {
+//    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats>;
+//    fn into_inner(self) -> W;
+//}
 
-pub struct ConsoleWriter {
-    pub writer: Box<dyn Write>, // Must handle ANSI control chars
+pub struct ConsoleWriter<W: std::io::Write> {
+    pub writer: W, // Must handle ANSI control chars
     pub show_reasoning: bool,
 }
 
-impl Writer for ConsoleWriter {
-    fn into_inner(self) -> Box<dyn Write> {
+impl<W: std::io::Write> ConsoleWriter<W> {
+    pub fn into_inner(self) -> W {
         self.writer
     }
-    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
+    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
@@ -112,16 +112,16 @@ impl Writer for ConsoleWriter {
     }
 }
 
-pub struct FileWriter {
-    pub writer: Box<dyn Write>,
+pub struct FileWriter<W: std::io::Write> {
+    pub writer: W,
     pub show_reasoning: bool,
 }
 
-impl Writer for FileWriter {
-    fn into_inner(self) -> Box<dyn Write> {
+impl<W: std::io::Write> FileWriter<W> {
+    pub fn into_inner(self) -> W {
         self.writer
     }
-    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
+    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let mut stats_out = None;
         while let Ok(data) = rx.recv() {
             match data {
@@ -161,7 +161,7 @@ impl Writer for FileWriter {
 }
 
 pub struct LastWriter {
-    w: Box<dyn Write>,
+    w: std::fs::File,
     data: LastData,
 }
 
@@ -169,18 +169,15 @@ impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
         let last_filename = format!("last-{}.json", utils::tmux_pane_id());
         let last_path = config::cache_dir()?.join(last_filename);
-        let last_file = Box::new(File::create(last_path)?);
+        let last_file = File::create(last_path)?;
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })
     }
-}
-
-impl Writer for LastWriter {
-    fn into_inner(self) -> Box<dyn Write> {
+    pub fn into_inner(self) -> std::fs::File {
         self.w
     }
 
-    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
+    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
         let mut contents = Vec::with_capacity(1024);
         while let Ok(data) = rx.recv() {
             match data {

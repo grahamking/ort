@@ -4,6 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use std::io;
 use std::time::SystemTime;
 use std::{
     fs,
@@ -21,8 +22,7 @@ pub fn run_continue(
     settings: config::Settings,
     mut opts: crate::PromptOpts,
     is_pipe_output: bool,
-    //w: impl io::Write + Send,
-    w: std::io::Stdout,
+    w: impl io::Write + Send,
 ) -> OrtResult<()> {
     let dir = config::cache_dir()?;
     let mut last_file = dir.join(format!("last-{}.json", utils::tmux_pane_id()));

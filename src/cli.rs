@@ -130,7 +130,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> E
                 cli_opts,
                 messages,
                 !is_terminal,
-                std::io::stdout(), // TODO pass w
+                w,
             )
         }
         Cmd::ContinueConversation(cli_opts) => action_history::run_continue(
@@ -139,7 +139,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> E
             cfg.settings.unwrap_or_default(),
             cli_opts,
             !is_terminal,
-            std::io::stdout(), // TODO pass w
+            w,
         ),
         Cmd::List(args) => action_list::run(
             &api_key,
