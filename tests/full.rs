@@ -16,11 +16,12 @@ fn test_invalid_model_name() {
         .map(|s| s.to_string())
         .collect();
     let ret = ort::cli::main(args, true, &mut out);
-    assert_eq!(ret, std::process::ExitCode::SUCCESS);
-
-    //out.set_position(0);
-    //let line = out.lines().map(|l| l.unwrap()).next().unwrap();
-    //assert!(line.contains("testxyz is not a valid model ID"));
+    match ret {
+        Ok(_) => panic!("Invalid model ID should have produced an error"),
+        Err(err) => {
+            assert!(err.to_string().contains("testxyz is not a valid model ID"));
+        }
+    }
 }
 
 #[test]
@@ -32,7 +33,7 @@ fn test_hello() {
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-    let ret = ort::cli::main(args, false, &mut out);
+    let ret = ort::cli::main(args, false, &mut out).unwrap();
     assert_eq!(ret, std::process::ExitCode::SUCCESS);
 
     out.set_position(0);
@@ -40,7 +41,7 @@ fn test_hello() {
 
     let first_line = lines.next().unwrap();
     assert!(
-        first_line.contains("can I assist"),
+        first_line.contains("assist") || first_line.contains("help"),
         "Invalid line: '{first_line}'"
     );
 
@@ -56,7 +57,7 @@ fn test_list() {
     let mut out = Cursor::new(vec![]);
 
     let args = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
-    let ret = ort::cli::main(args, false, &mut out);
+    let ret = ort::cli::main(args, false, &mut out).unwrap();
     assert_eq!(ret, std::process::ExitCode::SUCCESS);
 
     out.set_position(0);

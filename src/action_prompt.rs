@@ -16,12 +16,11 @@ use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
 use crate::config;
+use crate::ort_error;
 use crate::utils;
-//use crate::writer::Writer as _;
 
 use crate::cli::ArgParseError;
 use crate::cli::Cmd;
-use crate::cli::print_usage_and_exit;
 use crate::multi_channel;
 use crate::writer;
 
@@ -46,7 +45,9 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     while i < args.len() {
         let arg = &args[i];
         match arg.as_str() {
-            "-h" | "--help" => print_usage_and_exit(),
+            "-h" | "--help" => {
+                return Err(ArgParseError::show_help());
+            }
             "-m" => {
                 i += 1;
                 if i >= args.len() {
@@ -220,7 +221,7 @@ pub fn run(
     //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
     //let path_display = path.display().to_string();
 
-    thread::scope(|scope| {
+    let scope_err = thread::scope(|scope| {
         let mut handles = vec![];
         let jh_stdout = scope.spawn(move || -> OrtResult<()> {
             let (stats, mut w) = if is_pipe_output {
@@ -282,16 +283,20 @@ pub fn run(
 
         for h in handles {
             if let Err(err) = h.join().unwrap() {
-                // TODO: Pass an io::Write to use as stderr, for unit testing
-                eprintln!("\nThread error: {err}");
+                let mut oe = ort_error(err.to_string());
+                oe.context("Internal thread error");
                 // The errors are all the same so only print the first
-                break;
+                return Err(oe);
             }
         }
+        Ok(())
     });
-    if let Err(err) = jh_broadcast.join().unwrap() {
-        eprintln!("\nThread error: {err}");
-    }
+    scope_err?;
+    jh_broadcast.join().unwrap().map_err(|e| {
+        let mut oe = ort_error(e.to_string());
+        oe.context("broadcast thread error");
+        oe
+    })?;
 
     Ok(())
 }
