@@ -12,7 +12,7 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 
 use ring::aead;
-use ring::agreement::{self, EphemeralPrivateKey, PublicKey, UnparsedPublicKey, X25519};
+use ring::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey, X25519};
 use ring::hkdf;
 use ring::hkdf::KeyType;
 use ring::rand::SystemRandom;
@@ -115,7 +115,7 @@ pub struct TlsStream {
     rpos: usize,
 }
 
-fn client_hello_body(sni_host: &str, client_pub: &PublicKey) -> Vec<u8> {
+fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     let mut ch_body = Vec::with_capacity(512);
 
     // X25519
@@ -205,7 +205,7 @@ fn client_hello_body(sni_host: &str, client_pub: &PublicKey) -> Vec<u8> {
         let mut entry = Vec::with_capacity(2 + 2 + 32);
         put_u16(&mut entry, GROUP_X25519);
         put_u16(&mut entry, 32);
-        entry.extend_from_slice(client_pub.as_ref());
+        entry.extend_from_slice(client_pub);
         put_u16(&mut ks, entry.len() as u16);
         ks.extend_from_slice(&entry);
 
@@ -226,11 +226,18 @@ fn client_hello_msg(
     sni_host: &str,
     client_private_key: &EphemeralPrivateKey,
 ) -> OrtResult<Vec<u8>> {
-    let client_pub = client_private_key
+    let client_pub_key = client_private_key
         .compute_public_key()
         .map_err(|_| ort_error("x25519 pub"))?;
+    let client_pub_ref = client_pub_key.as_ref();
 
-    let ch_body = client_hello_body(sni_host, &client_pub);
+    //let client_pub_key = crate::x25519::x25519(client_private_key.debug_bytes());
+    //let client_pub_ref = &client_pub_key;
+
+    //println!("Public key:");
+    //print_hex(client_pub_ref);
+
+    let ch_body = client_hello_body(sni_host, client_pub_ref);
 
     // Handshake framing: ClientHello
     let mut ch_msg = Vec::with_capacity(4 + ch_body.len());
@@ -284,8 +291,15 @@ impl TlsStream {
         let mut transcript = Vec::with_capacity(1024);
 
         let rng = SystemRandom::new();
+        // A private key is simply random bytes
+        //let mut client_private_key = [0u8; 32];
+        //rng.fill(client_private_key);
+
         let client_private_key =
             EphemeralPrivateKey::generate(&X25519, &rng).map_err(|_| ort_error("x25519 keygen"))?;
+
+        //println!("Private key:");
+        //print_hex(client_private_key.debug_bytes());
 
         Self::send_client_hello(&mut io, sni_host, &mut transcript, &client_private_key)?;
 

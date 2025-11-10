@@ -27,6 +27,7 @@ mod tls;
 pub mod writer;
 pub use error::{Context, OrtError, OrtResult, ort_err, ort_error};
 pub mod cli;
+pub mod x25519;
 
 mod action_history;
 mod action_list;
