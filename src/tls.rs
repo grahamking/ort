@@ -231,11 +231,11 @@ fn client_hello_msg(
         .map_err(|_| ort_error("x25519 pub"))?;
     let client_pub_ref = client_pub_key.as_ref();
 
-    //let client_pub_key = crate::x25519::x25519(client_private_key.debug_bytes());
+    //let client_pub_key = crate::x25519::x25519_public_key(client_private_key.debug_bytes());
     //let client_pub_ref = &client_pub_key;
 
-    //println!("Public key:");
-    //print_hex(client_pub_ref);
+    println!("Client public key:");
+    print_hex(client_pub_ref);
 
     let ch_body = client_hello_body(sni_host, client_pub_ref);
 
@@ -298,8 +298,8 @@ impl TlsStream {
         let client_private_key =
             EphemeralPrivateKey::generate(&X25519, &rng).map_err(|_| ort_error("x25519 keygen"))?;
 
-        //println!("Private key:");
-        //print_hex(client_private_key.debug_bytes());
+        println!("Client private key:");
+        print_hex(client_private_key.debug_bytes());
 
         Self::send_client_hello(&mut io, sni_host, &mut transcript, &client_private_key)?;
 
@@ -440,6 +440,9 @@ impl TlsStream {
             return Err(ort_error("server picked unsupported cipher"));
         }
 
+        println!("Server public key:");
+        print_hex(&server_public_key_bytes);
+
         // ECDH(X25519) shared secret
         let server_public_key = UnparsedPublicKey::new(&X25519, &server_public_key_bytes);
 
@@ -449,6 +452,8 @@ impl TlsStream {
                 secret.to_vec()
             })
             .map_err(|_| ort_error("ECDH failed"))?;
+        //let hs_shared_secret = crate::x25519::x25519_agreement(&client_private_key, &server_public_key);
+
         debug_print("hs shared secret", &hs_shared_secret);
 
         // Same as: `echo -n "" | openssl sha256`

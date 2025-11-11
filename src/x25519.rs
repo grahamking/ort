@@ -171,7 +171,7 @@ fn crypto_scalarmult(q: &mut [u8; 32], n: &[u8; 32], p: &[u8; 32]) {
     pack25519(q, &a);
 }
 
-pub fn x25519(private: &[u8]) -> [u8; 32] {
+pub fn x25519_public_key(private: &[u8]) -> [u8; 32] {
     assert!(private.len() >= 32, "private key must be 32 bytes");
     let u = 9;
 
@@ -191,6 +191,12 @@ pub fn x25519(private: &[u8]) -> [u8; 32] {
     out
 }
 
+pub fn x25519_agreement(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> [u8; 32] {
+    let mut shared = [0u8; 32];
+    crypto_scalarmult(&mut shared, private_key, peer_public_key);
+    shared
+}
+
 #[test]
 fn test_alice() {
     // 77076d0a7318a57d
@@ -202,7 +208,7 @@ fn test_alice() {
         0x45, 0xdf, 0x4c, 0x2f, 0x87, 0xeb, 0xc0, 0x99, 0x2a, 0xb1, 0x77, 0xfb, 0xa5, 0x1d, 0xb9,
         0x2c, 0x2a,
     ];
-    let public = x25519(&private);
+    let public = x25519_public_key(&private);
 
     // 8520f0098930a754
     // 748b7ddcb43ef75a
@@ -225,7 +231,7 @@ fn test_bob() {
         0xe6, 0x6f, 0x3b, 0xb1, 0x29, 0x26, 0x18, 0xb6, 0xfd, 0x1c, 0x2f, 0x8b, 0x27, 0xff, 0x88,
         0xe0, 0xeb,
     ];
-    let public = x25519(&private);
+    let public = x25519_public_key(&private);
     assert_eq!(
         public,
         [
@@ -247,7 +253,7 @@ fn test_from_ring() {
         0x59, 0x00, 0xb6, 0x7b, 0x6d, 0xda, 0xd2, 0x50, 0xe1, 0xf9, 0xcf, 0x43, 0x69, 0xaa, 0x6c,
         0x2b, 0x3b,
     ];
-    let public = x25519(&private);
+    let public = x25519_public_key(&private);
     // 7a07c60f370f5a94a528a77d598153ac4b822aa4198965480cc0dfd7575d7329
     assert_eq!(
         public,
@@ -257,4 +263,59 @@ fn test_from_ring() {
             0x57, 0x5d, 0x73, 0x29
         ]
     );
+}
+
+#[test]
+fn test_agreement_alice_bob() {
+    let alice_private =
+        string_to_bytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+    let bob_public =
+        string_to_bytes("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+    let expected_shared_secret =
+        string_to_bytes("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+
+    let got_shared_secret = x25519_agreement(&alice_private, &bob_public);
+    assert_eq!(expected_shared_secret, got_shared_secret);
+}
+
+#[test]
+fn test_agreement_from_ring() {
+    let client_private_key =
+        string_to_bytes("354436c2a2aacc8245e3a89b325a779ebf97cc61df5b85d1afa24fdd6006ff38");
+    let server_public_key =
+        string_to_bytes("d84ca3df6f987da964f6b34b10a2e3e07057e74e5503458b12246ebcae0fda59");
+    let expected_shared_secret =
+        string_to_bytes("d323f80c636d877a327d24b20a562bfaecf13a52baf80a2ed74102703c3ee778");
+
+    let got_shared_secret = x25519_agreement(&client_private_key, &server_public_key);
+    assert_eq!(expected_shared_secret, got_shared_secret);
+}
+
+#[cfg(test)]
+fn string_to_bytes(s: &str) -> [u8; 32] {
+    fn hex_val(b: u8) -> u8 {
+        match b {
+            b'0'..=b'9' => b - b'0',
+            b'a'..=b'f' => b - b'a' + 10,
+            b'A'..=b'F' => b - b'A' + 10,
+            _ => panic!("invalid hex character"),
+        }
+    }
+
+    let mut bytes = s.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'0' && (bytes[1] == b'x' || bytes[1] == b'X') {
+        bytes = &bytes[2..];
+    }
+    assert!(
+        bytes.len() == 64,
+        "hex string must be exactly 64 hex chars (32 bytes)"
+    );
+
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        let hi = hex_val(bytes[2 * i]);
+        let lo = hex_val(bytes[2 * i + 1]);
+        out[i] = (hi << 4) | lo;
+    }
+    out
 }
