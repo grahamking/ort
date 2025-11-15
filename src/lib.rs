@@ -19,7 +19,6 @@ pub use data::{
 };
 mod cancel_token;
 pub use cancel_token::CancelToken;
-pub mod digest;
 mod error;
 pub mod parser;
 pub mod serializer;
@@ -27,8 +26,6 @@ mod tls;
 pub mod writer;
 pub use error::{Context, OrtError, OrtResult, ort_err, ort_error};
 pub mod cli;
-pub mod ecdh;
-pub mod hkdf;
 
 mod action_history;
 mod action_list;

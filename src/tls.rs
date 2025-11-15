@@ -15,6 +15,11 @@ use ring::aead;
 
 use crate::{OrtResult, ort_error};
 
+mod ecdh;
+mod hkdf;
+mod hmac;
+mod sha2;
+
 const DEBUG_LOG: bool = false;
 
 const REC_TYPE_CHANGE_CIPHER_SPEC: u8 = 20; // 0x14
@@ -85,7 +90,7 @@ fn hkdf_expand_label<const N: usize>(prk: &[u8], label: &str, data: &[u8]) -> [u
     info.push(data.len() as u8);
     info.extend_from_slice(data);
 
-    crate::hkdf::hkdf_expand(prk, &info, N).try_into().unwrap()
+    hkdf::hkdf_expand(prk, &info, N).try_into().unwrap()
 }
 
 //fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> hkdf::Prk {
@@ -93,7 +98,7 @@ fn hkdf_expand_label<const N: usize>(prk: &[u8], label: &str, data: &[u8]) -> [u
 //}
 
 fn digest_bytes(data: &[u8]) -> [u8; 32] {
-    let d = crate::digest::sha256(data);
+    let d = sha2::sha256(data);
     let mut out = [0u8; 32];
     out.copy_from_slice(d.as_ref());
     out
@@ -240,7 +245,7 @@ fn client_hello_msg(
     //let client_pub_key = client_private_key.compute_public_key().map_err(|_| ort_error("x25519 pub"))?;
     //let client_pub_ref = client_pub_key.as_ref();
 
-    let client_pub_key = crate::ecdh::x25519_public_key(client_private_key);
+    let client_pub_key = ecdh::x25519_public_key(client_private_key);
     let client_pub_ref = &client_pub_key;
     debug_print("Client public key", client_pub_ref);
 
@@ -443,20 +448,17 @@ impl TlsStream {
     ) -> OrtResult<HandshakeState> {
         // Parse minimal ServerHello to get cipher & key_share
         let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(sh_body)?;
+        debug_print("Server public key", &server_public_key_bytes);
         if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
             return Err(ort_error("server picked unsupported cipher"));
         }
-
-        println!("Server public key:");
-        print_hex(&server_public_key_bytes);
 
         // ECDH(X25519) shared secret
         //let server_public_key = UnparsedPublicKey::new(&X25519, &server_public_key_bytes);
 
         // This shared secret is correct, I checked it with `curve25519-mult`
         // let hs_shared_secret = agreement::agree_ephemeral(client_private_key, &server_public_key, |secret| { secret.to_vec() }).map_err(|_| ort_error("ECDH failed"))?;
-        let hs_shared_secret =
-            crate::ecdh::x25519_agreement(client_private_key, &server_public_key_bytes);
+        let hs_shared_secret = ecdh::x25519_agreement(client_private_key, &server_public_key_bytes);
         debug_print("hs shared secret", &hs_shared_secret);
 
         // Same as: `echo -n "" | openssl sha256`
@@ -465,7 +467,7 @@ impl TlsStream {
 
         let zero: [u8; 32] = [0u8; 32];
         //let early_secret = hkdf_extract(&zero, &zero);
-        let early_secret = crate::hkdf::hkdf_extract(&zero, &zero);
+        let early_secret = hkdf::hkdf_extract(&zero, &zero);
 
         /*
         let mut derived_secret_bytes = [0u8; 32];
@@ -482,7 +484,7 @@ impl TlsStream {
         debug_print("derived", &derived_secret_bytes);
 
         //let handshake_secret_ring = hkdf_extract(&derived_secret_bytes, &hs_shared_secret);
-        let handshake_secret = crate::hkdf::hkdf_extract(&derived_secret_bytes, &hs_shared_secret);
+        let handshake_secret = hkdf::hkdf_extract(&derived_secret_bytes, &hs_shared_secret);
         debug_print("handshake_secret", &handshake_secret);
 
         let ch_sh_hash = digest_bytes(transcript);
@@ -585,7 +587,7 @@ impl TlsStream {
         debug_print("derived2_bytes", &derived2_bytes);
 
         let zero: [u8; 32] = [0u8; 32];
-        let master_secret = crate::hkdf::hkdf_extract(&derived2_bytes, &zero);
+        let master_secret = hkdf::hkdf_extract(&derived2_bytes, &zero);
         let thash_srv_fin = digest_bytes(transcript);
 
         //let mut c_ap_ts = [0u8; 32];
@@ -999,4 +1001,50 @@ fn write_bytes_to_file(bytes: &[u8], file_path: &str) -> std::io::Result<()> {
 
 unsafe extern "C" {
     pub fn getrandom(buf: *mut c_void, buflen: usize, flags: c_uint) -> isize;
+}
+
+#[cfg(test)]
+pub mod tests {
+    pub fn string_to_bytes(s: &str) -> [u8; 32] {
+        let mut bytes = s.as_bytes();
+        if bytes.len() >= 2 && bytes[0] == b'0' && (bytes[1] == b'x' || bytes[1] == b'X') {
+            bytes = &bytes[2..];
+        }
+        assert!(
+            bytes.len() == 64,
+            "hex string must be exactly 64 hex chars (32 bytes)"
+        );
+
+        let mut out = [0u8; 32];
+        for i in 0..32 {
+            let hi = hex_val(bytes[2 * i]);
+            let lo = hex_val(bytes[2 * i + 1]);
+            out[i] = (hi << 4) | lo;
+        }
+        out
+    }
+
+    pub fn hex_to_vec(s: &str) -> Vec<u8> {
+        let mut bytes = s.as_bytes();
+        if bytes.len() >= 2 && bytes[0] == b'0' && (bytes[1] == b'X' || bytes[1] == b'x') {
+            bytes = &bytes[2..];
+        }
+        assert_eq!(bytes.len() % 2, 0, "hex string must have even length");
+        let mut out = Vec::with_capacity(bytes.len() / 2);
+        for chunk in bytes.chunks_exact(2) {
+            let hi = hex_val(chunk[0]);
+            let lo = hex_val(chunk[1]);
+            out.push((hi << 4) | lo);
+        }
+        out
+    }
+
+    fn hex_val(b: u8) -> u8 {
+        match b {
+            b'0'..=b'9' => b - b'0',
+            b'a'..=b'f' => b - b'a' + 10,
+            b'A'..=b'F' => b - b'A' + 10,
+            _ => panic!("invalid hex character"),
+        }
+    }
 }
