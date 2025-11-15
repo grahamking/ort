@@ -26,7 +26,7 @@ fn test_invalid_model_name() {
 
 #[test]
 fn test_hello() {
-    const MODEL: &str = "meta-llama/llama-3.3-8b-instruct:free";
+    const MODEL: &str = "openai/gpt-oss-20b:free";
     let mut out = Cursor::new(vec![]);
 
     let args = ["ort", "-m", MODEL, "Hello"]
