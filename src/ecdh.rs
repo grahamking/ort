@@ -14,6 +14,32 @@ const GF_ZERO: GF = [0; 16];
 const GF_ONE: GF = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const GF_121665: GF = [0xDB41, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+pub fn x25519_public_key(private: &[u8]) -> [u8; 32] {
+    assert!(private.len() >= 32, "private key must be 32 bytes");
+    let u = 9;
+
+    let mut scalar = [0u8; 32];
+    scalar.copy_from_slice(&private[..32]);
+
+    let mut point = [0u8; 32];
+    let mut value = u as u32;
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..4 {
+        point[i] = (value & 0xff) as u8;
+        value >>= 8;
+    }
+
+    let mut out = [0u8; 32];
+    crypto_scalarmult(&mut out, &scalar, &point);
+    out
+}
+
+pub fn x25519_agreement(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> [u8; 32] {
+    let mut shared = [0u8; 32];
+    crypto_scalarmult(&mut shared, private_key, peer_public_key);
+    shared
+}
+
 fn car25519(o: &mut GF) {
     for i in 0..16 {
         o[i] += 1 << 16;
@@ -169,32 +195,6 @@ fn crypto_scalarmult(q: &mut [u8; 32], n: &[u8; 32], p: &[u8; 32]) {
     c = inv25519(&c);
     a = mul(&a, &c);
     pack25519(q, &a);
-}
-
-pub fn x25519_public_key(private: &[u8]) -> [u8; 32] {
-    assert!(private.len() >= 32, "private key must be 32 bytes");
-    let u = 9;
-
-    let mut scalar = [0u8; 32];
-    scalar.copy_from_slice(&private[..32]);
-
-    let mut point = [0u8; 32];
-    let mut value = u as u32;
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..4 {
-        point[i] = (value & 0xff) as u8;
-        value >>= 8;
-    }
-
-    let mut out = [0u8; 32];
-    crypto_scalarmult(&mut out, &scalar, &point);
-    out
-}
-
-pub fn x25519_agreement(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> [u8; 32] {
-    let mut shared = [0u8; 32];
-    crypto_scalarmult(&mut shared, private_key, peer_public_key);
-    shared
 }
 
 #[test]
