@@ -2,7 +2,7 @@
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a reasonable ~700 KiB ELF binary.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a reasonable ~650 KiB ELF binary. I only depend on `libc`, no other crates.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -101,6 +101,8 @@ A man-in-the-middle attack could be perpetrated by the owner of the wi-fi router
 
 To summarize, we gain a smaller binary and faster requests, in exchange for a very small risk of losing up to $5 a day, that you can mitigate simply by browsing to openrouter.ai. Security engineers hate this one weird trick.
 
+`ort` has it's own TLS 1.3 stack, including all crypto operations: AES-128 GCM, HMAC, HKDF, ECDH/X25519, SHA-256. GPT-5 wrote the bulk of these implementations, one at a time. I wrote the tests first. They have not been reviewed by anyone else.
+
 ## Reasoning model configuration
 
 Here's what I got from the models I use regularly.
@@ -112,7 +114,7 @@ Optional reasoning with effort, pass `-r off|low|medium|high`:
 - google/gemini-2.5-pro
 - openai/gpt-oss-120b
 - openai/gpt-oss-20b
-- z-ai/glm-4.5
+- z-ai/glm-4.6
 
 Optional reasoning with tokens, pass e.g `-r off|4096`:
 

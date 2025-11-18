@@ -9,7 +9,7 @@
 use crate::tls::sha2::sha256;
 
 /// HMAC SHA-256
-pub fn hmac_sign(key: &[u8], data: &[u8]) -> [u8; 32] {
+pub fn sign(key: &[u8], data: &[u8]) -> [u8; 32] {
     const BLOCK_SIZE: usize = 64;
 
     // If the key is longer than the block size, shorten it using SHA-256.
@@ -52,7 +52,7 @@ mod tests {
     fn test_hmac_sha256_short() {
         let key = "secret";
         let data = "Hello";
-        let output = super::hmac_sign(key.as_bytes(), data.as_bytes());
+        let output = super::sign(key.as_bytes(), data.as_bytes());
         let expected =
             string_to_bytes("0cc692f2177b42b6e5cd82488ee6c5d526a007c571e7de1fec07c1e2b1dfa2e2");
         assert_eq!(output, expected);
@@ -62,7 +62,7 @@ mod tests {
     fn test_hmac_sha256_long() {
         let key = "secret";
         let data = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.";
-        let output = super::hmac_sign(key.as_bytes(), data.as_bytes());
+        let output = super::sign(key.as_bytes(), data.as_bytes());
         let expected =
             string_to_bytes("602a9c4d44feea742c6775c21d686ccd899ee4c8363d7c03535b949c16a6b6d8");
         assert_eq!(output, expected);

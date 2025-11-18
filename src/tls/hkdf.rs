@@ -6,7 +6,7 @@
 //
 //! HKDF - HMAC SHA-256 Key Derivation, RFC 5869
 
-use crate::tls::hmac::hmac_sign;
+use crate::tls::hmac;
 
 /// HKDF-Extract as defined in RFC 5869 using SHA-256.
 pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; 32] {
@@ -16,7 +16,7 @@ pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; 32] {
     } else {
         salt
     };
-    hmac_sign(key, ikm)
+    hmac::sign(key, ikm)
 }
 
 /// HKDF-Expand as defined in RFC 5869 using SHA-256.
@@ -43,7 +43,7 @@ pub fn hkdf_expand(prk: &[u8], info: &[u8], len: usize) -> Vec<u8> {
         block_input.extend_from_slice(info);
         block_input.push(counter);
 
-        previous = hmac_sign(prk, &block_input);
+        previous = hmac::sign(prk, &block_input);
         let remaining = len - okm.len();
         let take = remaining.min(HASH_LEN);
         okm.extend_from_slice(&previous[..take]);
@@ -85,7 +85,7 @@ mod tests {
         let ikm = b"handshake secret";
         let prk = super::hkdf_extract(&[], ikm);
         let zero_salt = [0u8; 32];
-        let expected = crate::tls::hmac::hmac_sign(&zero_salt, ikm);
+        let expected = crate::tls::hmac::sign(&zero_salt, ikm);
         assert_eq!(prk, expected);
     }
 
