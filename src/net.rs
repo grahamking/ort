@@ -167,15 +167,28 @@ fn connect<A: ToSocketAddrs>(addrs: A) -> io::Result<TcpStream> {
 }
 
 fn set_tcp_fastopen(tcp: &TcpStream) {
+    const IPPROTO_TCP: i32 = 6;
+    const TCP_FASTOPEN: i32 = 23;
+
     let fd = tcp.as_raw_fd();
     let optval: i32 = 1; // Enable
     unsafe {
-        libc::setsockopt(
+        setsockopt(
             fd,
-            libc::IPPROTO_TCP,
-            libc::TCP_FASTOPEN,
-            &optval as *const _ as *const libc::c_void,
-            std::mem::size_of::<i32>() as libc::socklen_t,
+            IPPROTO_TCP,
+            TCP_FASTOPEN,
+            &optval as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
         );
     }
+}
+
+unsafe extern "C" {
+    pub fn setsockopt(
+        socket: i32,
+        level: i32,
+        name: i32,
+        value: *const core::ffi::c_void,
+        option_len: u32,
+    ) -> i32;
 }

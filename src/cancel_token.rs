@@ -32,16 +32,37 @@ impl CancelToken {
     }
 }
 
-extern "C" fn handle_sigint(_: libc::c_int) {
+extern "C" fn handle_sigint(_: i32) {
     CANCELLED.store(true, Ordering::SeqCst);
 }
 
 unsafe fn install_sigint_handler() {
+    const SIGINT: i32 = 2;
     unsafe {
-        let mut sa: libc::sigaction = std::mem::zeroed();
+        let mut sa: sigaction = std::mem::zeroed();
         sa.sa_flags = 0;
         sa.sa_sigaction = handle_sigint as usize; // treated as sa_handler when SA_SIGINFO not set
-        libc::sigemptyset(&mut sa.sa_mask);
-        libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut());
+        sigemptyset(&mut sa.sa_mask);
+        sigaction(SIGINT, &sa, std::ptr::null_mut());
     }
+}
+
+#[repr(C)]
+#[allow(non_camel_case_types)]
+pub struct sigset_t {
+    __val: [u64; 16],
+}
+
+#[repr(C)]
+#[allow(non_camel_case_types)]
+pub struct sigaction {
+    pub sa_sigaction: usize,
+    pub sa_mask: sigset_t,
+    pub sa_flags: i32,
+    pub sa_restorer: Option<extern "C" fn()>,
+}
+
+unsafe extern "C" {
+    pub fn sigemptyset(set: *mut sigset_t) -> i32;
+    pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;
 }
