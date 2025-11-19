@@ -8,7 +8,7 @@ It's direct. Use the default model model with no fuss: `ort "What is the capital
 
 If you're new here in town, it'll introduce you: `ort list [-json]`. Everyone's a model here.
 
-You like to know who you're talking to so `-m <model>` selects your conversation partner, and it knows you don't want to impose more then necessary so `-r off|low|medium|high|<toks>` sets reasoning effort. But you have your own priorities, we all do. Use `-p price|throughput|latency` for that.
+You like to know who you're talking to so `-m <model>` selects your conversation partner, and it knows you don't want to impose more then necessary so `-r off|none|low|medium|high|<toks>` sets reasoning effort. But you have your own priorities, we all do. Use `-p price|throughput|latency` for that.
 
 It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning with `-rr`. As long as you're clear about what you want, it will respect your system prompt `-s "<system prompt>"`. We all got to live here together, and we're the better for it.
 
@@ -24,7 +24,7 @@ In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
 Usage:
 ```
-ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|low|medium|high|<toks>] [-rr] [-q] [-c] <prompt>
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|none|low|medium|high|<toks>] [-rr] [-q] [-c] <prompt>
 ```
 
 Use Kimi K2, select the provider with lowest price, and set a system prompt:
@@ -36,7 +36,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
 - -pr Provider choice. Pass the slug or name or a provider, and that will be get priority. If that provider is unavailable a different one will be chosen as if you had not provided one.
-- -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "low", "medium" or "high". Default is off. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
+- -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "none", "low", "medium" or "high". Default is off. "none" is only for GPT 5.1 so far. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
 - -rr Show the reasoning tokens. Default is not to show them.
 - -q Quiet. Do not show Stats at end.
 - -c Continue. Add a new prompt to the previous conversation, e.g. `ort -c "Are you sure?"`. All the fields default to the previous message (model, priority, provider, system prompt, etc, but you can override them here, for example continuing the conversation but with a different model, or a higher reasoning effort. The provider of the previous message is set as the first choice, to benefit from caching.
@@ -107,18 +107,27 @@ To summarize, we gain a smaller binary and faster requests, in exchange for a ve
 
 Here's what I got from the models I use regularly.
 
+Required reasoning, MUST pass `-r low|medium|high` flag:
+- openai/gpt-5.1 (pass `-r none` for no reasoning, it's both required and optional)
+- openai/gpt-5
+- openai/gpt-5-mini
+- openai/gpt-5-nano
+- openai/gpt-oss-120b
+- moonshotai/kimi-k2-thinking
+- minimax/minimax-m2
+- google/gemini-2.5-pro
+- google/gemini-3-pro-preview
+
 Optional reasoning with effort, pass `-r off|low|medium|high`:
 
-- deepseek/deepseek-chat-v3.1
+- deepseek/deepseek-v3.1-terminus
 - google/gemini-2.5-flash
-- google/gemini-2.5-pro
-- openai/gpt-oss-120b
 - openai/gpt-oss-20b
 - z-ai/glm-4.6
 
 Optional reasoning with tokens, pass e.g `-r off|4096`:
 
-- anthropic/claude-sonnet-4 # and other Anthropic models
+- anthropic/claude-sonnet-4.5 # and other Anthropic models
 - baidu/ernie-4.5-300b-a47b # I never see any reasoning from this model so not sure. Seems 'smarter' with -r.
 
 Always fixed reasoning, cannot be configured or disabled:

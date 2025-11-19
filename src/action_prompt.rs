@@ -92,6 +92,11 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                         enabled: false,
                         ..Default::default()
                     },
+                    "none" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::None),
+                        ..Default::default()
+                    },
                     "low" => ReasoningConfig {
                         enabled: true,
                         effort: Some(ReasoningEffort::Low),

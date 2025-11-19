@@ -180,6 +180,7 @@ impl ReasoningConfig {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ReasoningEffort {
+    None, // GPT 5.1 only so far
     Low,
     #[default]
     Medium,
@@ -189,6 +190,7 @@ pub enum ReasoningEffort {
 impl ReasoningEffort {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ReasoningEffort::None => "none",
             ReasoningEffort::Low => "low",
             ReasoningEffort::Medium => "medium",
             ReasoningEffort::High => "high",
@@ -199,6 +201,7 @@ impl ReasoningEffort {
 impl fmt::Display for ReasoningEffort {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ReasoningEffort::None => write!(f, "none"),
             ReasoningEffort::Low => write!(f, "low"),
             ReasoningEffort::Medium => write!(f, "medium"),
             ReasoningEffort::High => write!(f, "high"),
