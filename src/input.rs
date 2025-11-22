@@ -8,6 +8,8 @@
 //! cli argument parsing, gathing the input, preparing, serializing
 //! and sending the request.
 
-pub mod action_list;
 pub mod args;
+pub mod cli;
+pub mod list;
+pub mod prompt;
 pub mod to_json;

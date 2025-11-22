@@ -12,4 +12,5 @@ pub mod config;
 pub mod data;
 pub mod error;
 pub mod multi_channel;
+pub mod stats;
 pub mod utils;

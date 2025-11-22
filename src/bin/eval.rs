@@ -221,7 +221,13 @@ fn run_prompt(
         let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))?;
 
         let messages = vec![ort::Message::user(prompt.to_string())];
-        let rx = ort::prompt(api_key, cancel_token, vec![], common, messages);
+        let rx = ort::input::prompt::start_prompt_thread(
+            api_key,
+            cancel_token,
+            vec![],
+            common,
+            messages,
+        );
         while let Ok(data) = rx.recv() {
             if cancel_token.is_cancelled() {
                 break;

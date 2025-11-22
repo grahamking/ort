@@ -283,3 +283,24 @@ impl fmt::Display for Role {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub enum Response {
+    /// The first time we get anything at all on the SSE stream
+    Start,
+    /// Reasoning events - start, some thoughts, stop
+    Think(ThinkEvent),
+    /// The good stuff
+    Content(String),
+    /// Summary stats at the end of the run
+    Stats(super::stats::Stats),
+    /// Less good things. Often you mistyped the model name.
+    Error(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum ThinkEvent {
+    Start,
+    Content(String),
+    Stop,
+}

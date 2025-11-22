@@ -10,14 +10,19 @@ use std::io;
 use std::io::Read as _;
 
 use crate::Priority;
+use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
 use crate::cli::ArgParseError;
 use crate::cli::Cmd;
 use crate::common::utils;
-use crate::{ListOpts, PromptOpts};
 
 const STDIN_FILENO: i32 = 0;
+
+#[derive(Debug)]
+pub struct ListOpts {
+    pub is_json: bool,
+}
 
 pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file

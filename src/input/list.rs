@@ -4,10 +4,13 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use crate::net::http;
 use crate::{CancelToken, Context as _, OrtResult, config};
 
-use crate::cli::ListOpts;
-use std::io;
+use super::args::ListOpts;
 
 pub fn run(
     api_key: &str,
@@ -16,7 +19,7 @@ pub fn run(
     opts: ListOpts,
     mut w: impl io::Write,
 ) -> OrtResult<()> {
-    let models_iter = crate::list_models(api_key, settings.dns).context("list_models")?;
+    let models_iter = list_models(api_key, settings.dns).context("list_models")?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
@@ -60,6 +63,26 @@ pub fn run(
         }
     }
     Ok(())
+}
+
+/// Returns raw JSON
+fn list_models(
+    api_key: &str,
+    dns: Vec<String>,
+) -> OrtResult<impl Iterator<Item = Result<String, std::io::Error>>> {
+    let reader = if dns.is_empty() {
+        http::list_models(api_key, ("openrouter.ai", 443))?
+    } else {
+        let addrs: Vec<_> = dns
+            .into_iter()
+            .map(|a| {
+                let ip_addr = a.parse::<Ipv4Addr>().unwrap();
+                SocketAddr::new(IpAddr::V4(ip_addr), 443)
+            })
+            .collect();
+        http::list_models(api_key, &addrs[..])?
+    };
+    Ok(http::skip_header(reader)?)
 }
 
 /// The prefix of this string until the first double quote.

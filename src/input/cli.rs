@@ -10,24 +10,16 @@ use std::env;
 use std::io;
 use std::process::ExitCode;
 
+use super::{args, list, prompt};
 use crate::OrtResult;
 use crate::PromptOpts;
-use crate::action_history;
-use crate::action_list;
-use crate::action_prompt;
-use crate::args;
 use crate::ort_err;
 
 #[derive(Debug)]
 pub enum Cmd {
-    List(ListOpts),
+    List(args::ListOpts),
     Prompt(crate::PromptOpts),
     ContinueConversation(crate::PromptOpts),
-}
-
-#[derive(Debug)]
-pub struct ListOpts {
-    pub is_json: bool,
 }
 
 pub fn print_usage() {
@@ -134,7 +126,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
                 vec![]
             };
             messages.push(crate::Message::user(cli_opts.prompt.take().unwrap()));
-            action_prompt::run(
+            prompt::run(
                 &api_key,
                 cancel_token,
                 cfg.settings.unwrap_or_default(),
@@ -144,7 +136,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
                 w,
             )
         }
-        Cmd::ContinueConversation(cli_opts) => action_history::run_continue(
+        Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
             cancel_token,
             cfg.settings.unwrap_or_default(),
@@ -152,7 +144,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
             !is_terminal,
             w,
         ),
-        Cmd::List(args) => action_list::run(
+        Cmd::List(args) => list::run(
             &api_key,
             cancel_token,
             cfg.settings.unwrap_or_default(),
