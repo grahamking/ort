@@ -15,6 +15,7 @@ use crate::PromptOpts;
 use crate::action_history;
 use crate::action_list;
 use crate::action_prompt;
+use crate::args;
 use crate::ort_err;
 
 #[derive(Debug)]
@@ -85,9 +86,9 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     }
 
     if args[1].as_str() == "list" {
-        action_list::parse_args(&args)
+        args::parse_list_args(&args)
     } else {
-        action_prompt::parse_args(&args)
+        args::parse_prompt_args(&args)
     }
 }
 

@@ -6,26 +6,8 @@
 
 use crate::{CancelToken, Context as _, OrtResult, config};
 
-use crate::cli::{ArgParseError, Cmd, ListOpts};
+use crate::cli::ListOpts;
 use std::io;
-
-pub fn parse_args(args: &[String]) -> Result<Cmd, ArgParseError> {
-    let mut is_json = false;
-
-    let mut i = 2;
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "-json" => is_json = true,
-            x => {
-                return Err(ArgParseError::new(format!("Invalid list argument: {x}")));
-            }
-        }
-        i += 1;
-    }
-
-    Ok(Cmd::List(ListOpts { is_json }))
-}
 
 pub fn run(
     api_key: &str,

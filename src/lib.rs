@@ -14,10 +14,11 @@ pub use common::data::{
     ReasoningConfig, ReasoningEffort, Role, Usage,
 };
 pub mod input;
-pub use input::{action_list, to_json};
+pub use input::{action_list, args, to_json};
 pub mod output;
 pub use output::{from_json, writer};
 pub mod cli;
+pub use cli::ListOpts;
 pub mod common;
 pub use common::cancel_token::CancelToken;
 pub use common::config;
