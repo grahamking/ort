@@ -6,7 +6,7 @@
 
 use std::fmt::{self, Display};
 
-use crate::{cli::ArgParseError, net::HttpError};
+use crate::cli::ArgParseError;
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
@@ -49,12 +49,6 @@ impl fmt::Display for OrtError {
 
 impl From<std::io::Error> for OrtError {
     fn from(err: std::io::Error) -> OrtError {
-        ort_error(err.to_string())
-    }
-}
-
-impl From<HttpError> for OrtError {
-    fn from(err: HttpError) -> OrtError {
         ort_error(err.to_string())
     }
 }

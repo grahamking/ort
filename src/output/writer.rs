@@ -9,8 +9,8 @@ use std::io::Write;
 use std::sync::mpsc::Receiver;
 
 use crate::{
-    Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, config, data::LastData, ort_err,
-    utils,
+    LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, common::utils, config,
+    ort_err,
 };
 
 const BOLD_START: &str = "\x1b[1m";

@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use crate::{CancelToken, OrtResult, config};
+use crate::{CancelToken, Context as _, OrtResult, config};
 
 use crate::cli::{ArgParseError, Cmd, ListOpts};
 use std::io;
@@ -34,12 +34,17 @@ pub fn run(
     opts: ListOpts,
     mut w: impl io::Write,
 ) -> OrtResult<()> {
-    let models_iter = crate::list_models(api_key, settings.dns)?;
+    let models_iter = crate::list_models(api_key, settings.dns).context("list_models")?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
         for models_json in models_iter {
+            // If the response has invalid UTF-8 (possibly due to BufReader reading partial
+            // character?), this will error with "stream did not contain valid UTF-8"
             let models_json = models_json?;
+            // TODO: `list_models` should give us bytes not String so we don't have to convert
+            // back, and so that we can hand anything openrouter throws at us straight to the
+            // terminal.
             let b = models_json.as_bytes();
             if b.is_empty() {
                 break;
@@ -55,6 +60,8 @@ pub fn run(
         // Extract and print model ids alphabetically
         let mut full = String::with_capacity(512 * 1024 * 1024);
         for models_json in models_iter {
+            // If the response has invalid UTF-8 (possibly due to BufReader reading partial
+            // character?), this will error with "stream did not contain valid UTF-8"
             let models_json = models_json?;
             if models_json.is_empty() {
                 break;

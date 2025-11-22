@@ -15,9 +15,9 @@ use crate::Priority;
 use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
+use crate::common::utils;
 use crate::config;
 use crate::ort_error;
-use crate::utils;
 
 use crate::cli::ArgParseError;
 use crate::cli::Cmd;

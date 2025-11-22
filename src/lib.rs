@@ -9,28 +9,25 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-pub mod config;
-mod data;
-mod net;
-pub mod utils;
-pub use data::{
+pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Role, Usage,
 };
-mod cancel_token;
-pub use cancel_token::CancelToken;
-mod error;
-pub mod parser;
-pub mod serializer;
-mod tls;
-pub mod writer;
-pub use error::{Context, OrtError, OrtResult, ort_err, ort_error};
+pub mod input;
+pub use input::{action_list, to_json};
+pub mod output;
+pub use output::{from_json, writer};
 pub mod cli;
+pub mod common;
+pub use common::cancel_token::CancelToken;
+pub use common::config;
+pub use common::error::{Context, OrtError, OrtResult, ort_err, ort_error};
+use common::multi_channel;
+mod net;
+use net::{http, tls};
 
 mod action_history;
-mod action_list;
 mod action_prompt;
-mod multi_channel;
 
 #[derive(Debug, Clone)]
 pub enum Response {
@@ -90,7 +87,7 @@ pub fn list_models(
     dns: Vec<String>,
 ) -> OrtResult<impl Iterator<Item = Result<String, std::io::Error>>> {
     let reader = if dns.is_empty() {
-        net::list_models(api_key, ("openrouter.ai", 443))?
+        http::list_models(api_key, ("openrouter.ai", 443))?
     } else {
         let addrs: Vec<_> = dns
             .into_iter()
@@ -99,9 +96,9 @@ pub fn list_models(
                 SocketAddr::new(IpAddr::V4(ip_addr), 443)
             })
             .collect();
-        net::list_models(api_key, &addrs[..])?
+        http::list_models(api_key, &addrs[..])?
     };
-    Ok(net::read_header(reader)?)
+    Ok(http::skip_header(reader)?)
 }
 
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
@@ -117,11 +114,11 @@ pub fn prompt(
     let api_key = api_key.to_string();
 
     std::thread::spawn(move || {
-        let body = serializer::build_body(&opts, &messages).unwrap(); // TODO
+        let body = to_json::build_body(&opts, &messages).unwrap(); // TODO
         let start = Instant::now();
         let reader = if dns.is_empty() {
             let addr = ("openrouter.ai", 443);
-            net::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
+            http::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
         } else {
             let addrs: Vec<_> = dns
                 .into_iter()
@@ -130,9 +127,9 @@ pub fn prompt(
                     SocketAddr::new(IpAddr::V4(ip_addr), 443)
                 })
                 .collect();
-            net::chat_completions(&api_key, &addrs[..], &body).unwrap() // TODO unwrap
+            http::chat_completions(&api_key, &addrs[..], &body).unwrap() // TODO unwrap
         };
-        let response_lines = match net::read_header(reader) {
+        let response_lines = match http::skip_header(reader) {
             Ok(r) => r,
             Err(err) => {
                 let _ = tx.send(Response::Error(err.to_string()));

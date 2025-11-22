@@ -12,7 +12,7 @@ use std::{
 };
 
 use crate::{CancelToken, LastData, OrtError, OrtResult, ort_err, ort_error};
-use crate::{config, utils};
+use crate::{common::utils, config};
 
 use crate::action_prompt;
 

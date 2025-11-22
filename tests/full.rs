@@ -29,7 +29,7 @@ fn test_hello() {
     const MODEL: &str = "openai/gpt-oss-20b:free";
     let mut out = Cursor::new(vec![]);
 
-    let args = ["ort", "-m", MODEL, "Hello"]
+    let args = ["ort", "-m", MODEL, "-r", "low", "Hello"]
         .into_iter()
         .map(|s| s.to_string())
         .collect();
