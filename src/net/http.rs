@@ -10,19 +10,21 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::os::fd::AsRawFd as _;
 use std::time::Duration;
 
+use super::tls;
 use crate::{OrtError, ort_error};
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const HOST: &str = "openrouter.ai";
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
+const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn list_models<A: ToSocketAddrs>(
     api_key: &str,
     addrs: A,
-) -> io::Result<BufReader<crate::tls::TlsStream>> {
+) -> io::Result<BufReader<tls::TlsStream>> {
     let tcp = connect(addrs)?;
-    let mut tls = crate::tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
+    let mut tls = tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
 
     let prefix = format!(
         concat!(
@@ -46,12 +48,12 @@ pub fn chat_completions<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
     json_body: &str,
-) -> io::Result<BufReader<crate::tls::TlsStream>> {
+) -> io::Result<BufReader<tls::TlsStream>> {
     let tcp = connect(addr)?;
     //tcp.set_read_timeout(Some(Duration::from_secs(30)))?;
     //tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
 
-    let mut tls = crate::tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
+    let mut tls = tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
 
     // 2) Write HTTP/1.1 request
     let body = json_body.as_bytes();
@@ -112,42 +114,61 @@ impl From<HttpError> for OrtError {
     }
 }
 
-/// Consume the reader, returning either a Lines reader pointing at the body
-/// if HTTP status 200, or an error if status other than 200.
-pub fn skip_header(
-    reader: BufReader<crate::tls::TlsStream>,
-) -> Result<impl Iterator<Item = Result<String, io::Error>>, HttpError> {
-    let mut response_lines = reader.lines();
-    let status = match response_lines.next() {
-        Some(Ok(status)) => status,
-        Some(Err(err)) => {
-            return Err(HttpError::status(format!("Internal TLS error: {err}")));
-        }
-        None => {
+/// Advances the reader to point to the first line of the body.
+/// Returns true if the body has transfer encoding chunked, and hence needs
+/// special handling.
+pub fn skip_header(reader: &mut BufReader<tls::TlsStream>) -> Result<bool, HttpError> {
+    let mut buffer = String::with_capacity(16);
+    let status = match reader.read_line(&mut buffer) {
+        Ok(0) => {
             return Err(HttpError::status("Missing initial status line".to_string()));
         }
-    };
-
-    // Skip to the content
-    let mut response_lines = response_lines
-        // Skip the rest of the headers
-        .skip_while(|line| line.as_ref().map(|l| l.trim().len()).unwrap_or(0) > 0)
-        // Then skip until the content
-        .skip_while(|line| line.as_ref().map(|l| l.trim().len()).unwrap_or(0) < 5);
-
-    if status.trim() == EXPECTED_HTTP_200 {
-        return Ok(response_lines);
-    }
-
-    // Usually the body explains the error so gather that.
-    match response_lines.next() {
-        Some(Ok(err)) => {
-            // TODO parse JSON. It looks like this:
-            // {"error":{"message":"openai/gpt-oss-90b is not a valid model ID","code":400},"user_id":"user_30mJ0GpP57Kj9wLQ4mDCfMS5nk0"}
-            Err(HttpError::new(status, err))
+        Ok(_) => buffer.clone(),
+        Err(err) => {
+            return Err(HttpError::status(format!("Internal TLS error: {err}")));
         }
-        _ => Err(HttpError::status(status)),
+    };
+    let status = status.trim();
+
+    // Skip the rest of the headers
+    let mut is_chunked = false;
+    buffer.clear();
+    loop {
+        reader
+            .read_line(&mut buffer)
+            .map_err(|err| HttpError::status(format!("Reading response header: {err}")))?;
+        let header = buffer.trim();
+        if header.is_empty() {
+            // end of headers
+            break;
+        }
+        if header == CHUNKED_HEADER {
+            is_chunked = true;
+        }
+        buffer.clear();
     }
+
+    if status.trim() != EXPECTED_HTTP_200 {
+        // Usually the body explains the error so gather that.
+        if is_chunked {
+            // Skip the size line, the header said transfer encoding chunked
+            // so even an HTTP 400 has to respect that.
+            let _ = reader.read_line(&mut buffer);
+            buffer.clear();
+        }
+        match reader.read_line(&mut buffer) {
+            Ok(_) => {
+                // TODO parse JSON. It looks like this:
+                // {"error":{"message":"openai/gpt-oss-90b is not a valid model ID","code":400},"user_id":"user_30mJ0GpP57Kj9wLQ4mDCfMS5nk0"}
+                return Err(HttpError::new(
+                    status.to_string(),
+                    buffer.trim().to_string(),
+                ));
+            }
+            _ => return Err(HttpError::status(status.to_string())),
+        }
+    }
+    Ok(is_chunked)
 }
 
 /// Attempt to connect to all the SocketAddr in order, with a timeout.

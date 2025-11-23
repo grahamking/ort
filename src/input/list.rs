@@ -4,10 +4,10 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io;
+use std::io::{self, Read as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::net::http;
+use crate::net::{chunked, http};
 use crate::{CancelToken, Context as _, OrtResult, config};
 
 use super::args::ListOpts;
@@ -19,44 +19,15 @@ pub fn run(
     opts: ListOpts,
     mut w: impl io::Write,
 ) -> OrtResult<()> {
-    let models_iter = list_models(api_key, settings.dns).context("list_models")?;
+    let models = list_models(api_key, settings.dns).context("list_models")?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
-        for models_json in models_iter {
-            // If the response has invalid UTF-8 (possibly due to BufReader reading partial
-            // character?), this will error with "stream did not contain valid UTF-8"
-            let models_json = models_json?;
-            // TODO: `list_models` should give us bytes not String so we don't have to convert
-            // back, and so that we can hand anything openrouter throws at us straight to the
-            // terminal.
-            let b = models_json.as_bytes();
-            if b.is_empty() {
-                break;
-            }
-            if b.len() < 5 {
-                // TODO: Do these still happen? I think it was rustls.
-                continue;
-            }
-            w.write_all(b)?;
-            w.flush()?;
-        }
+        w.write_all(models.as_bytes())?;
+        w.flush()?;
     } else {
         // Extract and print model ids alphabetically
-        let mut full = String::with_capacity(512 * 1024 * 1024);
-        for models_json in models_iter {
-            // If the response has invalid UTF-8 (possibly due to BufReader reading partial
-            // character?), this will error with "stream did not contain valid UTF-8"
-            let models_json = models_json?;
-            if models_json.is_empty() {
-                break;
-            }
-            if models_json.len() < 5 {
-                continue;
-            }
-            full += &models_json;
-        }
-        let mut slugs: Vec<&str> = full.split(r#""id":""#).skip(1).map(until_quote).collect();
+        let mut slugs: Vec<&str> = models.split(r#""id":""#).skip(1).map(until_quote).collect();
         slugs.sort();
         for s in slugs {
             let _ = writeln!(w, "{s}");
@@ -66,11 +37,8 @@ pub fn run(
 }
 
 /// Returns raw JSON
-fn list_models(
-    api_key: &str,
-    dns: Vec<String>,
-) -> OrtResult<impl Iterator<Item = Result<String, std::io::Error>>> {
-    let reader = if dns.is_empty() {
+fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
+    let mut reader = if dns.is_empty() {
         http::list_models(api_key, ("openrouter.ai", 443))?
     } else {
         let addrs: Vec<_> = dns
@@ -82,7 +50,14 @@ fn list_models(
             .collect();
         http::list_models(api_key, &addrs[..])?
     };
-    Ok(http::skip_header(reader)?)
+    let is_chunked = http::skip_header(&mut reader)?;
+    let mut full = String::with_capacity(512 * 1024);
+    if is_chunked {
+        chunked::read_to_string(reader, unsafe { full.as_mut_vec() })?;
+    } else {
+        reader.read_to_string(&mut full)?;
+    };
+    Ok(full)
 }
 
 /// The prefix of this string until the first double quote.

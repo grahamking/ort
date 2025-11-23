@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io;
+use std::io::{self, BufRead as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc;
 use std::thread;
@@ -198,7 +198,7 @@ pub fn start_prompt_thread(
     std::thread::spawn(move || {
         let body = to_json::build_body(&opts, &messages).unwrap(); // TODO
         let start = Instant::now();
-        let reader = if dns.is_empty() {
+        let mut reader = if dns.is_empty() {
             let addr = ("openrouter.ai", 443);
             http::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
         } else {
@@ -211,8 +211,8 @@ pub fn start_prompt_thread(
                 .collect();
             http::chat_completions(&api_key, &addrs[..], &body).unwrap() // TODO unwrap
         };
-        let response_lines = match http::skip_header(reader) {
-            Ok(r) => r,
+        let response_lines = match http::skip_header(&mut reader) {
+            Ok(_) => reader.lines(),
             Err(err) => {
                 let _ = tx.send(Response::Error(err.to_string()));
                 return;
