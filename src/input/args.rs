@@ -29,7 +29,7 @@ pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     // or default.
     let mut prompt_parts: Vec<String> = Vec::new();
 
-    let mut model: Option<String> = None;
+    let mut models: Vec<String> = vec![];
     let mut system: Option<String> = None;
     let mut priority: Option<Priority> = None;
     let mut quiet: Option<bool> = None;
@@ -51,7 +51,7 @@ pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                 if i >= args.len() {
                     return Err(ArgParseError::new_str("Missing value for -m"));
                 }
-                model = Some(args[i].clone());
+                models.push(args[i].clone());
                 i += 1;
             }
             "-s" => {
@@ -175,7 +175,7 @@ pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     };
     let prompt_opts = PromptOpts {
         prompt: Some(prompt),
-        model,
+        models,
         provider,
         system,
         priority,

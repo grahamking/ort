@@ -688,7 +688,7 @@ impl PromptOpts {
         if p.try_consume(b'}') {
             return Ok(PromptOpts {
                 prompt,
-                model,
+                models: vec![],
                 provider,
                 system,
                 priority,
@@ -782,7 +782,7 @@ impl PromptOpts {
 
         Ok(PromptOpts {
             prompt,
-            model,
+            models: model.map(|m| vec![m]).unwrap_or_default(),
             provider,
             system,
             priority,
@@ -1448,7 +1448,7 @@ mod tests {
  "#;
         let opts = PromptOpts::from_json(s).unwrap();
         assert!(!opts.show_reasoning.unwrap());
-        assert_eq!(opts.model.as_deref(), Some("google/gemma-3n-e4b-it:free"));
+        assert_eq!(opts.models, vec!["google/gemma-3n-e4b-it:free"]);
         assert!(!opts.reasoning.unwrap().enabled);
         assert!(opts.merge_config);
     }
@@ -1460,7 +1460,7 @@ mod tests {
     "#;
         let opts = PromptOpts::from_json(s).unwrap();
         assert!(!opts.show_reasoning.unwrap());
-        assert_eq!(opts.model.as_deref(), Some("openai/gpt-5"));
+        assert_eq!(opts.models, vec!["openai/gpt-5"]);
         assert!(opts.reasoning.as_ref().unwrap().enabled);
         assert_eq!(
             opts.reasoning.as_ref().unwrap().effort,

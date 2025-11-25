@@ -61,8 +61,8 @@ pub struct LastData {
 #[derive(Debug, Clone)]
 pub struct PromptOpts {
     pub prompt: Option<String>,
-    /// Model ID, e.g. 'moonshotai/kimi-k2'
-    pub model: Option<String>,
+    /// Model IDs, e.g. 'moonshotai/kimi-k2'
+    pub models: Vec<String>,
     /// Prefered provider slug
     pub provider: Option<String>,
     /// System prompt
@@ -83,7 +83,7 @@ impl Default for PromptOpts {
     fn default() -> Self {
         Self {
             prompt: None,
-            model: Some(DEFAULT_MODEL.to_string()),
+            models: vec![DEFAULT_MODEL.to_string()],
             provider: None,
             system: None,
             priority: None,
@@ -102,8 +102,10 @@ impl PromptOpts {
     pub fn merge(&mut self, o: PromptOpts) {
         self.prompt.get_or_insert(o.prompt.unwrap_or_default());
         self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
-        if o.model.is_some() {
-            self.model.get_or_insert(o.model.unwrap());
+        if self.models.is_empty() {
+            // We don't merge the models, otherwise we'd try to query both the
+            // cmd line one, and the config file default.
+            self.models = o.models;
         }
         if o.provider.is_some() {
             self.provider.get_or_insert(o.provider.unwrap());

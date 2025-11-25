@@ -203,7 +203,7 @@ fn run_prompt(
         let common = PromptOpts {
             prompt: None,
             // We clone the model name because the struct takes ownership of the String.
-            model: Some(parts[0].to_string()),
+            models: vec![parts[0].to_string()],
             system: Some(SYSTEM_PROMPT.to_string()),
             priority: None,
             provider: None,

@@ -10,12 +10,12 @@ use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
-pub fn build_body(opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
+pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
     let capacity: u32 = messages.iter().map(|m| m.size()).sum::<u32>() + 100;
     let mut w = Cursor::new(Vec::with_capacity(capacity as usize));
 
     w.write_all(b"{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
-    write_json_str(&mut w, opts.model.as_ref().expect("Missing model"))?;
+    write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
 
     if opts.priority.is_some() || opts.provider.is_some() {
         w.write_all(b", \"provider\": {")?;
@@ -84,7 +84,8 @@ impl LastData {
             w.write_all(b"\"prompt\":")?;
             write_json_str(&mut w, v)?;
         }
-        if let Some(ref v) = self.opts.model {
+        // TODO: consider multi-model
+        if let Some(v) = self.opts.models.first() {
             if !first {
                 w.write_all(b",")?;
             } else {
@@ -296,7 +297,7 @@ mod tests {
     fn test_last_data() {
         let opts = PromptOpts {
             prompt: None,
-            model: Some("google/gemma-3n-e4b-it:free".to_string()),
+            models: vec!["google/gemma-3n-e4b-it:free".to_string()],
             provider: Some("google-ai-studio".to_string()),
             system: Some("System prompt here".to_string()),
             priority: None,
@@ -326,7 +327,7 @@ mod tests {
     fn test_build_body() {
         let opts = PromptOpts {
             prompt: None,
-            model: Some("google/gemma-3n-e4b-it:free".to_string()),
+            models: vec!["google/gemma-3n-e4b-it:free".to_string()],
             provider: Some("google-ai-studio".to_string()),
             system: Some("System prompt here".to_string()),
             priority: None,
@@ -339,7 +340,7 @@ mod tests {
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let got = build_body(&opts, &messages).unwrap();
+        let got = build_body(0, &opts, &messages).unwrap();
 
         let expected = r#"{"stream": true, "usage": {"include": true}, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 

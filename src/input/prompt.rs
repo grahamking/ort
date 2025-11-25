@@ -195,8 +195,15 @@ pub fn start_prompt_thread(
     let (tx, rx) = mpsc::channel();
     let api_key = api_key.to_string();
 
+    if opts.models.len() > 1 {
+        let _ = tx.send(Response::Error(
+            "Multi-model not implemented yet".to_string(),
+        ));
+        return rx;
+    }
+
     std::thread::spawn(move || {
-        let body = to_json::build_body(&opts, &messages).unwrap(); // TODO
+        let body = to_json::build_body(0, &opts, &messages).unwrap(); // TODO
         let start = Instant::now();
         let mut reader = if dns.is_empty() {
             let addr = ("openrouter.ai", 443);
