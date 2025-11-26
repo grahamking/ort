@@ -34,6 +34,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 
 ## Flags
 
+- -m Model. This is the openrouter model ID. Can be provided multiple times to query multiple models at once (in which case the output does not stream).
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
 - -pr Provider choice. Pass the slug or name or a provider, and that will be get priority. If that provider is unavailable a different one will be chosen as if you had not provided one.
 - -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "none", "low", "medium" or "high". Default is off. "none" is only for GPT 5.1 so far. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
@@ -138,6 +139,43 @@ No reasoning:
 
 - qwen/qwen3-235b-a22b-07-25
 - moonshotai/kimi-k2-0905
+
+## My shortcuts (Nov 2025)
+
+All of this in my `.bash_aliases` file. Then are all bash aliases, so you type your prompt right after: `q Is this a question?`.
+
+First make them token efficient with a system prompt:
+```
+SYSTEM_PROMPT="Make your answer concise but complete. No yapping. Direct professional tone. No emoji."
+```
+
+I use this hundreds of times a day for all my easy questions, it's quicker than reading the docs. This model is very fast, almost free, and high quality. Sterling job Google!
+
+```
+alias q='ort -p latency -m google/gemini-2.5-flash-lite-preview-09-2025 -r off -s "$SYSTEM_PROMPT"'
+```
+
+I just added multi-model support, so after a bit of investigation these are the best combination of fast, token efficient, and good quality:
+
+```
+alias qc='ort -p latency -r off -s "$SYSTEM_PROMPT" \
+-m amazon/nova-micro-v1 \
+-m qwen/qwen3-next-80b-a3b-instruct \
+-m x-ai/grok-4-fast \
+-m google/gemini-2.5-flash-lite-preview-09-2025'
+```
+
+Sometimes you need to write some code or ask a hard question. These are IMHO the smartest models today. GPT 5 and 5.1 write very good Rust.
+```
+alias gpt='ort -m openai/gpt-5.1 -r medium -s "$SYSTEM_PROMPT"'
+alias gemini='ort -m google/gemini-3-pro-preview -r medium'
+```
+
+For open models, I like these two, although I don't use them as much:
+```
+alias glm='ort -r medium -pr z-ai -m z-ai/glm-4.6:exacto -s "$SYSTEM_PROMPT"'
+alias m2='ort -m minimax/minimax-m2 -r medium -s "$SYSTEM_PROMPT"'
+```
 
 ## tmux
 
