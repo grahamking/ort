@@ -204,3 +204,30 @@ impl LastWriter {
         Ok(Stats::default()) // Stats is not used
     }
 }
+
+pub struct CollectedWriter {}
+
+impl CollectedWriter {
+    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<String> {
+        let mut got_stats = None;
+        let mut contents = Vec::with_capacity(1024);
+        while let Ok(data) = rx.recv() {
+            match data {
+                Response::Start => {}
+                Response::Think(_) => {}
+                Response::Content(content) => {
+                    contents.push(content);
+                }
+                Response::Stats(stats) => {
+                    got_stats = Some(stats);
+                }
+                Response::Error(err) => {
+                    return ort_err(format!("CollectedWriter: {err}"));
+                }
+            }
+        }
+
+        let out = format!("--- {} ---\n{}", got_stats.unwrap(), contents.join(""));
+        Ok(out)
+    }
+}

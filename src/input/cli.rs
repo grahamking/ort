@@ -126,15 +126,26 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
                 vec![]
             };
             messages.push(crate::Message::user(cli_opts.prompt.take().unwrap()));
-            prompt::run(
-                &api_key,
-                cancel_token,
-                cfg.settings.unwrap_or_default(),
-                cli_opts,
-                messages,
-                !is_terminal,
-                w,
-            )
+            if cli_opts.models.len() == 1 {
+                prompt::run(
+                    &api_key,
+                    cancel_token,
+                    cfg.settings.unwrap_or_default(),
+                    cli_opts,
+                    messages,
+                    !is_terminal,
+                    w,
+                )
+            } else {
+                prompt::run_multi(
+                    &api_key,
+                    cancel_token,
+                    cfg.settings.unwrap_or_default(),
+                    cli_opts,
+                    messages,
+                    w,
+                )
+            }
         }
         Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,

@@ -227,6 +227,7 @@ fn run_prompt(
             vec![],
             common,
             messages,
+            0,
         );
         while let Ok(data) = rx.recv() {
             if cancel_token.is_cancelled() {

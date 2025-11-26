@@ -47,6 +47,7 @@ pub fn run(
         settings.dns,
         opts.clone(),
         messages.clone(),
+        0,
     );
     std::thread::yield_now();
 
@@ -183,6 +184,79 @@ pub fn run_continue(
     )
 }
 
+pub fn run_multi(
+    api_key: &str,
+    cancel_token: CancelToken,
+    settings: config::Settings,
+    opts: PromptOpts,
+    messages: Vec<crate::Message>,
+    mut w: impl io::Write + Send,
+) -> OrtResult<()> {
+    let (tx_done, rx_done) = mpsc::channel();
+    // Start all the queries
+    let num_models = opts.models.len();
+
+    let _ = write!(w, "Calling {num_models} models...\r");
+    let _ = w.flush();
+
+    let _scope_err = thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(num_models);
+        for idx in 0..num_models {
+            let dns = settings.dns.clone();
+            let tx = tx_done.clone();
+            let opts_c = opts.clone();
+            let messages_c = messages.clone();
+            let handle = scope.spawn(move || -> OrtResult<()> {
+                let model_name = opts_c.models.get(idx).unwrap().clone();
+                let rx_main =
+                    start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
+                let mut mr = writer::CollectedWriter {};
+                match mr.run(rx_main) {
+                    Ok(full_output) => {
+                        let _ = tx.send(full_output);
+                    }
+                    Err(err) => {
+                        let err_str = err.to_string();
+                        if err_str.contains("429 Too Many Requests") {
+                            let _ = tx.send(format!("--- {model_name}: Overloaded ---"));
+                        } else {
+                            let _ = tx.send(format!("--- {model_name}: {err_str} ---"));
+                        }
+                    }
+                }
+                drop(tx);
+                Ok(())
+            });
+            handles.push(handle);
+        }
+        drop(tx_done);
+
+        while let Ok(model_output) = rx_done.recv() {
+            if cancel_token.is_cancelled() {
+                break;
+            }
+            write!(w, "{}\n\n", model_output)?;
+            let _ = w.flush();
+        }
+
+        // All the threads should be done
+        for h in handles {
+            if cancel_token.is_cancelled() {
+                break;
+            }
+            if let Err(err) = h.join().unwrap() {
+                let mut oe = ort_error(err.to_string());
+                oe.context("Internal thread error");
+                // The errors are all the same so only print the first
+                return Err(oe);
+            }
+        }
+        Ok(())
+    });
+
+    Ok(())
+}
+
 /// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
 pub fn start_prompt_thread(
     api_key: &str,
@@ -191,19 +265,14 @@ pub fn start_prompt_thread(
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
     messages: Vec<Message>,
+    // When running multiple models, this thread should use this one
+    model_idx: usize,
 ) -> mpsc::Receiver<Response> {
     let (tx, rx) = mpsc::channel();
     let api_key = api_key.to_string();
 
-    if opts.models.len() > 1 {
-        let _ = tx.send(Response::Error(
-            "Multi-model not implemented yet".to_string(),
-        ));
-        return rx;
-    }
-
     std::thread::spawn(move || {
-        let body = to_json::build_body(0, &opts, &messages).unwrap(); // TODO
+        let body = to_json::build_body(model_idx, &opts, &messages).unwrap(); // TODO unwrap
         let start = Instant::now();
         let mut reader = if dns.is_empty() {
             let addr = ("openrouter.ai", 443);
