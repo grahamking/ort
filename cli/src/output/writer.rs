@@ -198,7 +198,8 @@ impl LastWriter {
         let message = Message::assistant(contents.join(""));
         self.data.messages.push(message);
 
-        self.data.to_json_writer(&mut self.w)?;
+        // TODO: output should not import input!
+        crate::input::to_json::last_data_to_json_writer(&self.data, &mut self.w)?;
         let _ = self.w.flush();
 
         Ok(Stats::default()) // Stats is not used

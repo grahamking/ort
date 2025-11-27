@@ -4,8 +4,13 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::fmt;
-use std::time::Duration;
+use core::fmt;
+use core::time::Duration;
+
+extern crate alloc;
+use alloc::format;
+use alloc::string::String;
+use alloc::string::ToString;
 
 #[derive(Default, Debug, Clone)]
 pub struct Stats {

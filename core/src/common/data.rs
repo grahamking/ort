@@ -5,7 +5,12 @@
 //! Copyright (c) 2025 Graham King
 
 use core::fmt;
-use std::str::FromStr;
+use core::str::FromStr;
+
+extern crate alloc;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
@@ -213,13 +218,13 @@ impl fmt::Display for ReasoningEffort {
 
 #[derive(Debug, Clone)]
 pub struct Message {
-    pub(crate) role: Role,
-    pub(crate) content: Option<String>,
-    pub(crate) reasoning: Option<String>,
+    pub role: Role,
+    pub content: Option<String>,
+    pub reasoning: Option<String>,
 }
 
 impl Message {
-    pub(crate) fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
+    pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
         Message {
             role,
             content,

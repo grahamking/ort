@@ -59,7 +59,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     };
 
     w.write_all(b", \"messages\":")?;
-    Message::write_json_array(messages, &mut w)?;
+    message_write_json_array(messages, &mut w)?;
 
     w.write_all(b"}")?;
 
@@ -67,110 +67,108 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     Ok(String::from_utf8_lossy(&messages_buf).to_string())
 }
 
-impl LastData {
-    pub fn to_json_writer<W: io::Write>(&self, writer: W) -> OrtResult<()> {
-        // Use a buffered writer for fewer syscalls when writing to files.
-        let mut w = io::BufWriter::with_capacity(4096, writer);
+pub fn last_data_to_json_writer<W: io::Write>(data: &LastData, writer: W) -> OrtResult<()> {
+    // Use a buffered writer for fewer syscalls when writing to files.
+    let mut w = io::BufWriter::with_capacity(4096, writer);
 
-        w.write_all(b"{\"opts\":{")?;
-        let mut first = true;
+    w.write_all(b"{\"opts\":{")?;
+    let mut first = true;
 
-        if let Some(ref v) = self.opts.prompt {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"prompt\":")?;
-            write_json_str(&mut w, v)?;
+    if let Some(ref v) = data.opts.prompt {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
         }
-        // TODO: consider multi-model
-        if let Some(v) = self.opts.models.first() {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"model\":")?;
-            write_json_str(&mut w, v)?;
-        }
-        if let Some(ref v) = self.opts.provider {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"provider\":")?;
-            write_json_str(&mut w, v)?;
-        }
-        if let Some(ref v) = self.opts.system {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"system\":")?;
-            write_json_str(&mut w, v)?;
-        }
-        if let Some(ref p) = self.opts.priority {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"priority\":")?;
-            write_json_str_simple(&mut w, p.as_str())?;
-        }
-        if let Some(ref rc) = self.opts.reasoning {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"reasoning\":{")?;
-            // always include enabled
-            w.write_all(b"\"enabled\":")?;
-            write_bool(&mut w, rc.enabled)?;
-            if let Some(ref eff) = rc.effort {
-                w.write_all(b",\"effort\":")?;
-                write_json_str_simple(&mut w, eff.as_str())?;
-            }
-            if let Some(tokens) = rc.tokens {
-                w.write_all(b",\"tokens\":")?;
-                write_u32(&mut w, tokens)?;
-            }
-            w.write_all(b"}")?;
-        }
-        if let Some(show) = self.opts.show_reasoning {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                first = false;
-            }
-            w.write_all(b"\"show_reasoning\":")?;
-            write_bool(&mut w, show)?;
-        }
-        if let Some(quiet) = self.opts.quiet {
-            if !first {
-                w.write_all(b",")?;
-            } else {
-                //first = false;
-            }
-            w.write_all(b"\"quiet\":")?;
-            write_bool(&mut w, quiet)?;
-        }
-
-        // merge_config
-        w.write_all(b",")?;
-        w.write_all(b"\"merge_config\":")?;
-        write_bool(&mut w, self.opts.merge_config)?;
-
-        w.write_all(b"},\"messages\":")?;
-        Message::write_json_array(&self.messages, &mut w)?;
-
-        w.write_all(b"}")?;
-        Ok(w.flush()?)
+        w.write_all(b"\"prompt\":")?;
+        write_json_str(&mut w, v)?;
     }
+    // TODO: consider multi-model
+    if let Some(v) = data.opts.models.first() {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
+        }
+        w.write_all(b"\"model\":")?;
+        write_json_str(&mut w, v)?;
+    }
+    if let Some(ref v) = data.opts.provider {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
+        }
+        w.write_all(b"\"provider\":")?;
+        write_json_str(&mut w, v)?;
+    }
+    if let Some(ref v) = data.opts.system {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
+        }
+        w.write_all(b"\"system\":")?;
+        write_json_str(&mut w, v)?;
+    }
+    if let Some(ref p) = data.opts.priority {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
+        }
+        w.write_all(b"\"priority\":")?;
+        write_json_str_simple(&mut w, p.as_str())?;
+    }
+    if let Some(ref rc) = data.opts.reasoning {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
+        }
+        w.write_all(b"\"reasoning\":{")?;
+        // always include enabled
+        w.write_all(b"\"enabled\":")?;
+        write_bool(&mut w, rc.enabled)?;
+        if let Some(ref eff) = rc.effort {
+            w.write_all(b",\"effort\":")?;
+            write_json_str_simple(&mut w, eff.as_str())?;
+        }
+        if let Some(tokens) = rc.tokens {
+            w.write_all(b",\"tokens\":")?;
+            write_u32(&mut w, tokens)?;
+        }
+        w.write_all(b"}")?;
+    }
+    if let Some(show) = data.opts.show_reasoning {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            first = false;
+        }
+        w.write_all(b"\"show_reasoning\":")?;
+        write_bool(&mut w, show)?;
+    }
+    if let Some(quiet) = data.opts.quiet {
+        if !first {
+            w.write_all(b",")?;
+        } else {
+            //first = false;
+        }
+        w.write_all(b"\"quiet\":")?;
+        write_bool(&mut w, quiet)?;
+    }
+
+    // merge_config
+    w.write_all(b",")?;
+    w.write_all(b"\"merge_config\":")?;
+    write_bool(&mut w, data.opts.merge_config)?;
+
+    w.write_all(b"},\"messages\":")?;
+    message_write_json_array(&data.messages, &mut w)?;
+
+    w.write_all(b"}")?;
+    Ok(w.flush()?)
 }
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
@@ -197,38 +195,36 @@ fn write_u32<W: io::Write>(w: &mut W, mut n: u32) -> io::Result<()> {
     w.write_all(&buf[i..])
 }
 
-impl Message {
-    pub fn write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
-        w.write_all(b"[")?;
-        for (i, msg) in msgs.iter().enumerate() {
-            if i != 0 {
-                w.write_all(b",")?;
-            }
-            msg.write_json(w)?;
+pub fn message_write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
+    w.write_all(b"[")?;
+    for (i, msg) in msgs.iter().enumerate() {
+        if i != 0 {
+            w.write_all(b",")?;
         }
-        w.write_all(b"]")?;
-        Ok(())
+        write_json(msg, w)?;
     }
+    w.write_all(b"]")?;
+    Ok(())
+}
 
-    pub fn write_json<W: io::Write>(&self, w: &mut W) -> OrtResult<()> {
-        w.write_all(b"{\"role\":")?;
-        write_json_str_simple(w, self.role.as_str())?;
-        match (&self.content, &self.reasoning) {
-            (Some(_), Some(_)) | (None, None) => {
-                return ort_err("Message must have exactly one of 'content' or 'reasoning'.");
-            }
-            (Some(content), _) => {
-                w.write_all(b",\"content\":")?;
-                write_json_str(w, content)?;
-            }
-            (_, Some(reasoning)) => {
-                w.write_all(b",\"reasoning\":")?;
-                write_json_str(w, reasoning)?;
-            }
+pub fn write_json<W: io::Write>(data: &Message, w: &mut W) -> OrtResult<()> {
+    w.write_all(b"{\"role\":")?;
+    write_json_str_simple(w, data.role.as_str())?;
+    match (&data.content, &data.reasoning) {
+        (Some(_), Some(_)) | (None, None) => {
+            return ort_err("Message must have exactly one of 'content' or 'reasoning'.");
         }
-        w.write_all(b"}")?;
-        Ok(())
+        (Some(content), _) => {
+            w.write_all(b",\"content\":")?;
+            write_json_str(w, content)?;
+        }
+        (_, Some(reasoning)) => {
+            w.write_all(b",\"reasoning\":")?;
+            write_json_str(w, reasoning)?;
+        }
     }
+    w.write_all(b"}")?;
+    Ok(())
 }
 
 /// No escapes or special characters, just write the bytes
@@ -313,7 +309,7 @@ mod tests {
         let l = LastData { opts, messages };
 
         let mut c = Cursor::new(Vec::with_capacity(64));
-        l.to_json_writer(&mut c).unwrap();
+        last_data_to_json_writer(&l, &mut c).unwrap();
 
         let buf = c.into_inner();
         let got = String::from_utf8_lossy(&buf);
