@@ -10,14 +10,10 @@
 //! Writes the results in a directory hierarchy.
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
-use ort::CancelToken;
-use ort::Context;
-use ort::OrtResult;
-use ort::PromptOpts;
-use ort::ReasoningConfig;
-use ort::ReasoningEffort;
-use ort::ThinkEvent;
-use ort::ort_err;
+use ort_openrouter_cli::{
+    CancelToken, Context, Message, OrtResult, PromptOpts, ReasoningConfig, ReasoningEffort,
+    Response, ThinkEvent, input::prompt, ort_err,
+};
 use std::io::Write as _;
 
 use std::env;
@@ -25,8 +21,6 @@ use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use ort::Response;
 
 /// Secret alises for the models so you can blind compare them
 const CAT_NAMES: [&str; 15] = [
@@ -220,15 +214,8 @@ fn run_prompt(
         let cat_name = &names[model_num];
         let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))?;
 
-        let messages = vec![ort::Message::user(prompt.to_string())];
-        let rx = ort::input::prompt::start_prompt_thread(
-            api_key,
-            cancel_token,
-            vec![],
-            common,
-            messages,
-            0,
-        );
+        let messages = vec![Message::user(prompt.to_string())];
+        let rx = prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);
         while let Ok(data) = rx.recv() {
             if cancel_token.is_cancelled() {
                 break;
