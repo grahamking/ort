@@ -16,4 +16,4 @@ name = "eval"
 path = "src/bin/eval.rs"
 
 [dependencies]
-
+ort-openrouter-core = { path = "../core" }

@@ -6,7 +6,10 @@
 //
 //! HMAC SHA-256
 
-use crate::tls::sha2::sha256;
+extern crate alloc;
+use alloc::vec::Vec;
+
+use super::sha2::sha256;
 
 /// HMAC SHA-256
 pub fn sign(key: &[u8], data: &[u8]) -> [u8; 32] {
@@ -46,7 +49,7 @@ pub fn sign(key: &[u8], data: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use crate::tls::tests::string_to_bytes;
+    use crate::net::tls::tests::string_to_bytes;
 
     #[test]
     fn test_hmac_sha256_short() {

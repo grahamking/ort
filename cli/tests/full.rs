@@ -7,6 +7,8 @@
 use std::io::BufRead;
 use std::io::Cursor;
 
+use ort_openrouter_cli as ort;
+
 #[test]
 fn test_invalid_model_name() {
     let mut out = Cursor::new(vec![]);

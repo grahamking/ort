@@ -4,6 +4,4 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-#![no_std]
-
-pub mod net;
+pub mod tls;

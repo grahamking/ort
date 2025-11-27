@@ -6,6 +6,9 @@
 //
 //! SHA-256 digest
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 /// Calculate the SHA-256 digest of the input string.
 pub fn sha256(b: &[u8]) -> [u8; 32] {
     const INITIAL_STATE: [u32; 8] = [
@@ -132,7 +135,7 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use crate::tls::tests::string_to_bytes;
+    use crate::net::tls::tests::string_to_bytes;
 
     #[test]
     fn sha256_empty() {

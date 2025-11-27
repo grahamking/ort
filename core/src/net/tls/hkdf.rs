@@ -6,7 +6,10 @@
 //
 //! HKDF - HMAC SHA-256 Key Derivation, RFC 5869
 
-use crate::tls::hmac;
+extern crate alloc;
+use alloc::vec::Vec;
+
+use super::hmac;
 
 /// HKDF-Extract as defined in RFC 5869 using SHA-256.
 pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; 32] {
@@ -54,7 +57,7 @@ pub fn hkdf_expand(prk: &[u8], info: &[u8], len: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tls::tests::{hex_to_vec, string_to_bytes};
+    use crate::net::tls::tests::{hex_to_vec, string_to_bytes};
 
     #[test]
     fn test_hkdf_extract_rfc5869_case1() {
@@ -85,7 +88,7 @@ mod tests {
         let ikm = b"handshake secret";
         let prk = super::hkdf_extract(&[], ikm);
         let zero_salt = [0u8; 32];
-        let expected = crate::tls::hmac::sign(&zero_salt, ikm);
+        let expected = crate::net::tls::hmac::sign(&zero_salt, ikm);
         assert_eq!(prk, expected);
     }
 

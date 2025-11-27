@@ -6,18 +6,15 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
-use std::ffi::{c_uint, c_void};
+use core::ffi::{c_uint, c_void};
+
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
 
 use crate::{OrtResult, ort_error};
 
-mod aead;
-mod ecdh;
-mod hkdf;
-mod hmac;
-mod sha2;
+use ort_openrouter_core::net::tls::{aead, ecdh, hkdf, hmac, sha2};
 
 const DEBUG_LOG: bool = false;
 
@@ -686,7 +683,7 @@ fn write_record_cipher<W: Write>(
     hdr[1..3].copy_from_slice(&LEGACY_REC_VER.to_be_bytes());
     hdr[3..5].copy_from_slice(&(total_len as u16).to_be_bytes());
 
-    let out = aead::aes_128_gcm_encrypt(key, &nonce, &hdr, &plain);
+    let out = aead::aes_128_gcm_encrypt(key, &nonce, &hdr, &plain).unwrap();
 
     debug_print("write_record_cipher header", &hdr);
     let final_label = format!("write_record_cipher final {total_len}");
@@ -718,7 +715,7 @@ fn read_record_cipher<R: Read>(
     let nonce = nonce_xor(iv12, *seq);
     *seq = seq.wrapping_add(1);
 
-    let mut out = aead::aes_128_gcm_decrypt(key, &nonce, &hdr, &ciphertext);
+    let mut out = aead::aes_128_gcm_decrypt(key, &nonce, &hdr, &ciphertext).unwrap();
 
     debug_print("read_record_cipher plaintext hdr", &hdr);
     debug_print("read_record_cipher plaintext", &out);
