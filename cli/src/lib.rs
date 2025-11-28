@@ -24,3 +24,4 @@ pub use ort_openrouter_core::common::error::{
     Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err,
 };
 pub use ort_openrouter_core::common::stats;
+pub use ort_openrouter_core::input::to_json;

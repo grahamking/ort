@@ -10,7 +10,7 @@ use std::sync::mpsc::Receiver;
 
 use crate::{
     Flushable, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, common::utils,
-    config, ort_err, ort_from_err, stats::Stats,
+    config, ort_err, ort_from_err, stats::Stats, to_json,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -234,7 +234,7 @@ impl LastWriter {
         self.data.messages.push(message);
 
         // TODO: output should not import input!
-        crate::input::to_json::last_data_to_json_writer(&self.data, &mut self.w)?;
+        to_json::last_data_to_json_writer(&self.data, &mut self.w)?;
         let _ = self.w.flush();
 
         Ok(Stats::default()) // Stats is not used

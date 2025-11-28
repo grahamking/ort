@@ -9,9 +9,14 @@ use core::fmt::Write;
 
 extern crate alloc;
 use alloc::string::String;
-use alloc::vec;
 
-use crate::{Flushable, LastData, Message, OrtResult, PromptOpts, ort_err};
+use crate::common::{
+    Flushable,
+    data::{LastData, Message, PromptOpts},
+    error::{OrtResult, ort_err},
+};
+
+//use crate::{Flushable, LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -291,9 +296,12 @@ fn write_json_str<W: Write>(w: &mut W, s: &str) -> fmt::Result {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    extern crate alloc;
+    use alloc::string::ToString;
+    use alloc::vec;
 
-    use crate::{LastData, Message, PromptOpts, ReasoningConfig};
+    use super::*;
+    use crate::common::data::ReasoningConfig;
 
     #[test]
     fn test_last_data() {

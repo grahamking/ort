@@ -17,6 +17,7 @@ use std::{
 use crate::common::utils;
 use crate::multi_channel;
 use crate::ort_error;
+use crate::to_json;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, config};
@@ -24,8 +25,6 @@ use crate::{LastData, OrtError, ort_err, ort_from_err};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, stats};
 use crate::{Response, ThinkEvent};
-
-use super::to_json;
 
 pub fn run(
     api_key: &str,

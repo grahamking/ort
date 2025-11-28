@@ -4,9 +4,4 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-#![no_std]
-
-pub mod common;
-pub mod input;
-pub mod net;
-pub mod output;
+pub mod to_json;
