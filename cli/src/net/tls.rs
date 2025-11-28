@@ -14,7 +14,7 @@ use std::net::TcpStream;
 
 use crate::{OrtResult, ort_error, ort_from_err};
 
-use ort_openrouter_core::net::tls::{aead, ecdh, hkdf, hmac, sha2};
+use ort_openrouter_core::{aead, ecdh, hkdf, hmac, sha2};
 
 const DEBUG_LOG: bool = false;
 

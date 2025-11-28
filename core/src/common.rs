@@ -10,8 +10,9 @@
 extern crate alloc;
 use alloc::string::String;
 
-use crate::common::error::OrtResult;
+use crate::OrtResult;
 
+pub mod cancel_token;
 pub mod config;
 pub mod data;
 pub mod error;

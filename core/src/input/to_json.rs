@@ -10,13 +10,7 @@ use core::fmt::Write;
 extern crate alloc;
 use alloc::string::String;
 
-use crate::common::{
-    Flushable,
-    data::{LastData, Message, PromptOpts},
-    error::{OrtResult, ort_err},
-};
-
-//use crate::{Flushable, LastData, Message, OrtResult, PromptOpts, ort_err};
+use crate::{Flushable, LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -305,7 +299,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::common::data::ReasoningConfig;
+    use crate::ReasoningConfig;
 
     #[test]
     fn test_last_data() {

@@ -8,7 +8,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::common::data::PromptOpts;
+use crate::PromptOpts;
 
 const OPENROUTER_KEY: &str = "openrouter";
 

@@ -13,8 +13,8 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::common::config::{ApiKey, ConfigFile, Settings};
-use crate::common::data::{
+use crate::{ApiKey, ConfigFile, Settings};
+use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
 };
@@ -1409,7 +1409,7 @@ mod tests {
     use alloc::string::ToString;
 
     use super::*;
-    use crate::common::data::LastData;
+    use crate::LastData;
 
     #[test]
     fn rp1() {

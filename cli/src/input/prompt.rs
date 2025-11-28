@@ -14,15 +14,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::build_body;
 use crate::common::utils;
 use crate::ort_error;
-use crate::to_json;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
 use crate::{LastData, OrtError, ort_err, ort_from_err};
 use crate::{Message, PromptOpts};
-use crate::{OrtResult, stats};
+use crate::{OrtResult, Stats};
 use crate::{Response, ThinkEvent};
 use crate::{config, multi_channel};
 
@@ -275,7 +275,7 @@ pub fn start_prompt_thread(
     let api_key = api_key.to_string();
 
     std::thread::spawn(move || {
-        let body = to_json::build_body(model_idx, &opts, &messages).unwrap(); // TODO unwrap
+        let body = build_body(model_idx, &opts, &messages).unwrap(); // TODO unwrap
         let start = Instant::now();
         let mut reader = if dns.is_empty() {
             let addr = ("openrouter.ai", 443);
@@ -298,7 +298,7 @@ pub fn start_prompt_thread(
             }
         };
 
-        let mut stats: stats::Stats = Default::default();
+        let mut stats: Stats = Default::default();
         let mut token_stream_start = None;
         let mut num_tokens = 0;
         let mut is_start = true;

@@ -9,8 +9,8 @@ use std::fs::File;
 use std::sync::mpsc::Receiver;
 
 use crate::{
-    Flushable, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, common::utils,
-    config, ort_err, ort_from_err, stats::Stats,
+    Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent,
+    common::utils, config, ort_err, ort_from_err,
 };
 
 const BOLD_START: &str = "\x1b[1m";
