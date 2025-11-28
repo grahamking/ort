@@ -4,15 +4,17 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::fs;
-use std::{env, path::PathBuf};
+use core::ffi::CStr;
 
-use crate::{ConfigFile, OrtError, OrtResult, ort_error, ort_from_err};
+use std::fs;
+use std::path::PathBuf;
+
+use crate::{ConfigFile, OrtError, OrtResult, get_env, ort_error, ort_from_err};
 
 const CONFIG_FILE: &str = "ort.json";
 
 pub fn load() -> OrtResult<ConfigFile> {
-    let config_dir = xdg_dir("XDG_CONFIG_HOME", ".config")?;
+    let config_dir = xdg_dir(c"XDG_CONFIG_HOME", ".config")?;
     let config_file = config_dir.join(CONFIG_FILE);
     match fs::read_to_string(&config_file) {
         Ok(cfg_str) => ConfigFile::from_json(&cfg_str)
@@ -27,7 +29,7 @@ pub fn load() -> OrtResult<ConfigFile> {
 }
 
 pub fn cache_dir() -> OrtResult<PathBuf> {
-    let cache_root = xdg_dir("XDG_CACHE_HOME", ".cache")?;
+    let cache_root = xdg_dir(c"XDG_CACHE_HOME", ".cache")?;
     let d = cache_root.join("ort");
     if !d.exists() {
         fs::create_dir_all(&d).map_err(ort_from_err)?;
@@ -35,14 +37,17 @@ pub fn cache_dir() -> OrtResult<PathBuf> {
     Ok(d)
 }
 
-fn xdg_dir(var_name: &'static str, default: &'static str) -> OrtResult<PathBuf> {
-    match env::var(var_name) {
-        Ok(c) => Ok(PathBuf::from(c)),
-        _ => {
-            let Some(home_dir) = std::env::home_dir() else {
-                return Err(ort_error("Could not get home dir."));
-            };
-            Ok(home_dir.join(default))
-        }
+fn xdg_dir(var_name: &CStr, default: &'static str) -> OrtResult<PathBuf> {
+    let v = get_env(var_name);
+    if !v.is_empty() {
+        return Ok(PathBuf::from(v));
+    }
+
+    let v = get_env(c"HOME");
+    if !v.is_empty() {
+        let home_dir = PathBuf::from(v);
+        Ok(home_dir.join(default))
+    } else {
+        Err(ort_error("Could not get home dir. Is $HOME set?"))
     }
 }

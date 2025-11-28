@@ -12,7 +12,7 @@
 
 use ort_openrouter_cli::{
     CancelToken, Context, Message, OrtResult, PromptOpts, ReasoningConfig, ReasoningEffort,
-    Response, ThinkEvent, input::prompt, ort_err, ort_from_err,
+    Response, ThinkEvent, get_env, input::prompt, ort_err, ort_from_err,
 };
 use std::io::Write as _;
 
@@ -55,13 +55,11 @@ struct Args {
 }
 
 fn main() -> OrtResult<()> {
-    let api_key = match env::var("OPENROUTER_API_KEY") {
-        Ok(v) if !v.is_empty() => v,
-        _ => {
-            eprintln!("OPENROUTER_API_KEY is not set.");
-            std::process::exit(1);
-        }
-    };
+    let api_key = get_env(c"OPENROUTER_API_KEY");
+    if api_key.is_empty() {
+        eprintln!("OPENROUTER_API_KEY is not set.");
+        std::process::exit(1);
+    }
     // This is how we would stop all the running evals on ctrl-c, see main.rs
     let cancel_token = CancelToken::init();
 

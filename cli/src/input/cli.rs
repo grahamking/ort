@@ -6,7 +6,6 @@
 
 use core::fmt;
 use std::borrow::Cow;
-use std::env;
 use std::io;
 use std::process::ExitCode;
 
@@ -14,6 +13,7 @@ use super::{args, list, prompt};
 use crate::OrtError;
 use crate::OrtResult;
 use crate::PromptOpts;
+use crate::get_env;
 use crate::ort_err;
 use crate::ort_error;
 
@@ -97,14 +97,14 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
     let cfg = crate::config::load()?;
 
     // Fail fast if key missing
-    let api_key = match env::var("OPENROUTER_API_KEY") {
-        Ok(v) if !v.is_empty() => v,
-        _ => match cfg.get_openrouter_key() {
+    let mut api_key = get_env(c"OPENROUTER_API_KEY");
+    if api_key.is_empty() {
+        api_key = match cfg.get_openrouter_key() {
             Some(k) => k,
             None => {
                 return ort_err("OPENROUTER_API_KEY is not set.");
             }
-        },
+        }
     };
 
     let cmd = match parse_args(args) {
