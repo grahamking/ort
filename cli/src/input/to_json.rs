@@ -4,186 +4,192 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io::{self, Cursor, Write};
+use core::fmt::Write;
 
+use std::fmt;
+use std::io::Cursor;
+
+use crate::writer::{Flushable, IoFmtWriter};
 use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
 pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
     let capacity: u32 = messages.iter().map(|m| m.size()).sum::<u32>() + 100;
-    let mut w = Cursor::new(Vec::with_capacity(capacity as usize));
+    let mut w = IoFmtWriter::new(Cursor::new(Vec::with_capacity(capacity as usize)));
 
-    w.write_all(b"{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
+    w.write_str("{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
     write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
 
     if opts.priority.is_some() || opts.provider.is_some() {
-        w.write_all(b", \"provider\": {")?;
+        w.write_str(", \"provider\": {")?;
         let mut is_first = true;
         if let Some(p) = opts.priority {
-            w.write_all(b"\"sort\":")?;
+            w.write_str("\"sort\":")?;
             write_json_str_simple(&mut w, p.as_str())?;
             is_first = false;
         }
         if let Some(pr) = &opts.provider {
             if !is_first {
-                w.write_all(b", ")?;
+                w.write_str(", ")?;
             }
-            w.write_all(b"\"order\": [")?;
+            w.write_str("\"order\": [")?;
             write_json_str(&mut w, pr)?;
-            w.write_all(b"]")?;
+            w.write_char(']')?;
         }
-        w.write_all(b"}")?;
+        w.write_char('}')?;
     }
 
-    w.write_all(b", \"reasoning\": ")?;
+    w.write_str(", \"reasoning\": ")?;
     match &opts.reasoning {
         // No -r and nothing in config file
-        None => w.write_all(b"{\"enabled\": false}")?,
+        None => w.write_str("{\"enabled\": false}")?,
         // cli "-r off" or config file '"enabled": false'
-        Some(r_cfg) if !r_cfg.enabled => w.write_all(b"{\"enabled\": false}")?,
+        Some(r_cfg) if !r_cfg.enabled => w.write_str("{\"enabled\": false}")?,
         // Reasoning on
         Some(r_cfg) => match (r_cfg.effort, r_cfg.tokens) {
             (Some(effort), _) => {
-                w.write_all(b"{\"exclude\": false, \"enabled\": true, \"effort\":")?;
+                w.write_str("{\"exclude\": false, \"enabled\": true, \"effort\":")?;
                 write_json_str_simple(&mut w, effort.as_str())?;
-                w.write_all(b"}")?;
+                w.write_char('}')?;
             }
             (_, Some(tokens)) => {
-                w.write_all(b"{\"exclude\": false, \"enabled\": true, \"max_tokens\":")?;
+                w.write_str("{\"exclude\": false, \"enabled\": true, \"max_tokens\":")?;
                 write_u32(&mut w, tokens)?;
-                w.write_all(b"}")?;
+                w.write_char('}')?;
             }
             _ => unreachable!("Reasoning effort and tokens cannot both be null"),
         },
     };
 
-    w.write_all(b", \"messages\":")?;
+    w.write_str(", \"messages\":")?;
     message_write_json_array(messages, &mut w)?;
 
-    w.write_all(b"}")?;
+    w.write_char('}')?;
 
-    let messages_buf = w.into_inner();
+    let messages_buf = w.into_inner().into_inner();
     Ok(String::from_utf8_lossy(&messages_buf).to_string())
 }
 
-pub fn last_data_to_json_writer<W: io::Write>(data: &LastData, writer: W) -> OrtResult<()> {
-    // Use a buffered writer for fewer syscalls when writing to files.
-    let mut w = io::BufWriter::with_capacity(4096, writer);
+pub fn last_data_to_json_writer<W>(data: &LastData, writer: W) -> OrtResult<()>
+where
+    W: Write + Flushable,
+{
+    let mut w = writer;
 
-    w.write_all(b"{\"opts\":{")?;
+    w.write_str("{\"opts\":{")?;
     let mut first = true;
 
     if let Some(ref v) = data.opts.prompt {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"prompt\":")?;
+        w.write_str("\"prompt\":")?;
         write_json_str(&mut w, v)?;
     }
     // TODO: consider multi-model
     if let Some(v) = data.opts.models.first() {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"model\":")?;
+        w.write_str("\"model\":")?;
         write_json_str(&mut w, v)?;
     }
     if let Some(ref v) = data.opts.provider {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"provider\":")?;
+        w.write_str("\"provider\":")?;
         write_json_str(&mut w, v)?;
     }
     if let Some(ref v) = data.opts.system {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"system\":")?;
+        w.write_str("\"system\":")?;
         write_json_str(&mut w, v)?;
     }
     if let Some(ref p) = data.opts.priority {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"priority\":")?;
+        w.write_str("\"priority\":")?;
         write_json_str_simple(&mut w, p.as_str())?;
     }
     if let Some(ref rc) = data.opts.reasoning {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"reasoning\":{")?;
+        w.write_str("\"reasoning\":{")?;
         // always include enabled
-        w.write_all(b"\"enabled\":")?;
+        w.write_str("\"enabled\":")?;
         write_bool(&mut w, rc.enabled)?;
         if let Some(ref eff) = rc.effort {
-            w.write_all(b",\"effort\":")?;
+            w.write_str(",\"effort\":")?;
             write_json_str_simple(&mut w, eff.as_str())?;
         }
         if let Some(tokens) = rc.tokens {
-            w.write_all(b",\"tokens\":")?;
+            w.write_str(",\"tokens\":")?;
             write_u32(&mut w, tokens)?;
         }
-        w.write_all(b"}")?;
+        w.write_char('}')?;
     }
     if let Some(show) = data.opts.show_reasoning {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             first = false;
         }
-        w.write_all(b"\"show_reasoning\":")?;
+        w.write_str("\"show_reasoning\":")?;
         write_bool(&mut w, show)?;
     }
     if let Some(quiet) = data.opts.quiet {
         if !first {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         } else {
             //first = false;
         }
-        w.write_all(b"\"quiet\":")?;
+        w.write_str("\"quiet\":")?;
         write_bool(&mut w, quiet)?;
     }
 
     // merge_config
-    w.write_all(b",")?;
-    w.write_all(b"\"merge_config\":")?;
+    w.write_char(',')?;
+    w.write_str("\"merge_config\":")?;
     write_bool(&mut w, data.opts.merge_config)?;
 
-    w.write_all(b"},\"messages\":")?;
+    w.write_str("},\"messages\":")?;
     message_write_json_array(&data.messages, &mut w)?;
 
-    w.write_all(b"}")?;
+    w.write_char('}')?;
     Ok(w.flush()?)
 }
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
-fn write_bool<W: io::Write>(w: &mut W, v: bool) -> io::Result<()> {
+fn write_bool<W: Write>(w: &mut W, v: bool) -> fmt::Result {
     if v {
-        w.write_all(b"true")
+        w.write_str("true")
     } else {
-        w.write_all(b"false")
+        w.write_str("false")
     }
 }
 
-fn write_u32<W: io::Write>(w: &mut W, mut n: u32) -> io::Result<()> {
+fn write_u32<W: Write>(w: &mut W, mut n: u32) -> fmt::Result {
     if n == 0 {
-        return w.write_all(b"0");
+        return w.write_str("0");
     }
     let mut buf = [0u8; 10];
     let mut i = buf.len();
@@ -192,52 +198,53 @@ fn write_u32<W: io::Write>(w: &mut W, mut n: u32) -> io::Result<()> {
         buf[i] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    w.write_all(&buf[i..])
+    let s = core::str::from_utf8(&buf[i..]).unwrap();
+    w.write_str(s)
 }
 
-pub fn message_write_json_array<W: io::Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
-    w.write_all(b"[")?;
+pub fn message_write_json_array<W: Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
+    w.write_char('[')?;
     for (i, msg) in msgs.iter().enumerate() {
         if i != 0 {
-            w.write_all(b",")?;
+            w.write_char(',')?;
         }
         write_json(msg, w)?;
     }
-    w.write_all(b"]")?;
+    w.write_char(']')?;
     Ok(())
 }
 
-pub fn write_json<W: io::Write>(data: &Message, w: &mut W) -> OrtResult<()> {
-    w.write_all(b"{\"role\":")?;
+pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
+    w.write_str("{\"role\":")?;
     write_json_str_simple(w, data.role.as_str())?;
     match (&data.content, &data.reasoning) {
         (Some(_), Some(_)) | (None, None) => {
             return ort_err("Message must have exactly one of 'content' or 'reasoning'.");
         }
         (Some(content), _) => {
-            w.write_all(b",\"content\":")?;
+            w.write_str(",\"content\":")?;
             write_json_str(w, content)?;
         }
         (_, Some(reasoning)) => {
-            w.write_all(b",\"reasoning\":")?;
+            w.write_str(",\"reasoning\":")?;
             write_json_str(w, reasoning)?;
         }
     }
-    w.write_all(b"}")?;
+    w.write_char('}')?;
     Ok(())
 }
 
 /// No escapes or special characters, just write the bytes
-fn write_json_str_simple<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
-    w.write_all(b"\"")?;
-    w.write_all(s.as_bytes())?;
-    w.write_all(b"\"")?;
+fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> fmt::Result {
+    w.write_char('"')?;
+    w.write_str(s)?;
+    w.write_char('"')?;
     Ok(())
 }
 
 // Writes a JSON string (with surrounding quotes) with proper escaping, no allocations.
-fn write_json_str<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
-    w.write_all(b"\"")?;
+fn write_json_str<W: Write>(w: &mut W, s: &str) -> fmt::Result {
+    w.write_char('"')?;
     let bytes = s.as_bytes();
     let mut start = 0;
 
@@ -256,11 +263,11 @@ fn write_json_str<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
         };
 
         if start < i {
-            w.write_all(&bytes[start..i])?;
+            w.write_str(core::str::from_utf8(&bytes[start..i]).unwrap())?;
         }
 
         if let Some(e) = esc {
-            w.write_all(e)?;
+            w.write_str(core::str::from_utf8(e).unwrap())?;
         } else {
             // Generic control char: \u00XX
             let mut buf = [0u8; 6];
@@ -270,16 +277,16 @@ fn write_json_str<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
             buf[3] = b'0';
             buf[4] = HEX[((b >> 4) & 0xF) as usize];
             buf[5] = HEX[(b & 0xF) as usize];
-            w.write_all(&buf)?;
+            w.write_str(core::str::from_utf8(&buf).unwrap())?;
         }
 
         start = i + 1;
     }
 
     if start < bytes.len() {
-        w.write_all(&bytes[start..])?;
+        w.write_str(core::str::from_utf8(&bytes[start..]).unwrap())?;
     }
-    w.write_all(b"\"")
+    w.write_char('"')
 }
 
 #[cfg(test)]
@@ -308,10 +315,10 @@ mod tests {
         ];
         let l = LastData { opts, messages };
 
-        let mut c = Cursor::new(Vec::with_capacity(64));
+        let mut c = IoFmtWriter::new(Cursor::new(Vec::with_capacity(64)));
         last_data_to_json_writer(&l, &mut c).unwrap();
 
-        let buf = c.into_inner();
+        let buf = c.into_inner().into_inner();
         let got = String::from_utf8_lossy(&buf);
 
         let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;

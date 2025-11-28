@@ -4,8 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use core::fmt;
 use std::fs::File;
-use std::io::Write;
 use std::sync::mpsc::Receiver;
 
 use crate::{
@@ -22,17 +22,65 @@ const CLEAR_LINE: &str = "\x1b[2K";
 
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
-//pub trait Writer {
-//    fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats>;
-//    fn into_inner(self) -> W;
-//}
+/// Adapter that lets us use any `std::io::Write` as a UTF-8-only `fmt::Write`.
+pub struct IoFmtWriter<W: std::io::Write> {
+    inner: W,
+}
 
-pub struct ConsoleWriter<W: std::io::Write> {
+impl<W: std::io::Write> IoFmtWriter<W> {
+    pub fn new(inner: W) -> Self {
+        IoFmtWriter { inner }
+    }
+
+    pub fn into_inner(self) -> W {
+        self.inner
+    }
+
+    pub fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<W: std::io::Write> fmt::Write for IoFmtWriter<W> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        std::io::Write::write_all(&mut self.inner, s.as_bytes()).map_err(|_| fmt::Error)
+    }
+
+    fn write_char(&mut self, c: char) -> fmt::Result {
+        let mut buf = [0u8; 4];
+        let slice = c.encode_utf8(&mut buf);
+        std::io::Write::write_all(&mut self.inner, slice.as_bytes()).map_err(|_| fmt::Error)
+    }
+}
+
+pub trait Flushable {
+    fn flush(&mut self) -> std::io::Result<()>;
+}
+
+impl<W: std::io::Write> Flushable for IoFmtWriter<W> {
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::Write::flush(&mut self.inner)
+    }
+}
+
+impl Flushable for String {
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<T: Flushable + ?Sized> Flushable for &mut T {
+    fn flush(&mut self) -> std::io::Result<()> {
+        (**self).flush()
+    }
+}
+
+pub struct ConsoleWriter<W: fmt::Write + Flushable> {
     pub writer: W, // Must handle ANSI control chars
     pub show_reasoning: bool,
 }
 
-impl<W: std::io::Write> ConsoleWriter<W> {
+impl<W: fmt::Write + Flushable> ConsoleWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
@@ -112,12 +160,12 @@ impl<W: std::io::Write> ConsoleWriter<W> {
     }
 }
 
-pub struct FileWriter<W: std::io::Write> {
+pub struct FileWriter<W: fmt::Write> {
     pub writer: W,
     pub show_reasoning: bool,
 }
 
-impl<W: std::io::Write> FileWriter<W> {
+impl<W: fmt::Write> FileWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
@@ -161,7 +209,7 @@ impl<W: std::io::Write> FileWriter<W> {
 }
 
 pub struct LastWriter {
-    w: std::fs::File,
+    w: IoFmtWriter<std::fs::File>,
     data: LastData,
 }
 
@@ -171,10 +219,13 @@ impl LastWriter {
         let last_path = config::cache_dir()?.join(last_filename);
         let last_file = File::create(last_path)?;
         let data = LastData { opts, messages };
-        Ok(LastWriter { data, w: last_file })
+        Ok(LastWriter {
+            data,
+            w: IoFmtWriter::new(last_file),
+        })
     }
     pub fn into_inner(self) -> std::fs::File {
-        self.w
+        self.w.into_inner()
     }
 
     pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {

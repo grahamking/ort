@@ -53,6 +53,12 @@ impl From<std::io::Error> for OrtError {
     }
 }
 
+impl From<core::fmt::Error> for OrtError {
+    fn from(err: core::fmt::Error) -> OrtError {
+        ort_error(err.to_string())
+    }
+}
+
 impl From<ArgParseError> for OrtError {
     fn from(err: ArgParseError) -> OrtError {
         ort_error(err.to_string())

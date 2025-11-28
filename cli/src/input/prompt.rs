@@ -17,7 +17,7 @@ use std::{
 use crate::common::utils;
 use crate::multi_channel;
 use crate::ort_error;
-use crate::writer;
+use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, config};
 use crate::{LastData, OrtError, ort_err};
@@ -61,26 +61,30 @@ pub fn run(
     //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
     //let path_display = path.display().to_string();
 
+    // Convert std::io::Write (Stdout) into core::fmt::Write for no_std
+    let w_core = IoFmtWriter::new(w);
+
     let scope_err = thread::scope(|scope| {
         let mut handles = vec![];
         let jh_stdout = scope.spawn(move || -> OrtResult<()> {
-            let (stats, mut w) = if is_pipe_output {
+            let (stats, w_core) = if is_pipe_output {
                 let mut fw = writer::FileWriter {
-                    writer: w,
+                    writer: w_core,
                     show_reasoning,
                 };
                 let stats = fw.run(rx_stdout)?;
-                let w = fw.into_inner();
-                (stats, w)
+                let w_core = fw.into_inner();
+                (stats, w_core)
             } else {
                 let mut cw = writer::ConsoleWriter {
-                    writer: w,
+                    writer: w_core,
                     show_reasoning,
                 };
                 let stats = cw.run(rx_stdout)?;
-                let w = cw.into_inner();
-                (stats, w)
+                let w_core = cw.into_inner();
+                (stats, w_core)
             };
+            let mut w = w_core.into_inner();
             let _ = writeln!(w);
             if !is_quiet {
                 //if settings.save_to_file {
