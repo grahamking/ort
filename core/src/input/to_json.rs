@@ -69,117 +69,119 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     };
 
     w.write_str(", \"messages\":")?;
-    message_write_json_array(messages, &mut w)?;
+    Message::write_json_array(messages, &mut w)?;
 
     w.write_char('}')?;
 
     Ok(w)
 }
 
-pub fn last_data_to_json_writer<W>(data: &LastData, writer: W) -> OrtResult<()>
-where
-    W: Write + Flushable,
-{
-    let mut w = writer;
+impl LastData {
+    pub fn to_json_writer<W>(&self, writer: W) -> OrtResult<()>
+    where
+        W: Write + Flushable,
+    {
+        let mut w = writer;
 
-    w.write_str("{\"opts\":{")?;
-    let mut first = true;
+        w.write_str("{\"opts\":{")?;
+        let mut first = true;
 
-    if let Some(ref v) = data.opts.prompt {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
+        if let Some(ref v) = self.opts.prompt {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"prompt\":")?;
+            write_json_str(&mut w, v)?;
         }
-        w.write_str("\"prompt\":")?;
-        write_json_str(&mut w, v)?;
-    }
-    // TODO: consider multi-model
-    if let Some(v) = data.opts.models.first() {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
+        // TODO: consider multi-model
+        if let Some(v) = self.opts.models.first() {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"model\":")?;
+            write_json_str(&mut w, v)?;
         }
-        w.write_str("\"model\":")?;
-        write_json_str(&mut w, v)?;
-    }
-    if let Some(ref v) = data.opts.provider {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
+        if let Some(ref v) = self.opts.provider {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"provider\":")?;
+            write_json_str(&mut w, v)?;
         }
-        w.write_str("\"provider\":")?;
-        write_json_str(&mut w, v)?;
-    }
-    if let Some(ref v) = data.opts.system {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
+        if let Some(ref v) = self.opts.system {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"system\":")?;
+            write_json_str(&mut w, v)?;
         }
-        w.write_str("\"system\":")?;
-        write_json_str(&mut w, v)?;
-    }
-    if let Some(ref p) = data.opts.priority {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
+        if let Some(ref p) = self.opts.priority {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"priority\":")?;
+            write_json_str_simple(&mut w, p.as_str())?;
         }
-        w.write_str("\"priority\":")?;
-        write_json_str_simple(&mut w, p.as_str())?;
-    }
-    if let Some(ref rc) = data.opts.reasoning {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
+        if let Some(ref rc) = self.opts.reasoning {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"reasoning\":{")?;
+            // always include enabled
+            w.write_str("\"enabled\":")?;
+            write_bool(&mut w, rc.enabled)?;
+            if let Some(ref eff) = rc.effort {
+                w.write_str(",\"effort\":")?;
+                write_json_str_simple(&mut w, eff.as_str())?;
+            }
+            if let Some(tokens) = rc.tokens {
+                w.write_str(",\"tokens\":")?;
+                write_u32(&mut w, tokens)?;
+            }
+            w.write_char('}')?;
         }
-        w.write_str("\"reasoning\":{")?;
-        // always include enabled
-        w.write_str("\"enabled\":")?;
-        write_bool(&mut w, rc.enabled)?;
-        if let Some(ref eff) = rc.effort {
-            w.write_str(",\"effort\":")?;
-            write_json_str_simple(&mut w, eff.as_str())?;
+        if let Some(show) = self.opts.show_reasoning {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                first = false;
+            }
+            w.write_str("\"show_reasoning\":")?;
+            write_bool(&mut w, show)?;
         }
-        if let Some(tokens) = rc.tokens {
-            w.write_str(",\"tokens\":")?;
-            write_u32(&mut w, tokens)?;
+        if let Some(quiet) = self.opts.quiet {
+            if !first {
+                w.write_char(',')?;
+            } else {
+                //first = false;
+            }
+            w.write_str("\"quiet\":")?;
+            write_bool(&mut w, quiet)?;
         }
+
+        // merge_config
+        w.write_char(',')?;
+        w.write_str("\"merge_config\":")?;
+        write_bool(&mut w, self.opts.merge_config)?;
+
+        w.write_str("},\"messages\":")?;
+        Message::write_json_array(&self.messages, &mut w)?;
+
         w.write_char('}')?;
+        w.flush()
     }
-    if let Some(show) = data.opts.show_reasoning {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            first = false;
-        }
-        w.write_str("\"show_reasoning\":")?;
-        write_bool(&mut w, show)?;
-    }
-    if let Some(quiet) = data.opts.quiet {
-        if !first {
-            w.write_char(',')?;
-        } else {
-            //first = false;
-        }
-        w.write_str("\"quiet\":")?;
-        write_bool(&mut w, quiet)?;
-    }
-
-    // merge_config
-    w.write_char(',')?;
-    w.write_str("\"merge_config\":")?;
-    write_bool(&mut w, data.opts.merge_config)?;
-
-    w.write_str("},\"messages\":")?;
-    message_write_json_array(&data.messages, &mut w)?;
-
-    w.write_char('}')?;
-    w.flush()
 }
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
@@ -207,16 +209,18 @@ fn write_u32<W: Write>(w: &mut W, mut n: u32) -> fmt::Result {
     w.write_str(s)
 }
 
-pub fn message_write_json_array<W: Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
-    w.write_char('[')?;
-    for (i, msg) in msgs.iter().enumerate() {
-        if i != 0 {
-            w.write_char(',')?;
+impl Message {
+    pub fn write_json_array<W: Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
+        w.write_char('[')?;
+        for (i, msg) in msgs.iter().enumerate() {
+            if i != 0 {
+                w.write_char(',')?;
+            }
+            write_json(msg, w)?;
         }
-        write_json(msg, w)?;
+        w.write_char(']')?;
+        Ok(())
     }
-    w.write_char(']')?;
-    Ok(())
 }
 
 pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
@@ -323,7 +327,7 @@ mod tests {
         let l = LastData { opts, messages };
 
         let mut got = String::with_capacity(64);
-        last_data_to_json_writer(&l, &mut got).unwrap();
+        l.to_json_writer(&mut got).unwrap();
 
         let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 
