@@ -7,8 +7,11 @@
 use core::fmt;
 use core::fmt::Write;
 
-use crate::writer::Flushable;
-use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
+extern crate alloc;
+use alloc::string::String;
+use alloc::vec;
+
+use crate::{Flushable, LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.

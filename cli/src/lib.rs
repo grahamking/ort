@@ -15,6 +15,7 @@ use common::multi_channel;
 mod net;
 pub use net::{http, tls};
 
+pub use ort_openrouter_core::common::Flushable;
 pub use ort_openrouter_core::common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,

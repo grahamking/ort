@@ -9,8 +9,8 @@ use std::fs::File;
 use std::sync::mpsc::Receiver;
 
 use crate::{
-    LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, common::utils, config, ort_err,
-    ort_from_err, stats::Stats,
+    Flushable, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, common::utils,
+    config, ort_err, ort_from_err, stats::Stats,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -53,25 +53,9 @@ impl<W: std::io::Write> fmt::Write for IoFmtWriter<W> {
     }
 }
 
-pub trait Flushable {
-    fn flush(&mut self) -> OrtResult<()>;
-}
-
 impl<W: std::io::Write> Flushable for IoFmtWriter<W> {
     fn flush(&mut self) -> OrtResult<()> {
         std::io::Write::flush(&mut self.inner).map_err(ort_from_err)
-    }
-}
-
-impl Flushable for String {
-    fn flush(&mut self) -> OrtResult<()> {
-        Ok(())
-    }
-}
-
-impl<T: Flushable + ?Sized> Flushable for &mut T {
-    fn flush(&mut self) -> OrtResult<()> {
-        (**self).flush()
     }
 }
 
