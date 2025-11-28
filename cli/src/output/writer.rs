@@ -54,23 +54,23 @@ impl<W: std::io::Write> fmt::Write for IoFmtWriter<W> {
 }
 
 pub trait Flushable {
-    fn flush(&mut self) -> std::io::Result<()>;
+    fn flush(&mut self) -> OrtResult<()>;
 }
 
 impl<W: std::io::Write> Flushable for IoFmtWriter<W> {
-    fn flush(&mut self) -> std::io::Result<()> {
-        std::io::Write::flush(&mut self.inner)
+    fn flush(&mut self) -> OrtResult<()> {
+        Ok(std::io::Write::flush(&mut self.inner)?)
     }
 }
 
 impl Flushable for String {
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> OrtResult<()> {
         Ok(())
     }
 }
 
 impl<T: Flushable + ?Sized> Flushable for &mut T {
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> OrtResult<()> {
         (**self).flush()
     }
 }

@@ -11,9 +11,11 @@ use std::io;
 use std::process::ExitCode;
 
 use super::{args, list, prompt};
+use crate::OrtError;
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::ort_err;
+use crate::ort_error;
 
 #[derive(Debug)]
 pub enum Cmd {
@@ -60,6 +62,12 @@ impl ArgParseError {
             s: Cow::Borrowed(""),
             is_help: true,
         }
+    }
+}
+
+impl From<ArgParseError> for OrtError {
+    fn from(err: ArgParseError) -> OrtError {
+        ort_error(err.to_string())
     }
 }
 

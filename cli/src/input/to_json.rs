@@ -4,19 +4,17 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use core::fmt;
 use core::fmt::Write;
 
-use std::fmt;
-use std::io::Cursor;
-
-use crate::writer::{Flushable, IoFmtWriter};
+use crate::writer::Flushable;
 use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
 pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
     let capacity: u32 = messages.iter().map(|m| m.size()).sum::<u32>() + 100;
-    let mut w = IoFmtWriter::new(Cursor::new(Vec::with_capacity(capacity as usize)));
+    let mut w = String::with_capacity(capacity as usize);
 
     w.write_str("{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
     write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
@@ -67,8 +65,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
 
     w.write_char('}')?;
 
-    let messages_buf = w.into_inner().into_inner();
-    Ok(String::from_utf8_lossy(&messages_buf).to_string())
+    Ok(w)
 }
 
 pub fn last_data_to_json_writer<W>(data: &LastData, writer: W) -> OrtResult<()>
@@ -174,7 +171,7 @@ where
     message_write_json_array(&data.messages, &mut w)?;
 
     w.write_char('}')?;
-    Ok(w.flush()?)
+    w.flush()
 }
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
@@ -294,7 +291,6 @@ mod tests {
     use super::*;
 
     use crate::{LastData, Message, PromptOpts, ReasoningConfig};
-    use std::io::Cursor;
 
     #[test]
     fn test_last_data() {
@@ -315,11 +311,8 @@ mod tests {
         ];
         let l = LastData { opts, messages };
 
-        let mut c = IoFmtWriter::new(Cursor::new(Vec::with_capacity(64)));
-        last_data_to_json_writer(&l, &mut c).unwrap();
-
-        let buf = c.into_inner().into_inner();
-        let got = String::from_utf8_lossy(&buf);
+        let mut got = String::with_capacity(64);
+        last_data_to_json_writer(&l, &mut got).unwrap();
 
         let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 

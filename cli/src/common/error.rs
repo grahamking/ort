@@ -4,9 +4,10 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::fmt::{self, Display};
+use core::fmt::{self, Display};
 
-use crate::cli::ArgParseError;
+extern crate alloc;
+use alloc::string::String;
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
@@ -47,20 +48,8 @@ impl fmt::Display for OrtError {
     }
 }
 
-impl From<std::io::Error> for OrtError {
-    fn from(err: std::io::Error) -> OrtError {
-        ort_error(err.to_string())
-    }
-}
-
 impl From<core::fmt::Error> for OrtError {
     fn from(err: core::fmt::Error) -> OrtError {
-        ort_error(err.to_string())
-    }
-}
-
-impl From<ArgParseError> for OrtError {
-    fn from(err: ArgParseError) -> OrtError {
         ort_error(err.to_string())
     }
 }
