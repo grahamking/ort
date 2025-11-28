@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
 
-use crate::{OrtResult, ort_error};
+use crate::{OrtResult, ort_error, ort_from_err};
 
 use ort_openrouter_core::net::tls::{aead, ecdh, hkdf, hmac, sha2};
 
@@ -230,7 +230,7 @@ fn client_hello_msg(sni_host: &str, client_private_key: &[u8]) -> OrtResult<Vec<
 
 /// Read ServerHello (plaintext Handshake record)
 fn read_server_hello(io: &mut TcpStream) -> OrtResult<(Vec<u8>, Vec<u8>)> {
-    let (typ, payload) = read_record_plain(io)?;
+    let (typ, payload) = read_record_plain(io).map_err(ort_from_err)?;
     if typ != REC_TYPE_HANDSHAKE {
         return Err(ort_error("expected Handshake"));
     }
@@ -238,7 +238,7 @@ fn read_server_hello(io: &mut TcpStream) -> OrtResult<(Vec<u8>, Vec<u8>)> {
 
     // There can be multiple handshake messages; we need the ServerHello bytes specifically
     let mut rd = &sh_buf[..];
-    let (sh_typ, sh_body, sh_full) = read_handshake_message(&mut rd)?;
+    let (sh_typ, sh_body, sh_full) = read_handshake_message(&mut rd).map_err(ort_from_err)?;
     if sh_typ != HS_SERVER_HELLO {
         return Err(ort_error("expected ServerHello"));
     }
@@ -333,7 +333,7 @@ impl TlsStream {
         client_private_key: &[u8; 32],
     ) -> OrtResult<()> {
         let ch_msg = client_hello_msg(sni_host, client_private_key)?;
-        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)?;
+        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg).map_err(ort_from_err)?;
         transcript.extend_from_slice(&ch_msg);
         Ok(())
     }
@@ -346,7 +346,7 @@ impl TlsStream {
 
     fn receive_dummy_change_cipher_spec(io: &mut TcpStream) -> OrtResult<()> {
         // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
-        let (typ, _) = read_record_plain(io)?;
+        let (typ, _) = read_record_plain(io).map_err(ort_from_err)?;
         if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
             return Err(ort_error(
                 "Expected server to send dummy Change Cipher Spec",
@@ -366,7 +366,8 @@ impl TlsStream {
             &handshake.aead_dec_hs,
             &handshake.server_handshake_iv,
             seq_dec_hs,
-        )?;
+        )
+        .map_err(ort_from_err)?;
         if typ != REC_TYPE_APPDATA {
             return Err(ort_error("expected encrypted records"));
         }
@@ -407,7 +408,8 @@ impl TlsStream {
         transcript: &[u8],
     ) -> OrtResult<HandshakeState> {
         // Parse minimal ServerHello to get cipher & key_share
-        let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(sh_body)?;
+        let (cipher, server_public_key_bytes) =
+            parse_server_hello_for_keys(sh_body).map_err(ort_from_err)?;
         debug_print("Server public key", &server_public_key_bytes);
         if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
             return Err(ort_error("server picked unsupported cipher"));
@@ -545,7 +547,8 @@ impl TlsStream {
             &handshake.aead_enc_hs,
             &handshake.client_handshake_iv,
             seq_enc_hs,
-        )?;
+        )
+        .map_err(ort_from_err)?;
 
         Ok(())
     }

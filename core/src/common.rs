@@ -8,4 +8,5 @@
 //! Also general utlities even if only used by input or output.
 
 pub mod data;
+pub mod error;
 pub mod stats;

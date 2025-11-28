@@ -7,7 +7,7 @@
 use std::fs;
 use std::{env, path::PathBuf};
 
-use crate::{OrtError, OrtResult, ort_error};
+use crate::{OrtError, OrtResult, ort_error, ort_from_err};
 
 const CONFIG_FILE: &str = "ort.json";
 const OPENROUTER_KEY: &str = "openrouter";
@@ -72,7 +72,7 @@ pub fn load() -> OrtResult<ConfigFile> {
             .map_err(|err| ort_error(format!("Failed to parse config: {err}"))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ConfigFile::default()),
         Err(e) => {
-            let mut err: OrtError = e.into();
+            let mut err: OrtError = ort_from_err(e);
             err.context(config_file.display().to_string());
             Err(err)
         }
@@ -83,7 +83,7 @@ pub fn cache_dir() -> OrtResult<PathBuf> {
     let cache_root = xdg_dir("XDG_CACHE_HOME", ".cache")?;
     let d = cache_root.join("ort");
     if !d.exists() {
-        fs::create_dir_all(&d)?;
+        fs::create_dir_all(&d).map_err(ort_from_err)?;
     }
     Ok(d)
 }

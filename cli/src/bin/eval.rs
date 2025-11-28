@@ -12,7 +12,7 @@
 
 use ort_openrouter_cli::{
     CancelToken, Context, Message, OrtResult, PromptOpts, ReasoningConfig, ReasoningEffort,
-    Response, ThinkEvent, input::prompt, ort_err,
+    Response, ThinkEvent, input::prompt, ort_err, ort_from_err,
 };
 use std::io::Write as _;
 
@@ -68,11 +68,13 @@ fn main() -> OrtResult<()> {
     let args = parse_args();
 
     let models: Vec<String> = fs::read_to_string(&args.models_file)
+        .map_err(ort_from_err)
         .context("Reading models file")?
         .lines()
         .map(str::to_string)
         .collect();
     let prompts: Vec<String> = fs::read_to_string(&args.prompts_file)
+        .map_err(ort_from_err)
         .context("Reading prompts file")?
         .lines()
         .map(str::to_string)
@@ -178,13 +180,13 @@ fn run_prompt(
 
     // Make the eval directory
     let dir_name = PathBuf::from(out_dir).join(format!("eval{eval_num}"));
-    fs::create_dir_all(&dir_name)?;
+    fs::create_dir_all(&dir_name).map_err(ort_from_err)?;
 
     // Save the prompt
     let prompt_path = Path::new(&dir_name).join("prompt");
-    fs::write(prompt_path, format!("{prompt}\n"))?;
+    fs::write(prompt_path, format!("{prompt}\n")).map_err(ort_from_err)?;
 
-    let mut key_file = File::create(Path::new(&dir_name).join("key"))?;
+    let mut key_file = File::create(Path::new(&dir_name).join("key")).map_err(ort_from_err)?;
     for (model_num, model) in models.iter().enumerate() {
         let parts: Vec<_> = model.split(' ').collect();
         let enable_reasoning = parts.len() > 1;
@@ -212,7 +214,8 @@ fn run_prompt(
         };
 
         let cat_name = &names[model_num];
-        let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))?;
+        let mut out = File::create(Path::new(&dir_name).join(format!("{cat_name}.txt")))
+            .map_err(ort_from_err)?;
 
         let messages = vec![Message::user(prompt.to_string())];
         let rx = prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);

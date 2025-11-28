@@ -7,7 +7,9 @@
 use core::fmt::{self, Display};
 
 extern crate alloc;
-use alloc::string::String;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
@@ -31,7 +33,11 @@ pub fn ort_err<X, T: Into<String>>(msg: T) -> Result<X, OrtError> {
     })
 }
 
-impl std::error::Error for OrtError {}
+pub fn ort_from_err<E: core::fmt::Display>(e: E) -> OrtError {
+    ort_error(e.to_string())
+}
+
+impl core::error::Error for OrtError {}
 
 impl fmt::Display for OrtError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

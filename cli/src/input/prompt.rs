@@ -20,7 +20,7 @@ use crate::ort_error;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, config};
-use crate::{LastData, OrtError, ort_err};
+use crate::{LastData, OrtError, ort_err, ort_from_err};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, stats};
 use crate::{Response, ThinkEvent};
@@ -167,7 +167,7 @@ pub fn run_continue(
             return ort_err("No last conversation, cannot continue");
         }
         Err(e) => {
-            let mut err: OrtError = e.into();
+            let mut err: OrtError = ort_from_err(e);
             err.context(last_file.display().to_string());
             return Err(err);
         }
@@ -239,7 +239,7 @@ pub fn run_multi(
             if cancel_token.is_cancelled() {
                 break;
             }
-            write!(w, "{}\n\n", model_output)?;
+            write!(w, "{}\n\n", model_output).map_err(ort_from_err)?;
             let _ = w.flush();
         }
 
@@ -439,8 +439,8 @@ pub fn start_prompt_thread(
 fn most_recent(dir: &Path, filename_prefix: &str) -> OrtResult<PathBuf> {
     let mut most_recent_file: Option<(PathBuf, SystemTime)> = None;
 
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    for entry in fs::read_dir(dir).map_err(ort_from_err)? {
+        let entry = entry.map_err(ort_from_err)?;
         let path = entry.path();
 
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -450,11 +450,11 @@ fn most_recent(dir: &Path, filename_prefix: &str) -> OrtResult<PathBuf> {
             continue;
         }
         // Only then get metadata (1 disk read)
-        let metadata = entry.metadata()?;
+        let metadata = entry.metadata().map_err(ort_from_err)?;
         if !metadata.is_file() {
             continue;
         }
-        let modified_time = metadata.modified()?;
+        let modified_time = metadata.modified().map_err(ort_from_err)?;
 
         if let Some((_, prev_time)) = &most_recent_file {
             if modified_time > *prev_time {

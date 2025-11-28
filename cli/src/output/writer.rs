@@ -10,7 +10,7 @@ use std::sync::mpsc::Receiver;
 
 use crate::{
     LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, common::utils, config, ort_err,
-    stats::Stats,
+    ort_from_err, stats::Stats,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -59,7 +59,7 @@ pub trait Flushable {
 
 impl<W: std::io::Write> Flushable for IoFmtWriter<W> {
     fn flush(&mut self) -> OrtResult<()> {
-        Ok(std::io::Write::flush(&mut self.inner)?)
+        std::io::Write::flush(&mut self.inner).map_err(ort_from_err)
     }
 }
 
@@ -217,7 +217,7 @@ impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
         let last_filename = format!("last-{}.json", utils::tmux_pane_id());
         let last_path = config::cache_dir()?.join(last_filename);
-        let last_file = File::create(last_path)?;
+        let last_file = File::create(last_path).map_err(ort_from_err)?;
         let data = LastData { opts, messages };
         Ok(LastWriter {
             data,
