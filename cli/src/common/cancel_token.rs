@@ -4,13 +4,11 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::sync::{
-    Once,
-    atomic::{AtomicBool, Ordering},
-};
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::{mem, ptr};
 
 static CANCELLED: AtomicBool = AtomicBool::new(false);
-static INIT: Once = Once::new();
+static IS_INIT_DONE: AtomicBool = AtomicBool::new(false);
 
 // A way to stop a running thread
 // Loosely inspired by tokio's CancellationToken
@@ -19,7 +17,14 @@ pub struct CancelToken(&'static AtomicBool);
 
 impl CancelToken {
     pub fn init() -> Self {
-        INIT.call_once(|| unsafe { install_sigint_handler() });
+        // If IS_INIT_DONE == false, atomically make it true
+        if IS_INIT_DONE
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            // We changed the flag, so we are the first
+            unsafe { install_sigint_handler() };
+        }
         CancelToken(&CANCELLED)
     }
 
@@ -39,11 +44,11 @@ extern "C" fn handle_sigint(_: i32) {
 unsafe fn install_sigint_handler() {
     const SIGINT: i32 = 2;
     unsafe {
-        let mut sa: sigaction = std::mem::zeroed();
+        let mut sa: sigaction = mem::zeroed();
         sa.sa_flags = 0;
         sa.sa_sigaction = handle_sigint as usize; // treated as sa_handler when SA_SIGINFO not set
         sigemptyset(&mut sa.sa_mask);
-        sigaction(SIGINT, &sa, std::ptr::null_mut());
+        sigaction(SIGINT, &sa, ptr::null_mut());
     }
 }
 
