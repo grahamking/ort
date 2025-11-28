@@ -15,21 +15,21 @@ use std::{
 };
 
 use crate::common::utils;
-use crate::multi_channel;
 use crate::ort_error;
 use crate::to_json;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
-use crate::{ChatCompletionsResponse, config};
+use crate::{ChatCompletionsResponse, Settings};
 use crate::{LastData, OrtError, ort_err, ort_from_err};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, stats};
 use crate::{Response, ThinkEvent};
+use crate::{config, multi_channel};
 
 pub fn run(
     api_key: &str,
     cancel_token: CancelToken,
-    settings: config::Settings,
+    settings: Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
@@ -149,7 +149,7 @@ pub fn run(
 pub fn run_continue(
     api_key: &str,
     cancel_token: CancelToken,
-    settings: config::Settings,
+    settings: Settings,
     mut opts: crate::PromptOpts,
     is_pipe_output: bool,
     w: impl io::Write + Send,
@@ -190,7 +190,7 @@ pub fn run_continue(
 pub fn run_multi(
     api_key: &str,
     cancel_token: CancelToken,
-    settings: config::Settings,
+    settings: Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     mut w: impl io::Write + Send,

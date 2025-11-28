@@ -12,6 +12,7 @@ use alloc::string::String;
 
 use crate::common::error::OrtResult;
 
+pub mod config;
 pub mod data;
 pub mod error;
 pub mod stats;

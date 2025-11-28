@@ -7,62 +7,9 @@
 use std::fs;
 use std::{env, path::PathBuf};
 
-use crate::{OrtError, OrtResult, ort_error, ort_from_err};
+use crate::{ConfigFile, OrtError, OrtResult, ort_error, ort_from_err};
 
 const CONFIG_FILE: &str = "ort.json";
-const OPENROUTER_KEY: &str = "openrouter";
-
-const DEFAULT_SAVE_TO_FILE: bool = true;
-
-#[derive(Default)]
-pub struct ConfigFile {
-    pub settings: Option<Settings>,
-    pub keys: Vec<ApiKey>,
-    pub prompt_opts: Option<crate::PromptOpts>,
-}
-
-impl ConfigFile {
-    pub fn get_openrouter_key(&self) -> Option<String> {
-        self.keys
-            .iter()
-            .find_map(|ak| (ak.name == OPENROUTER_KEY).then(|| ak.value.clone()))
-    }
-    pub fn _save_to_file(&self) -> bool {
-        self.settings
-            .as_ref()
-            .map(|s| s.save_to_file)
-            .unwrap_or(DEFAULT_SAVE_TO_FILE)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Settings {
-    /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
-    pub save_to_file: bool,
-    /// IP addresses of openrouter.ai. Saves time resolving them.
-    pub dns: Vec<String>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            save_to_file: DEFAULT_SAVE_TO_FILE,
-            dns: vec![],
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ApiKey {
-    name: String,
-    value: String,
-}
-
-impl ApiKey {
-    pub fn new(name: String, value: String) -> Self {
-        ApiKey { name, value }
-    }
-}
 
 pub fn load() -> OrtResult<ConfigFile> {
     let config_dir = xdg_dir("XDG_CONFIG_HOME", ".config")?;

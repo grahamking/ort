@@ -11,7 +11,9 @@ use alloc::borrow::{Cow, ToOwned};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
+use alloc::vec::Vec;
 
+use crate::common::config::{ApiKey, ConfigFile, Settings};
 use crate::common::data::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -578,6 +580,228 @@ impl PromptOpts {
         })
     }
 }
+
+impl ConfigFile {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut settings: Option<Settings> = None;
+        let mut keys: Vec<ApiKey> = vec![];
+        let mut prompt_opts: Option<PromptOpts> = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| format!("ConfigFile parsing key: {err}"))?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "settings" => {
+                    if settings.is_some() {
+                        return Err("duplicate field: settings".into());
+                    }
+                    let settings_json = p.value_slice()?;
+                    settings = Some(Settings::from_json(settings_json)?);
+                }
+                "keys" => {
+                    if !keys.is_empty() {
+                        return Err("duplicate field: keys".into());
+                    }
+                    if !p.try_consume(b'[') {
+                        return Err("keys: Expected array".into());
+                    }
+                    loop {
+                        let j = p.value_slice()?;
+                        let api_key = ApiKey::from_json(j)?;
+                        keys.push(api_key);
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b']') {
+                            break;
+                        }
+                    }
+                }
+                "prompt_opts" => {
+                    if prompt_opts.is_some() {
+                        return Err("duplicate field: prompt_opts".into());
+                    }
+                    let opts_json = p.value_slice()?;
+                    prompt_opts = Some(PromptOpts::from_json(opts_json)?);
+                }
+                _ => return Err("unknown field".into()),
+            }
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(ConfigFile {
+            settings,
+            keys,
+            prompt_opts,
+        })
+    }
+}
+
+impl Settings {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut save_to_file = None;
+        let mut dns = vec![];
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| format!("Settings parsing key: {err}"))?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "save_to_file" => {
+                    if save_to_file.is_some() {
+                        return Err("duplicate field: save_to_file".into());
+                    }
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        save_to_file = None;
+                    } else {
+                        save_to_file = Some(p.parse_bool()?);
+                    }
+                }
+                "dns" => {
+                    if !dns.is_empty() {
+                        return Err("duplicate field: dns".into());
+                    }
+                    if !p.try_consume(b'[') {
+                        return Err("dns: Expected array".into());
+                    }
+                    loop {
+                        let addr = p.parse_string()?;
+                        dns.push(addr);
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b']') {
+                            break;
+                        }
+                    }
+                }
+                _ => return Err("unknown field".into()),
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            // If neither comma nor closing brace, it's malformed.
+            if !p.eof() {
+                return Err("expected ',' or '}'".into());
+            } else {
+                return Err("unexpected end of input".into());
+            }
+        }
+
+        let default = Settings::default();
+        Ok(Settings {
+            save_to_file: save_to_file.unwrap_or(default.save_to_file),
+            dns,
+        })
+    }
+}
+
+impl ApiKey {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut name = None;
+        let mut value = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| format!("ApiKey parsing key: {err}"))?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "name" => {
+                    if name.is_some() {
+                        return Err("duplicate field: name".into());
+                    }
+                    name = Some(
+                        p.parse_string()
+                            .map_err(|err| format!("Parsing name: {err}"))?,
+                    );
+                }
+                "value" => {
+                    if value.is_some() {
+                        return Err("duplicate field: value".into());
+                    }
+                    value = Some(
+                        p.parse_string()
+                            .map_err(|err| format!("Parsing name: {err}"))?,
+                    );
+                }
+                _ => return Err("unknown field".into()),
+            }
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            } else {
+                p.expect(b'}')?;
+                break;
+            }
+        }
+
+        Ok(ApiKey::new(
+            name.expect("Missing ApiKey name"),
+            value.expect("Missing ApiKey value"),
+        ))
+    }
+}
+
+// --------------------------------------------
 
 // Minimal, fast JSON scanner tailored for our needs.
 struct Parser<'a> {
@@ -1181,6 +1405,9 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+    use alloc::string::ToString;
+
     use super::*;
     use crate::common::data::LastData;
 
@@ -1312,5 +1539,53 @@ mod tests {
             assert_eq!(ccr.model.as_deref(), Some("deepseek/deepseek-chat-v3.1"));
             assert_eq!(ccr.choices.len(), 1);
         }
+    }
+
+    #[test]
+    fn api_key() {
+        let s = r#"{"name":"openrouter","value":"sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef"}"#;
+        let got = ApiKey::from_json(s).unwrap();
+        let expect = ApiKey::new(
+            "openrouter".to_string(),
+            "sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef".to_string(),
+        );
+        assert_eq!(got, expect);
+    }
+
+    #[test]
+    fn settings() {
+        let s = r#"{
+    "save_to_file": true,
+    "dns": ["104.18.2.115", "104.18.3.115"]
+}"#;
+        let settings = Settings::from_json(s).unwrap();
+        assert!(settings.save_to_file);
+        assert_eq!(settings.dns, ["104.18.2.115", "104.18.3.115"]);
+    }
+
+    #[test]
+    fn config_file() {
+        let s = r#"
+{
+    "keys": [{"name": "openrouter", "value": "sk-or-v1-abcd1234"}],
+    "settings": {
+        "save_to_file": true,
+        "dns": ["104.18.2.115", "104.18.3.115"]
+    },
+    "prompt_opts": {
+        "model": "google/gemma-3n-e4b-it:free",
+        "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
+        "quiet": false,
+        "show_reasoning": false,
+        "reasoning": {
+            "enabled": false
+        }
+    }
+}
+"#;
+        let cfg = ConfigFile::from_json(s).unwrap();
+        assert_eq!(cfg.keys.len(), 1);
+        assert!(cfg.settings.is_some());
+        assert!(cfg.prompt_opts.is_some());
     }
 }

@@ -7,7 +7,7 @@
 pub mod input;
 pub use input::cli;
 pub mod output;
-pub use output::{from_json, writer};
+pub use output::writer;
 pub mod common;
 pub use common::cancel_token::CancelToken;
 pub use common::config;
@@ -16,6 +16,7 @@ mod net;
 pub use net::{http, tls};
 
 pub use ort_openrouter_core::common::Flushable;
+pub use ort_openrouter_core::common::config::{ApiKey, ConfigFile, Settings};
 pub use ort_openrouter_core::common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,

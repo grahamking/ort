@@ -8,14 +8,14 @@ use std::io::{self, Read as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use crate::net::{chunked, http};
-use crate::{CancelToken, Context as _, OrtResult, config, ort_from_err};
+use crate::{CancelToken, Context as _, OrtResult, Settings, ort_from_err};
 
 use super::args::ListOpts;
 
 pub fn run(
     api_key: &str,
     _cancel_token: CancelToken, // TODO use CancelToken
-    settings: config::Settings,
+    settings: Settings,
     opts: ListOpts,
     mut w: impl io::Write,
 ) -> OrtResult<()> {
