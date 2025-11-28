@@ -4,6 +4,9 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+extern crate alloc;
+use alloc::string::String;
+
 use core::ffi::{c_char, c_str::CStr};
 
 pub fn slug(s: &str) -> String {

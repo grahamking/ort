@@ -23,4 +23,6 @@ pub use ort_openrouter_core::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,
 };
-pub use ort_openrouter_core::{Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err};
+pub use ort_openrouter_core::{
+    Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err, slug, tmux_pane_id,
+};

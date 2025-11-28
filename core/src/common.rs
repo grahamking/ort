@@ -17,6 +17,7 @@ pub mod config;
 pub mod data;
 pub mod error;
 pub mod stats;
+pub mod utils;
 
 pub trait Flushable {
     fn flush(&mut self) -> OrtResult<()>;

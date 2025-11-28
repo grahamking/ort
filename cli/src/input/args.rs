@@ -15,7 +15,7 @@ use crate::ReasoningConfig;
 use crate::ReasoningEffort;
 use crate::cli::ArgParseError;
 use crate::cli::Cmd;
-use crate::common::utils;
+use crate::slug;
 
 const STDIN_FILENO: i32 = 0;
 
@@ -135,7 +135,7 @@ pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                 if i >= args.len() {
                     return Err(ArgParseError::new_str("Missing value for -pr"));
                 }
-                provider = Some(utils::slug(args[i].as_ref()));
+                provider = Some(slug(args[i].as_ref()));
                 i += 1;
             }
             "-c" => {

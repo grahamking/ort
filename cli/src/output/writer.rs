@@ -9,8 +9,8 @@ use std::fs::File;
 use std::sync::mpsc::Receiver;
 
 use crate::{
-    Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent,
-    common::utils, config, ort_err, ort_from_err,
+    Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, config,
+    ort_err, ort_from_err, slug, tmux_pane_id,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -199,7 +199,7 @@ pub struct LastWriter {
 
 impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
-        let last_filename = format!("last-{}.json", utils::tmux_pane_id());
+        let last_filename = format!("last-{}.json", tmux_pane_id());
         let last_path = config::cache_dir()?.join(last_filename);
         let last_file = File::create(last_path).map_err(ort_from_err)?;
         let data = LastData { opts, messages };
@@ -222,7 +222,7 @@ impl LastWriter {
                     contents.push(content);
                 }
                 Response::Stats(stats) => {
-                    self.data.opts.provider = Some(utils::slug(stats.provider()));
+                    self.data.opts.provider = Some(slug(stats.provider()));
                 }
                 Response::Error(err) => {
                     return ort_err(format!("LastWriter: {err}"));

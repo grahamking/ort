@@ -15,8 +15,8 @@ use std::{
 };
 
 use crate::build_body;
-use crate::common::utils;
 use crate::ort_error;
+use crate::tmux_pane_id;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
@@ -57,7 +57,7 @@ pub fn run(
     let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_last]);
 
     //let cache_dir = config::cache_dir()?;
-    //let path = cache_dir.join(format!("{}.txt", utils::slug(&model_name)));
+    //let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
     //let path_display = path.display().to_string();
 
     // Convert std::io::Write (Stdout) into core::fmt::Write for no_std
@@ -155,7 +155,7 @@ pub fn run_continue(
     w: impl io::Write + Send,
 ) -> OrtResult<()> {
     let dir = config::cache_dir()?;
-    let mut last_file = dir.join(format!("last-{}.json", utils::tmux_pane_id()));
+    let mut last_file = dir.join(format!("last-{}.json", tmux_pane_id()));
     if !last_file.exists() {
         last_file = most_recent(&dir, "last-")?;
     }

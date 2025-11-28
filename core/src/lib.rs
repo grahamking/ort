@@ -20,6 +20,7 @@ pub use common::data::{
 };
 pub use common::error::{Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err};
 pub use common::stats::Stats;
+pub use common::utils::{slug, tmux_pane_id};
 
 pub use input::to_json::build_body;
 
