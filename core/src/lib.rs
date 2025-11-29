@@ -13,14 +13,14 @@ mod output;
 
 pub use common::Flushable;
 pub use common::cancel_token::CancelToken;
-pub use common::config::{ApiKey, ConfigFile, Settings};
+pub use common::config::{ApiKey, ConfigFile, Settings, xdg_dir};
 pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,
 };
 pub use common::error::{Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err};
 pub use common::stats::Stats;
-pub use common::utils::{get_env, slug, tmux_pane_id};
+pub use common::utils::{get_env, path_exists, slug, tmux_pane_id};
 
 pub use input::to_json::build_body;
 

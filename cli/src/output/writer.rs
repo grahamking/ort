@@ -200,7 +200,9 @@ pub struct LastWriter {
 impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
         let last_filename = format!("last-{}.json", tmux_pane_id());
-        let last_path = config::cache_dir()?.join(last_filename);
+        let mut last_path = config::cache_dir()?;
+        last_path.push('/');
+        last_path.push_str(&last_filename);
         let last_file = File::create(last_path).map_err(ort_from_err)?;
         let data = LastData { opts, messages };
         Ok(LastWriter {

@@ -34,6 +34,9 @@ pub fn tmux_pane_id() -> usize {
 /// Read the value of an environment variable
 // Can't use std::env, we're no_std
 pub fn get_env(cs: &CStr) -> String {
+    unsafe extern "C" {
+        fn getenv(name: *const c_char) -> *const c_char;
+    }
     let value_ptr = unsafe { getenv(cs.as_ptr()) };
     if value_ptr.is_null() {
         return String::new();
@@ -42,6 +45,11 @@ pub fn get_env(cs: &CStr) -> String {
     c_str.to_string_lossy().into_owned()
 }
 
-unsafe extern "C" {
-    fn getenv(name: *const c_char) -> *const c_char;
+/// Does this file path exists, and is accessible by the user?
+pub fn path_exists(path: &CStr) -> bool {
+    unsafe extern "C" {
+        fn access(path: *const c_char, mode: u32) -> u32;
+    }
+    const F_OK: u32 = 0;
+    unsafe { access(path.as_ptr(), F_OK) == 0 }
 }

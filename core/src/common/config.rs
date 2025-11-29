@@ -7,8 +7,9 @@
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ffi::CStr;
 
-use crate::PromptOpts;
+use crate::{OrtResult, PromptOpts, get_env, ort_error};
 
 const OPENROUTER_KEY: &str = "openrouter";
 
@@ -61,5 +62,22 @@ pub struct ApiKey {
 impl ApiKey {
     pub fn new(name: String, value: String) -> Self {
         ApiKey { name, value }
+    }
+}
+
+/// A standard XDG directory based on environment variable, or default
+pub fn xdg_dir(var_name: &CStr, default: &'static str) -> OrtResult<String> {
+    let dir = get_env(var_name);
+    if !dir.is_empty() {
+        return Ok(dir);
+    }
+
+    let mut home_dir = get_env(c"HOME");
+    if !home_dir.is_empty() {
+        home_dir.push('/');
+        home_dir.push_str(default);
+        Ok(home_dir)
+    } else {
+        Err(ort_error("Could not get home dir. Is $HOME set?"))
     }
 }

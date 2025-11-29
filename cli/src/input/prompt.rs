@@ -4,15 +4,15 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use std::ffi::CString;
 use std::io::{self, BufRead as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Instant, SystemTime};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::PathBuf};
+
+use ort_openrouter_core::Context as _;
 
 use crate::build_body;
 use crate::ort_error;
@@ -20,7 +20,7 @@ use crate::tmux_pane_id;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
-use crate::{LastData, OrtError, ort_err, ort_from_err};
+use crate::{LastData, OrtError, ort_err, ort_from_err, path_exists};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, Stats};
 use crate::{Response, ThinkEvent};
@@ -154,11 +154,17 @@ pub fn run_continue(
     is_pipe_output: bool,
     w: impl io::Write + Send,
 ) -> OrtResult<()> {
-    let dir = config::cache_dir()?;
-    let mut last_file = dir.join(format!("last-{}.json", tmux_pane_id()));
-    if !last_file.exists() {
-        last_file = most_recent(&dir, "last-")?;
-    }
+    let cache_dir = config::cache_dir()?;
+    let mut last = cache_dir.clone();
+    last.push('/');
+    last.push_str(&format!("last-{}.json", tmux_pane_id()));
+    let cs = CString::new(last.clone()).expect("Null bytes in config cache dir");
+    let last_file = if !path_exists(cs.as_ref()) {
+        last
+    } else {
+        most_recent(&cache_dir, "last-").context("most_recent")?
+    };
+
     let mut last = match fs::read_to_string(&last_file) {
         Ok(hist_str) => LastData::from_json(&hist_str)
             .map_err(|err| ort_error(format!("Failed to parse last: {err}")))?,
@@ -167,7 +173,7 @@ pub fn run_continue(
         }
         Err(e) => {
             let mut err: OrtError = ort_from_err(e);
-            err.context(last_file.display().to_string());
+            err.context(last_file);
             return Err(err);
         }
     };
@@ -435,7 +441,7 @@ pub fn start_prompt_thread(
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
 /// Uses the minimal amount of disk access to go as fast as possible.
-fn most_recent(dir: &Path, filename_prefix: &str) -> OrtResult<PathBuf> {
+fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
     let mut most_recent_file: Option<(PathBuf, SystemTime)> = None;
 
     for entry in fs::read_dir(dir).map_err(ort_from_err)? {
@@ -465,7 +471,7 @@ fn most_recent(dir: &Path, filename_prefix: &str) -> OrtResult<PathBuf> {
     }
 
     most_recent_file
-        .map(|(path, _)| Ok(path))
+        .map(|(path, _)| Ok(path.display().to_string()))
         .unwrap_or_else(|| {
             ort_err(format!(
                 "No files found starting with prefix: {filename_prefix}"
