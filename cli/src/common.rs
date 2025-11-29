@@ -7,5 +7,4 @@
 //! Core pieces used by both input/request and output/response paths.
 //! Also general utlities even if only used by input or output.
 
-pub mod config;
 pub mod multi_channel;

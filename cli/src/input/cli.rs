@@ -14,6 +14,7 @@ use crate::OrtError;
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::get_env;
+use crate::load_config;
 use crate::ort_err;
 use crate::ort_error;
 
@@ -94,7 +95,7 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
 
 pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> OrtResult<ExitCode> {
     // Load ~/.config/ort.json
-    let cfg = crate::config::load()?;
+    let cfg = load_config()?;
 
     // Fail fast if key missing
     let mut api_key = get_env(c"OPENROUTER_API_KEY");

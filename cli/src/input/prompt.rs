@@ -15,16 +15,16 @@ use std::{fs, path::PathBuf};
 use ort_openrouter_core::Context as _;
 
 use crate::build_body;
+use crate::multi_channel;
 use crate::ort_error;
 use crate::tmux_pane_id;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
-use crate::{LastData, OrtError, ort_err, ort_from_err, path_exists};
+use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, Stats};
 use crate::{Response, ThinkEvent};
-use crate::{config, multi_channel};
 
 pub fn run(
     api_key: &str,
@@ -154,7 +154,7 @@ pub fn run_continue(
     is_pipe_output: bool,
     w: impl io::Write + Send,
 ) -> OrtResult<()> {
-    let cache_dir = config::cache_dir()?;
+    let cache_dir = cache_dir()?;
     let mut last = cache_dir.clone();
     last.push('/');
     last.push_str(&format!("last-{}.json", tmux_pane_id()));
@@ -165,10 +165,10 @@ pub fn run_continue(
         most_recent(&cache_dir, "last-").context("most_recent")?
     };
 
-    let mut last = match fs::read_to_string(&last_file) {
+    let mut last = match read_to_string(&last_file) {
         Ok(hist_str) => LastData::from_json(&hist_str)
             .map_err(|err| ort_error(format!("Failed to parse last: {err}")))?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err("NOT FOUND") => {
             return ort_err("No last conversation, cannot continue");
         }
         Err(e) => {

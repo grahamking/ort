@@ -6,6 +6,8 @@
 //!
 //! All the command line argument parsing
 
+use core::ffi::c_int;
+
 use std::io;
 use std::io::Read as _;
 
@@ -210,5 +212,5 @@ pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
 }
 
 unsafe extern "C" {
-    pub fn isatty(fd: i32) -> i32;
+    pub fn isatty(fd: c_int) -> c_int;
 }

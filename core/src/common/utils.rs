@@ -6,9 +6,10 @@
 
 extern crate alloc;
 use alloc::ffi::CString;
-use alloc::string::String;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
-use core::ffi::{c_char, c_str::CStr};
+use core::ffi::{c_char, c_int, c_str::CStr, c_void};
 
 pub fn slug(s: &str) -> String {
     s.chars()
@@ -49,7 +50,7 @@ pub fn get_env(cs: &CStr) -> String {
 /// Create this directory if necessary. Does not create ancestors.
 pub fn ensure_dir_exists(dir: &str) {
     unsafe extern "C" {
-        fn mkdir(path: *const c_char, mode: u32);
+        fn mkdir(path: *const c_char, mode: u32) -> c_int;
     }
     let cs = CString::new(dir).unwrap();
     if !path_exists(cs.as_ref()) {
@@ -60,8 +61,44 @@ pub fn ensure_dir_exists(dir: &str) {
 /// Does this file path exists, and is accessible by the user?
 pub fn path_exists(path: &CStr) -> bool {
     unsafe extern "C" {
-        fn access(path: *const c_char, mode: u32) -> u32;
+        fn access(path: *const c_char, mode: c_int) -> c_int;
     }
-    const F_OK: u32 = 0;
+    const F_OK: i32 = 0;
     unsafe { access(path.as_ptr(), F_OK) == 0 }
+}
+
+/// Read a file into memory
+pub fn read_to_string(filename: &str) -> Result<String, &'static str> {
+    const O_RDONLY: i32 = 0;
+    unsafe extern "C" {
+        fn open(path: *const c_char, mode: c_int) -> c_int;
+        fn read(fd: c_int, buffer: *mut c_void, size: usize) -> c_int;
+        fn close(fd: c_int) -> c_int;
+    }
+
+    let cs = CString::new(filename).unwrap();
+    let fd = unsafe { open(cs.as_ptr(), O_RDONLY) };
+    if fd < 0 {
+        return Err("NOT FOUND");
+    }
+
+    let mut content = Vec::new();
+    let mut buffer = [0u8; 4096];
+
+    loop {
+        let bytes_read = unsafe { read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len()) };
+
+        if bytes_read < 0 {
+            let _ = unsafe { close(fd) };
+            return Err("READ ERROR");
+        }
+        if bytes_read == 0 {
+            break;
+        }
+        let bytes_read = bytes_read as usize; // we checked, it's positive
+        content.extend_from_slice(&buffer[..bytes_read]);
+    }
+
+    let out = String::from_utf8_lossy(&content);
+    Ok(out.into_owned().to_string())
 }

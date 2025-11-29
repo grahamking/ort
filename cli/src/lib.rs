@@ -9,7 +9,6 @@ pub use input::cli;
 pub mod output;
 pub use output::writer;
 pub mod common;
-pub use common::config;
 use common::multi_channel;
 mod net;
 pub use net::{http, tls};
@@ -24,6 +23,6 @@ pub use ort_openrouter_core::{
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,
 };
 pub use ort_openrouter_core::{
-    Context, OrtError, OrtResult, ensure_dir_exists, get_env, ort_err, ort_error, ort_from_err,
-    path_exists, slug, tmux_pane_id, xdg_dir,
+    Context, OrtError, OrtResult, cache_dir, ensure_dir_exists, get_env, load_config, ort_err,
+    ort_error, ort_from_err, path_exists, read_to_string, slug, tmux_pane_id, xdg_dir,
 };
