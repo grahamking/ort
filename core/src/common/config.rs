@@ -9,7 +9,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
-use crate::{OrtResult, PromptOpts, get_env, ort_error};
+use crate::{OrtResult, PromptOpts, ensure_dir_exists, get_env, ort_error};
 
 const OPENROUTER_KEY: &str = "openrouter";
 
@@ -69,6 +69,7 @@ impl ApiKey {
 pub fn xdg_dir(var_name: &CStr, default: &'static str) -> OrtResult<String> {
     let dir = get_env(var_name);
     if !dir.is_empty() {
+        // If it's in the env var, we assume the dir exists
         return Ok(dir);
     }
 
@@ -76,6 +77,7 @@ pub fn xdg_dir(var_name: &CStr, default: &'static str) -> OrtResult<String> {
     if !home_dir.is_empty() {
         home_dir.push('/');
         home_dir.push_str(default);
+        ensure_dir_exists(&home_dir);
         Ok(home_dir)
     } else {
         Err(ort_error("Could not get home dir. Is $HOME set?"))

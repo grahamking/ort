@@ -24,6 +24,6 @@ pub use ort_openrouter_core::{
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,
 };
 pub use ort_openrouter_core::{
-    Context, OrtError, OrtResult, get_env, ort_err, ort_error, ort_from_err, path_exists, slug,
-    tmux_pane_id, xdg_dir,
+    Context, OrtError, OrtResult, ensure_dir_exists, get_env, ort_err, ort_error, ort_from_err,
+    path_exists, slug, tmux_pane_id, xdg_dir,
 };

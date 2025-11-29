@@ -5,6 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
+use alloc::ffi::CString;
 use alloc::string::String;
 
 use core::ffi::{c_char, c_str::CStr};
@@ -43,6 +44,17 @@ pub fn get_env(cs: &CStr) -> String {
     }
     let c_str = unsafe { CStr::from_ptr(value_ptr) };
     c_str.to_string_lossy().into_owned()
+}
+
+/// Create this directory if necessary. Does not create ancestors.
+pub fn ensure_dir_exists(dir: &str) {
+    unsafe extern "C" {
+        fn mkdir(path: *const c_char, mode: u32);
+    }
+    let cs = CString::new(dir).unwrap();
+    if !path_exists(cs.as_ref()) {
+        unsafe { mkdir(cs.as_ptr(), 0o755) };
+    }
 }
 
 /// Does this file path exists, and is accessible by the user?

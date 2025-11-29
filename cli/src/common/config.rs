@@ -7,10 +7,9 @@
 use std::fs;
 
 extern crate alloc;
-use alloc::ffi::CString;
 use alloc::string::String;
 
-use crate::{ConfigFile, OrtError, OrtResult, ort_error, ort_from_err, path_exists, xdg_dir};
+use crate::{ConfigFile, OrtError, OrtResult, ensure_dir_exists, ort_error, ort_from_err, xdg_dir};
 
 const CONFIG_FILE: &str = "ort.json";
 
@@ -35,9 +34,6 @@ pub fn cache_dir() -> OrtResult<String> {
     let mut cache_dir = xdg_dir(c"XDG_CACHE_HOME", ".cache")?;
     cache_dir.push('/');
     cache_dir.push_str("ort");
-    let cs = CString::new(cache_dir.clone()).expect("Null bytes found in cache path, unlikely");
-    if !path_exists(cs.as_ref()) {
-        fs::create_dir_all(&cache_dir).map_err(ort_from_err)?;
-    }
+    ensure_dir_exists(&cache_dir);
     Ok(cache_dir)
 }

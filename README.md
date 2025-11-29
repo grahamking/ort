@@ -159,7 +159,7 @@ I just added multi-model support, so after a bit of investigation these are the 
 
 ```
 alias qc='ort -p latency -r off -s "$SYSTEM_PROMPT" \
--m amazon/nova-micro-v1 \
+-m amazon/nova-lite-v1 \
 -m qwen/qwen3-next-80b-a3b-instruct \
 -m x-ai/grok-4-fast \
 -m google/gemini-2.5-flash-lite-preview-09-2025'
