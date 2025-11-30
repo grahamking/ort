@@ -6,27 +6,35 @@
 //!
 //! All the command line argument parsing
 
-use core::ffi::c_int;
+use core::fmt;
 
-use std::io;
-use std::io::Read as _;
+extern crate alloc;
+use alloc::borrow::Cow;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 
+use crate::OrtError;
 use crate::Priority;
 use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
-use crate::cli::ArgParseError;
-use crate::cli::Cmd;
+use crate::ort_error;
 use crate::slug;
-
-const STDIN_FILENO: i32 = 0;
 
 #[derive(Debug)]
 pub struct ListOpts {
     pub is_json: bool,
 }
 
-pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
+#[derive(Debug)]
+pub enum Cmd {
+    List(ListOpts),
+    Prompt(crate::PromptOpts),
+    ContinueConversation(crate::PromptOpts),
+}
+
+pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
     // or default.
     let mut prompt_parts: Vec<String> = Vec::new();
@@ -149,7 +157,7 @@ pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                 i += 1;
             }
             s if s.starts_with('-') => {
-                return Err(ArgParseError::new(format!("Unknown flag: {s}")));
+                return Err(ArgParseError::new("Unknown flag: ".to_string() + s));
             }
             _ => {
                 // First positional marks the start of the prompt; join the rest verbatim
@@ -164,12 +172,10 @@ pub fn parse_prompt_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         prompt = prompt_parts.join(" ");
     };
 
-    let is_pipe_input = unsafe { isatty(STDIN_FILENO) == 0 };
-    if is_pipe_input {
-        let mut buffer = String::new();
-        io::stdin().read_to_string(&mut buffer).unwrap();
+    // If a prompt was piped in use it
+    if let Some(stdin) = stdin {
         prompt.push_str("\n\n");
-        prompt.push_str(&buffer);
+        prompt.push_str(&stdin);
     }
 
     if prompt.is_empty() {
@@ -202,7 +208,9 @@ pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         match arg.as_str() {
             "-json" => is_json = true,
             x => {
-                return Err(ArgParseError::new(format!("Invalid list argument: {x}")));
+                return Err(ArgParseError::new(
+                    "Invalid list argument: ".to_string() + x,
+                ));
             }
         }
         i += 1;
@@ -211,6 +219,49 @@ pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
     Ok(Cmd::List(ListOpts { is_json }))
 }
 
-unsafe extern "C" {
-    pub fn isatty(fd: c_int) -> c_int;
+#[derive(Debug)]
+pub struct ArgParseError {
+    s: Cow<'static, str>,
+    is_help: bool,
 }
+
+impl ArgParseError {
+    pub fn new(s: String) -> Self {
+        ArgParseError {
+            s: Cow::Owned(s),
+            is_help: false,
+        }
+    }
+
+    pub fn new_str(s: &'static str) -> Self {
+        ArgParseError {
+            s: Cow::Borrowed(s),
+            is_help: false,
+        }
+    }
+
+    pub fn show_help() -> Self {
+        ArgParseError {
+            s: Cow::Borrowed(""),
+            is_help: true,
+        }
+    }
+
+    pub fn is_help(&self) -> bool {
+        self.is_help
+    }
+}
+
+impl From<ArgParseError> for OrtError {
+    fn from(err: ArgParseError) -> OrtError {
+        ort_error(err.to_string())
+    }
+}
+
+impl fmt::Display for ArgParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Argument parsing error: {}", self.s)
+    }
+}
+
+impl core::error::Error for ArgParseError {}

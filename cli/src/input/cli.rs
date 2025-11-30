@@ -4,26 +4,20 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
-use std::borrow::Cow;
+use core::ffi::c_int;
 use std::io;
+use std::io::Read as _;
 use std::process::ExitCode;
 
-use super::{args, list, prompt};
-use crate::OrtError;
+use super::{list, prompt};
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::get_env;
 use crate::load_config;
 use crate::ort_err;
-use crate::ort_error;
+use crate::{ArgParseError, Cmd, parse_list_args, parse_prompt_args};
 
-#[derive(Debug)]
-pub enum Cmd {
-    List(args::ListOpts),
-    Prompt(crate::PromptOpts),
-    ContinueConversation(crate::PromptOpts),
-}
+const STDIN_FILENO: i32 = 0;
 
 pub fn print_usage() {
     eprintln!(
@@ -37,49 +31,6 @@ See https://github.com/grahamking/ort for full docs.
     );
 }
 
-#[derive(Debug)]
-pub struct ArgParseError {
-    s: Cow<'static, str>,
-    pub(crate) is_help: bool,
-}
-
-impl ArgParseError {
-    pub fn new(s: String) -> Self {
-        ArgParseError {
-            s: Cow::Owned(s),
-            is_help: false,
-        }
-    }
-
-    pub fn new_str(s: &'static str) -> Self {
-        ArgParseError {
-            s: Cow::Borrowed(s),
-            is_help: false,
-        }
-    }
-
-    pub fn show_help() -> Self {
-        ArgParseError {
-            s: Cow::Borrowed(""),
-            is_help: true,
-        }
-    }
-}
-
-impl From<ArgParseError> for OrtError {
-    fn from(err: ArgParseError) -> OrtError {
-        ort_error(err.to_string())
-    }
-}
-
-impl fmt::Display for ArgParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Argument parsing error: {}", self.s)
-    }
-}
-
-impl std::error::Error for ArgParseError {}
-
 fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
@@ -87,10 +38,22 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     }
 
     if args[1].as_str() == "list" {
-        args::parse_list_args(&args)
+        parse_list_args(&args)
     } else {
-        args::parse_prompt_args(&args)
+        let is_pipe_input = unsafe { isatty(STDIN_FILENO) == 0 };
+        let stdin = if is_pipe_input {
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer).unwrap();
+            Some(buffer)
+        } else {
+            None
+        };
+        parse_prompt_args(&args, stdin)
     }
+}
+
+unsafe extern "C" {
+    pub fn isatty(fd: c_int) -> c_int;
 }
 
 pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> OrtResult<ExitCode> {
@@ -110,7 +73,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
 
     let cmd = match parse_args(args) {
         Ok(cmd) => cmd,
-        Err(err) if err.is_help => {
+        Err(err) if err.is_help() => {
             print_usage();
             return Ok(ExitCode::from(2));
         }

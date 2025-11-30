@@ -4,4 +4,5 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+pub mod args;
 pub mod to_json;
