@@ -21,6 +21,7 @@ use crate::tmux_pane_id;
 use crate::writer::{self, IoFmtWriter};
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
+use crate::{CollectedWriter, ConsoleWriter, FileWriter};
 use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, Stats};
@@ -64,7 +65,7 @@ pub fn run(
         let mut handles = vec![];
         let jh_stdout = scope.spawn(move || -> OrtResult<()> {
             let (stats, w_core) = if is_pipe_output {
-                let mut fw = writer::FileWriter {
+                let mut fw = FileWriter {
                     writer: w_core,
                     show_reasoning,
                 };
@@ -72,7 +73,7 @@ pub fn run(
                 let w_core = fw.into_inner();
                 (stats, w_core)
             } else {
-                let mut cw = writer::ConsoleWriter {
+                let mut cw = ConsoleWriter {
                     writer: w_core,
                     show_reasoning,
                 };
@@ -98,7 +99,7 @@ pub fn run(
             /*
             let jh_file = thread::spawn(move || -> OrtResult<()> {
                 let f = File::create(&path)?;
-                let mut file_writer = writer::FileWriter {
+                let mut file_writer = FileWriter {
                     writer: Box::new(f),
                     show_reasoning,
                 };
@@ -212,7 +213,7 @@ pub fn run_multi(
                 let model_name = opts_c.models.get(idx).unwrap().clone();
                 let queue_single =
                     start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
-                let mut mr = writer::CollectedWriter {};
+                let mut mr = CollectedWriter {};
                 let consumer_collected = queue_single.consumer();
                 match mr.run(consumer_collected) {
                     Ok(full_output) => {

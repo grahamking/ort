@@ -22,7 +22,7 @@ pub use ort_openrouter_core::{
     xdg_dir,
 };
 pub use ort_openrouter_core::{
-    ChatCompletionsResponse, Choice, Cmd, Consumer, DEFAULT_MODEL, LastData, ListOpts, Message,
-    Priority, PromptOpts, Queue, ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent,
-    Usage, parse_list_args, parse_prompt_args,
+    ChatCompletionsResponse, Choice, Cmd, CollectedWriter, ConsoleWriter, Consumer, DEFAULT_MODEL,
+    FileWriter, LastData, ListOpts, Message, Priority, PromptOpts, Queue, ReasoningConfig,
+    ReasoningEffort, Response, Role, ThinkEvent, Usage, parse_list_args, parse_prompt_args,
 };

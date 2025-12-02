@@ -9,3 +9,4 @@
 //! to the screen/file/history.
 
 pub mod from_json;
+pub mod writer;
