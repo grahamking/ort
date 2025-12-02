@@ -7,7 +7,7 @@
 use std::ffi::CString;
 use std::io::{self, BufRead as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Instant, SystemTime};
 use std::{fs, path::PathBuf};
@@ -193,52 +193,59 @@ pub fn run_multi(
     messages: Vec<crate::Message>,
     mut w: impl io::Write + Send,
 ) -> OrtResult<()> {
-    let (tx_done, rx_done) = mpsc::channel();
-    // Start all the queries
     let num_models = opts.models.len();
-
     let _ = write!(w, "Calling {num_models} models...\r");
     let _ = w.flush();
 
     let _scope_err = thread::scope(|scope| {
+        let queue_done = Queue::new();
+        let mut consumer_done = queue_done.consumer();
         let mut handles = Vec::with_capacity(num_models);
+
+        // Start all the queries
         for idx in 0..num_models {
             let dns = settings.dns.clone();
-            let tx = tx_done.clone();
             let opts_c = opts.clone();
             let messages_c = messages.clone();
+            let qq = queue_done.clone();
             let handle = scope.spawn(move || -> OrtResult<()> {
                 let model_name = opts_c.models.get(idx).unwrap().clone();
-                let queue =
+                let queue_single =
                     start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
                 let mut mr = writer::CollectedWriter {};
-                let consumer_collected = queue.consumer();
+                let consumer_collected = queue_single.consumer();
                 match mr.run(consumer_collected) {
                     Ok(full_output) => {
-                        let _ = tx.send(full_output);
+                        qq.add(full_output);
                     }
                     Err(err) => {
                         let err_str = err.to_string();
                         if err_str.contains("429 Too Many Requests") {
-                            let _ = tx.send(format!("--- {model_name}: Overloaded ---"));
+                            qq.add(format!("--- {model_name}: Overloaded ---"));
                         } else {
-                            let _ = tx.send(format!("--- {model_name}: {err_str} ---"));
+                            qq.add(format!("--- {model_name}: {err_str} ---"));
                         }
                     }
                 }
-                drop(tx);
                 Ok(())
             });
             handles.push(handle);
         }
-        drop(tx_done);
 
-        while let Ok(model_output) = rx_done.recv() {
+        for _ in 0..num_models {
             if cancel_token.is_cancelled() {
                 break;
             }
-            write!(w, "{}\n\n", model_output).map_err(ort_from_err)?;
-            let _ = w.flush();
+            match consumer_done.get_next() {
+                Some(model_output) => {
+                    write!(w, "{}\n\n", model_output).map_err(ort_from_err)?;
+                    let _ = w.flush();
+                }
+                None => {
+                    // queue closed, which is impossible
+                    break;
+                }
+            }
         }
 
         // All the threads should be done
@@ -259,7 +266,8 @@ pub fn run_multi(
     Ok(())
 }
 
-/// Start prompt in a new thread. Returns almost immediately with a channel. Streams the response to the channel.
+/// Start prompt in a new thread. Returns almost immediately with a queue.
+/// Streams the response to the queue.
 pub fn start_prompt_thread(
     api_key: &str,
     cancel_token: CancelToken,

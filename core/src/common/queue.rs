@@ -130,3 +130,9 @@ impl<T: Clone + Default + Debug> Queue<T> {
         }
     }
 }
+
+impl<T: Clone + Default + Debug> Drop for Queue<T> {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
