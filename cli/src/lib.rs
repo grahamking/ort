@@ -8,8 +8,6 @@ pub mod input;
 pub use input::cli;
 pub mod output;
 pub use output::writer;
-pub mod common;
-use common::multi_channel;
 mod net;
 pub use net::{http, tls};
 

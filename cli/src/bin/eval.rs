@@ -216,9 +216,9 @@ fn run_prompt(
             .map_err(ort_from_err)?;
 
         let messages = vec![Message::user(prompt.to_string())];
-        let (rx, _queue) =
-            prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);
-        while let Ok(data) = rx.recv() {
+        let queue = prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);
+        let mut consumer = queue.consumer();
+        while let Some(data) = consumer.get_next() {
             if cancel_token.is_cancelled() {
                 break;
             }

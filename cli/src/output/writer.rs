@@ -6,11 +6,10 @@
 
 use core::fmt;
 use std::fs::File;
-use std::sync::mpsc::Receiver;
 
 use crate::{
-    Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, cache_dir,
-    ort_err, ort_from_err, slug, tmux_pane_id,
+    Consumer, Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent,
+    cache_dir, ort_err, ort_from_err, slug, tmux_pane_id,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -68,14 +67,14 @@ impl<W: fmt::Write + Flushable> ConsoleWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
-    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
+    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<Stats> {
         let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
         let mut is_first_content = true;
         let mut spindx = 0;
         let mut stats_out = None;
-        while let Ok(data) = rx.recv() {
+        while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {
                     let _ = write!(self.writer, "{BOLD_START}Processing...{BOLD_END} \r");
@@ -156,9 +155,9 @@ impl<W: fmt::Write> FileWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
-    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
+    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<Stats> {
         let mut stats_out = None;
-        while let Ok(data) = rx.recv() {
+        while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {}
                 Response::Think(think) => {
@@ -220,9 +219,9 @@ impl LastWriter {
         self.w.into_inner()
     }
 
-    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<Stats> {
+    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<Stats> {
         let mut contents = Vec::with_capacity(1024);
-        while let Ok(data) = rx.recv() {
+        while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {}
                 Response::Think(_) => {}
@@ -254,10 +253,10 @@ impl LastWriter {
 pub struct CollectedWriter {}
 
 impl CollectedWriter {
-    pub fn run(&mut self, rx: Receiver<Response>) -> OrtResult<String> {
+    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<String> {
         let mut got_stats = None;
         let mut contents = Vec::with_capacity(1024);
-        while let Ok(data) = rx.recv() {
+        while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {}
                 Response::Think(_) => {}

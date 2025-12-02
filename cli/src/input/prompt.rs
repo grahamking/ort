@@ -16,7 +16,6 @@ use ort_openrouter_core::Context as _;
 
 use crate::Queue;
 use crate::build_body;
-use crate::multi_channel;
 use crate::ort_error;
 use crate::tmux_pane_id;
 use crate::writer::{self, IoFmtWriter};
@@ -41,7 +40,7 @@ pub fn run(
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let (rx_main, _queue) = start_prompt_thread(
+    let queue = start_prompt_thread(
         api_key,
         cancel_token,
         settings.dns,
@@ -51,11 +50,8 @@ pub fn run(
     );
     std::thread::yield_now();
 
-    let (tx_stdout, rx_stdout) = mpsc::channel();
-    //let (tx_file, rx_file) = mpsc::channel();
-    let (tx_last, rx_last) = mpsc::channel();
-
-    let jh_broadcast = multi_channel::broadcast(rx_main, vec![tx_stdout, tx_last]);
+    let consumer_stdout = queue.consumer();
+    let consumer_last = queue.consumer();
 
     //let cache_dir = config::cache_dir()?;
     //let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
@@ -72,7 +68,7 @@ pub fn run(
                     writer: w_core,
                     show_reasoning,
                 };
-                let stats = fw.run(rx_stdout)?;
+                let stats = fw.run(consumer_stdout)?;
                 let w_core = fw.into_inner();
                 (stats, w_core)
             } else {
@@ -80,7 +76,7 @@ pub fn run(
                     writer: w_core,
                     show_reasoning,
                 };
-                let stats = cw.run(rx_stdout)?;
+                let stats = cw.run(consumer_stdout)?;
                 let w_core = cw.into_inner();
                 (stats, w_core)
             };
@@ -119,7 +115,7 @@ pub fn run(
 
             let jh_last = scope.spawn(move || -> OrtResult<()> {
                 let mut last_writer = writer::LastWriter::new(opts, messages)?;
-                last_writer.run(rx_last)?;
+                last_writer.run(consumer_last)?;
                 Ok(())
             });
             handles.push(jh_last);
@@ -136,11 +132,6 @@ pub fn run(
         Ok(())
     });
     scope_err?;
-    jh_broadcast.join().unwrap().map_err(|e| {
-        let mut oe = ort_error(e.to_string());
-        oe.context("broadcast thread error");
-        oe
-    })?;
 
     Ok(())
 }
@@ -218,10 +209,11 @@ pub fn run_multi(
             let messages_c = messages.clone();
             let handle = scope.spawn(move || -> OrtResult<()> {
                 let model_name = opts_c.models.get(idx).unwrap().clone();
-                let (rx_main, _queue) =
+                let queue =
                     start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
                 let mut mr = writer::CollectedWriter {};
-                match mr.run(rx_main) {
+                let consumer_collected = queue.consumer();
+                match mr.run(consumer_collected) {
                     Ok(full_output) => {
                         let _ = tx.send(full_output);
                     }
@@ -277,8 +269,7 @@ pub fn start_prompt_thread(
     messages: Vec<Message>,
     // When running multiple models, this thread should use this one
     model_idx: usize,
-) -> (mpsc::Receiver<Response>, Arc<Queue<Response>>) {
-    let (tx, rx) = mpsc::channel();
+) -> Arc<Queue<Response>> {
     let api_key = api_key.to_string();
     let queue = Queue::new();
     let queue_clone = queue.clone();
@@ -302,9 +293,7 @@ pub fn start_prompt_thread(
         let response_lines = match http::skip_header(&mut reader) {
             Ok(_) => reader.lines(),
             Err(err) => {
-                let r_err = Response::Error(err.to_string());
-                let _ = tx.send(r_err.clone());
-                queue.add(r_err);
+                queue.add(Response::Error(err.to_string()));
                 return;
             }
         };
@@ -323,9 +312,7 @@ pub fn start_prompt_thread(
             let line = match line_res {
                 Ok(l) => l,
                 Err(e) => {
-                    let r_err = Response::Error(format!("Stream read error {e}"));
-                    let _ = tx.send(r_err.clone());
-                    queue.add(r_err);
+                    queue.add(Response::Error(format!("Stream read error {e}")));
                     return;
                 }
             };
@@ -333,7 +320,6 @@ pub fn start_prompt_thread(
             if is_start {
                 // Very first message from server, usually
                 // : OPENROUTER PROCESSING
-                let _ = tx.send(Response::Start);
                 queue.add(Response::Start);
                 is_start = false;
             }
@@ -390,13 +376,11 @@ pub fn start_prompt_thread(
                                 // Don't allow starting with carriage return or blank space, that messes up the display
                                 continue;
                             }
-                            let _ = tx.send(Response::Think(ThinkEvent::Start));
                             queue.add(Response::Think(ThinkEvent::Start));
                             is_first_reasoning = false;
                         }
                         let r_event =
                             Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
-                        let _ = tx.send(r_event.clone());
                         queue.add(r_event);
                     }
 
@@ -413,12 +397,10 @@ pub fn start_prompt_thread(
                         // and we signaled the close yet (is_first_reasoning),
                         // signal the close.
                         if !is_first_reasoning && is_first_content {
-                            let _ = tx.send(Response::Think(ThinkEvent::Stop));
                             queue.add(Response::Think(ThinkEvent::Stop));
                             is_first_content = false;
                         }
                         let r_event = Response::Content(content.to_string());
-                        let _ = tx.send(r_event.clone());
                         queue.add(r_event);
                     }
 
@@ -437,7 +419,6 @@ pub fn start_prompt_thread(
 
         if cancel_token.is_cancelled() {
             // Probaby user did Ctrl-C
-            let _ = tx.send(Response::Error("Interrupted".to_string()));
             queue.add(Response::Error("Interrupted".to_string()));
         } else {
             // Clean finish, send stats
@@ -446,13 +427,12 @@ pub fn start_prompt_thread(
             let stream_elapsed_time = now - token_stream_start.unwrap();
             stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
 
-            let r_stats = Response::Stats(stats);
-            let _ = tx.send(r_stats.clone());
-            queue.add(r_stats);
+            queue.add(Response::Stats(stats));
         }
+        queue.close();
     });
 
-    (rx, queue_clone)
+    queue_clone
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
