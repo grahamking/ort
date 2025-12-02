@@ -216,7 +216,8 @@ fn run_prompt(
             .map_err(ort_from_err)?;
 
         let messages = vec![Message::user(prompt.to_string())];
-        let rx = prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);
+        let (rx, _queue) =
+            prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);
         while let Ok(data) = rx.recv() {
             if cancel_token.is_cancelled() {
                 break;
@@ -242,6 +243,9 @@ fn run_prompt(
                 }
                 Response::Error(err) => {
                     return ort_err(err.to_string());
+                }
+                Response::None => {
+                    eprintln!("Response::None means we read the wrong Queue position");
                 }
             }
         }

@@ -291,7 +291,7 @@ impl fmt::Display for Role {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Response {
     /// The first time we get anything at all on the SSE stream
     Start,
@@ -303,6 +303,9 @@ pub enum Response {
     Stats(super::stats::Stats),
     /// Less good things. Often you mistyped the model name.
     Error(String),
+    /// For default
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone)]

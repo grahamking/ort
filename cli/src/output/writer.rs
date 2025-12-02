@@ -131,6 +131,9 @@ impl<W: fmt::Write + Flushable> ConsoleWriter<W> {
                     let _ = self.writer.flush();
                     return ort_err(err.to_string());
                 }
+                Response::None => {
+                    eprintln!("Response::None means we read the wrong Queue position");
+                }
             }
         }
 
@@ -182,6 +185,9 @@ impl<W: fmt::Write> FileWriter<W> {
                 Response::Error(err) => {
                     return ort_err(err.to_string());
                 }
+                Response::None => {
+                    eprintln!("Response::None means we read the wrong Queue position");
+                }
             }
         }
 
@@ -229,6 +235,9 @@ impl LastWriter {
                 Response::Error(err) => {
                     return ort_err(format!("LastWriter: {err}"));
                 }
+                Response::None => {
+                    eprintln!("Response::None means we read the wrong Queue position");
+                }
             }
         }
 
@@ -260,6 +269,9 @@ impl CollectedWriter {
                 }
                 Response::Error(err) => {
                     return ort_err(format!("CollectedWriter: {err}"));
+                }
+                Response::None => {
+                    eprintln!("Response::None means we read the wrong Queue position");
                 }
             }
         }

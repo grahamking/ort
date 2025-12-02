@@ -7,13 +7,14 @@
 use std::ffi::CString;
 use std::io::{self, BufRead as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Instant, SystemTime};
 use std::{fs, path::PathBuf};
 
 use ort_openrouter_core::Context as _;
 
+use crate::Queue;
 use crate::build_body;
 use crate::multi_channel;
 use crate::ort_error;
@@ -40,7 +41,7 @@ pub fn run(
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let rx_main = start_prompt_thread(
+    let (rx_main, _queue) = start_prompt_thread(
         api_key,
         cancel_token,
         settings.dns,
@@ -217,7 +218,7 @@ pub fn run_multi(
             let messages_c = messages.clone();
             let handle = scope.spawn(move || -> OrtResult<()> {
                 let model_name = opts_c.models.get(idx).unwrap().clone();
-                let rx_main =
+                let (rx_main, _queue) =
                     start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
                 let mut mr = writer::CollectedWriter {};
                 match mr.run(rx_main) {
@@ -276,9 +277,11 @@ pub fn start_prompt_thread(
     messages: Vec<Message>,
     // When running multiple models, this thread should use this one
     model_idx: usize,
-) -> mpsc::Receiver<Response> {
+) -> (mpsc::Receiver<Response>, Arc<Queue<Response>>) {
     let (tx, rx) = mpsc::channel();
     let api_key = api_key.to_string();
+    let queue = Queue::new();
+    let queue_clone = queue.clone();
 
     std::thread::spawn(move || {
         let body = build_body(model_idx, &opts, &messages).unwrap(); // TODO unwrap
@@ -299,7 +302,9 @@ pub fn start_prompt_thread(
         let response_lines = match http::skip_header(&mut reader) {
             Ok(_) => reader.lines(),
             Err(err) => {
-                let _ = tx.send(Response::Error(err.to_string()));
+                let r_err = Response::Error(err.to_string());
+                let _ = tx.send(r_err.clone());
+                queue.add(r_err);
                 return;
             }
         };
@@ -318,7 +323,9 @@ pub fn start_prompt_thread(
             let line = match line_res {
                 Ok(l) => l,
                 Err(e) => {
-                    let _ = tx.send(Response::Error(format!("Stream read error {e}")));
+                    let r_err = Response::Error(format!("Stream read error {e}"));
+                    let _ = tx.send(r_err.clone());
+                    queue.add(r_err);
                     return;
                 }
             };
@@ -327,6 +334,7 @@ pub fn start_prompt_thread(
                 // Very first message from server, usually
                 // : OPENROUTER PROCESSING
                 let _ = tx.send(Response::Start);
+                queue.add(Response::Start);
                 is_start = false;
             }
 
@@ -383,11 +391,13 @@ pub fn start_prompt_thread(
                                 continue;
                             }
                             let _ = tx.send(Response::Think(ThinkEvent::Start));
+                            queue.add(Response::Think(ThinkEvent::Start));
                             is_first_reasoning = false;
                         }
-                        let _ = tx.send(Response::Think(ThinkEvent::Content(
-                            reasoning_content.to_string(),
-                        )));
+                        let r_event =
+                            Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
+                        let _ = tx.send(r_event.clone());
+                        queue.add(r_event);
                     }
 
                     // Handle regular content
@@ -404,9 +414,12 @@ pub fn start_prompt_thread(
                         // signal the close.
                         if !is_first_reasoning && is_first_content {
                             let _ = tx.send(Response::Think(ThinkEvent::Stop));
+                            queue.add(Response::Think(ThinkEvent::Stop));
                             is_first_content = false;
                         }
-                        let _ = tx.send(Response::Content(content.to_string()));
+                        let r_event = Response::Content(content.to_string());
+                        let _ = tx.send(r_event.clone());
+                        queue.add(r_event);
                     }
 
                     // Handle last message which contains the "usage" key
@@ -425,6 +438,7 @@ pub fn start_prompt_thread(
         if cancel_token.is_cancelled() {
             // Probaby user did Ctrl-C
             let _ = tx.send(Response::Error("Interrupted".to_string()));
+            queue.add(Response::Error("Interrupted".to_string()));
         } else {
             // Clean finish, send stats
             let now = Instant::now();
@@ -432,11 +446,13 @@ pub fn start_prompt_thread(
             let stream_elapsed_time = now - token_stream_start.unwrap();
             stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
 
-            let _ = tx.send(Response::Stats(stats));
+            let r_stats = Response::Stats(stats);
+            let _ = tx.send(r_stats.clone());
+            queue.add(r_stats);
         }
     });
 
-    rx
+    (rx, queue_clone)
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
