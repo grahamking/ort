@@ -5,7 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 use std::fmt;
-use std::io::{self, BufRead as _, BufReader, Write};
+use std::io::{self, BufRead as _, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::os::fd::AsRawFd as _;
 use std::time::Duration;
@@ -22,7 +22,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 pub fn list_models<A: ToSocketAddrs>(
     api_key: &str,
     addrs: A,
-) -> io::Result<BufReader<tls::TlsStream>> {
+) -> io::Result<BufReader<tls::TlsStream<TcpStream>>> {
     let tcp = connect(addrs)?;
     let mut tls = tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
 
@@ -48,7 +48,7 @@ pub fn chat_completions<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
     json_body: &str,
-) -> io::Result<BufReader<tls::TlsStream>> {
+) -> io::Result<BufReader<tls::TlsStream<TcpStream>>> {
     let tcp = connect(addr)?;
     //tcp.set_read_timeout(Some(Duration::from_secs(30)))?;
     //tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
@@ -117,7 +117,9 @@ impl From<HttpError> for OrtError {
 /// Advances the reader to point to the first line of the body.
 /// Returns true if the body has transfer encoding chunked, and hence needs
 /// special handling.
-pub fn skip_header(reader: &mut BufReader<tls::TlsStream>) -> Result<bool, HttpError> {
+pub fn skip_header<T: Read + Write>(
+    reader: &mut BufReader<tls::TlsStream<T>>,
+) -> Result<bool, HttpError> {
     let mut buffer = String::with_capacity(16);
     let status = match reader.read_line(&mut buffer) {
         Ok(0) => {

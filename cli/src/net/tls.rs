@@ -10,7 +10,6 @@ use core::ffi::{c_uint, c_void};
 
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::net::TcpStream;
 
 use crate::{OrtResult, ort_error, ort_from_err};
 
@@ -91,8 +90,8 @@ fn nonce_xor(iv12: &[u8; 12], seq: u64) -> [u8; 12] {
 }
 
 // Very small record writer/reader after handshake
-pub struct TlsStream {
-    io: TcpStream,
+pub struct TlsStream<T: Read + Write> {
+    io: T,
     // Application traffic
     aead_enc: [u8; 16],
     aead_dec: [u8; 16],
@@ -229,7 +228,7 @@ fn client_hello_msg(sni_host: &str, client_private_key: &[u8]) -> OrtResult<Vec<
 }
 
 /// Read ServerHello (plaintext Handshake record)
-fn read_server_hello(io: &mut TcpStream) -> OrtResult<(Vec<u8>, Vec<u8>)> {
+fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
     let (typ, payload) = read_record_plain(io).map_err(ort_from_err)?;
     if typ != REC_TYPE_HANDSHAKE {
         return Err(ort_error("expected Handshake"));
@@ -265,8 +264,8 @@ struct ApplicationKeys {
     iv_dec: [u8; 12],
 }
 
-impl TlsStream {
-    pub fn connect(mut io: TcpStream, sni_host: &str) -> OrtResult<Self> {
+impl<T: Read + Write> TlsStream<T> {
+    pub fn connect(mut io: T, sni_host: &str) -> OrtResult<Self> {
         // transcript = full Handshake message encodings (headers + bodies)
         let mut transcript = Vec::with_capacity(1024);
 
@@ -326,8 +325,8 @@ impl TlsStream {
         })
     }
 
-    fn send_client_hello(
-        io: &mut TcpStream,
+    fn send_client_hello<W: Write>(
+        io: &mut W,
         sni_host: &str,
         transcript: &mut Vec<u8>,
         client_private_key: &[u8; 32],
@@ -338,13 +337,13 @@ impl TlsStream {
         Ok(())
     }
 
-    fn receive_server_hello(io: &mut TcpStream, transcript: &mut Vec<u8>) -> OrtResult<Vec<u8>> {
+    fn receive_server_hello<R: Read>(io: &mut R, transcript: &mut Vec<u8>) -> OrtResult<Vec<u8>> {
         let (sh_body, sh_full) = read_server_hello(io)?;
         transcript.extend_from_slice(&sh_full);
         Ok(sh_body)
     }
 
-    fn receive_dummy_change_cipher_spec(io: &mut TcpStream) -> OrtResult<()> {
+    fn receive_dummy_change_cipher_spec<R: Read>(io: &mut R) -> OrtResult<()> {
         // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
         let (typ, _) = read_record_plain(io).map_err(ort_from_err)?;
         if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
@@ -355,8 +354,8 @@ impl TlsStream {
         Ok(())
     }
 
-    fn receive_server_encrypted_flight(
-        io: &mut TcpStream,
+    fn receive_server_encrypted_flight<R: Read>(
+        io: &mut R,
         seq_dec_hs: &mut u64,
         handshake: &HandshakeState,
         transcript: &mut Vec<u8>,
@@ -519,8 +518,8 @@ impl TlsStream {
         }
     }
 
-    fn send_client_finished(
-        io: &mut TcpStream,
+    fn send_client_finished<W: Write>(
+        io: &mut W,
         handshake: &HandshakeState,
         transcript: &mut Vec<u8>,
         seq_enc_hs: &mut u64,
@@ -554,7 +553,7 @@ impl TlsStream {
     }
 }
 
-impl Write for TlsStream {
+impl<T: Read + Write> Write for TlsStream<T> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         write_record_cipher(
             &mut self.io,
@@ -571,7 +570,7 @@ impl Write for TlsStream {
     }
 }
 
-impl Read for TlsStream {
+impl<T: Read + Write> Read for TlsStream<T> {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         if self.rpos < self.rbuf.len() {
             let n = std::cmp::min(out.len(), self.rbuf.len() - self.rpos);
@@ -653,7 +652,7 @@ fn read_exact_n<R: Read>(r: &mut R, n: usize) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn read_record_plain(r: &mut TcpStream) -> io::Result<(u8, Vec<u8>)> {
+fn read_record_plain<R: Read>(r: &mut R) -> io::Result<(u8, Vec<u8>)> {
     let hdr = read_exact_n(r, 5)?; // Record Header, e.g. 16 03 03 len
     let typ = hdr[0];
     let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
