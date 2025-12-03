@@ -71,7 +71,7 @@ impl LastWriter {
         self.w.into_inner()
     }
 
-    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<Stats> {
+    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
         let mut contents = Vec::with_capacity(1024);
         while let Some(data) = rx.get_next() {
             match data {

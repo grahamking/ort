@@ -32,6 +32,8 @@ const CAT_NAMES: [&str; 15] = [
 const SYSTEM_PROMPT: &str =
     "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.";
 
+const RESPONSE_BUF_LEN: usize = 256;
+
 fn print_usage_and_exit() -> ! {
     eprintln!(
         "eval --models <models-file> --prompts <prompts-file> --out <dir>\n\
@@ -216,7 +218,14 @@ fn run_prompt(
             .map_err(ort_from_err)?;
 
         let messages = vec![Message::user(prompt.to_string())];
-        let queue = prompt::start_prompt_thread(api_key, cancel_token, vec![], common, messages, 0);
+        let queue = prompt::start_prompt_thread::<RESPONSE_BUF_LEN>(
+            api_key,
+            cancel_token,
+            vec![],
+            common,
+            messages,
+            0,
+        );
         let mut consumer = queue.consumer();
         while let Some(data) = consumer.get_next() {
             if cancel_token.is_cancelled() {

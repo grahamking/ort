@@ -30,7 +30,7 @@ impl<W: fmt::Write + Flushable> ConsoleWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
-    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<Stats> {
+    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
         let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
@@ -118,7 +118,7 @@ impl<W: fmt::Write> FileWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
-    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<Stats> {
+    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
         let mut stats_out = None;
         while let Some(data) = rx.get_next() {
             match data {
@@ -163,7 +163,7 @@ impl<W: fmt::Write> FileWriter<W> {
 pub struct CollectedWriter {}
 
 impl CollectedWriter {
-    pub fn run(&mut self, mut rx: Consumer<Response>) -> OrtResult<String> {
+    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<String> {
         let mut got_stats = None;
         let mut contents = Vec::with_capacity(1024);
         while let Some(data) = rx.get_next() {

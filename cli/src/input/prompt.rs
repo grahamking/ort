@@ -36,12 +36,15 @@ pub fn run(
     is_pipe_output: bool, // Are we redirecting stdout?
     w: impl io::Write + Send,
 ) -> OrtResult<()> {
+    // The readers must never fall further behind than this many responses
+    const RESPONSE_BUF_LEN: usize = 256;
+
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
     //let model_name = opts.common.model.clone().unwrap();
 
     // Start network connection before almost anything else, this takes time
-    let queue = start_prompt_thread(
+    let queue = start_prompt_thread::<RESPONSE_BUF_LEN>(
         api_key,
         cancel_token,
         settings.dns,
@@ -194,12 +197,16 @@ pub fn run_multi(
     messages: Vec<crate::Message>,
     mut w: impl io::Write + Send,
 ) -> OrtResult<()> {
+    // We'll likely never use this many, but making it the same as RESPONSE_BUF_LEN
+    // makes for a smaller binary because generics.
+    const MAX_MODELS: usize = 256;
+
     let num_models = opts.models.len();
     let _ = write!(w, "Calling {num_models} models...\r");
     let _ = w.flush();
 
     let _scope_err = thread::scope(|scope| {
-        let queue_done = Queue::new();
+        let queue_done = Queue::<String, MAX_MODELS>::new();
         let mut consumer_done = queue_done.consumer();
         let mut handles = Vec::with_capacity(num_models);
 
@@ -211,8 +218,14 @@ pub fn run_multi(
             let qq = queue_done.clone();
             let handle = scope.spawn(move || -> OrtResult<()> {
                 let model_name = opts_c.models.get(idx).unwrap().clone();
-                let queue_single =
-                    start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
+                let queue_single = start_prompt_thread::<MAX_MODELS>(
+                    api_key,
+                    cancel_token,
+                    dns,
+                    opts_c,
+                    messages_c,
+                    idx,
+                );
                 let mut mr = CollectedWriter {};
                 let consumer_collected = queue_single.consumer();
                 match mr.run(consumer_collected) {
@@ -269,7 +282,7 @@ pub fn run_multi(
 
 /// Start prompt in a new thread. Returns almost immediately with a queue.
 /// Streams the response to the queue.
-pub fn start_prompt_thread(
+pub fn start_prompt_thread<const N: usize>(
     api_key: &str,
     cancel_token: CancelToken,
     dns: Vec<String>,
@@ -278,7 +291,7 @@ pub fn start_prompt_thread(
     messages: Vec<Message>,
     // When running multiple models, this thread should use this one
     model_idx: usize,
-) -> Arc<Queue<Response>> {
+) -> Arc<Queue<Response, N>> {
     let api_key = api_key.to_string();
     let queue = Queue::new();
     let queue_clone = queue.clone();
