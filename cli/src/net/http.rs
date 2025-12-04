@@ -5,26 +5,24 @@
 //! Copyright (c) 2025 Graham King
 
 use std::fmt;
-use std::io::{self, BufRead as _, BufReader, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::os::fd::AsRawFd as _;
-use std::time::Duration;
+use std::io::{BufRead as _, BufReader, Read, Write};
+use std::net::{SocketAddr, ToSocketAddrs};
 
+use super::socket::TcpSocket;
 use super::tls;
-use crate::{OrtError, ort_error};
+use crate::{OrtError, OrtResult, ort_error, ort_from_err};
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const HOST: &str = "openrouter.ai";
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn list_models<A: ToSocketAddrs>(
     api_key: &str,
     addrs: A,
-) -> io::Result<BufReader<tls::TlsStream<TcpStream>>> {
+) -> OrtResult<BufReader<tls::TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
-    let mut tls = tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
+    let mut tls = tls::TlsStream::connect(tcp, HOST)?;
 
     let prefix = format!(
         concat!(
@@ -38,8 +36,8 @@ pub fn list_models<A: ToSocketAddrs>(
         HOST, api_key, USER_AGENT,
     );
 
-    tls.write_all(prefix.as_bytes())?;
-    tls.flush()?;
+    tls.write_all(prefix.as_bytes()).map_err(ort_from_err)?;
+    tls.flush().map_err(ort_from_err)?;
 
     Ok(BufReader::new(tls))
 }
@@ -48,12 +46,10 @@ pub fn chat_completions<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
     json_body: &str,
-) -> io::Result<BufReader<tls::TlsStream<TcpStream>>> {
+) -> OrtResult<BufReader<tls::TlsStream<TcpSocket>>> {
     let tcp = connect(addr)?;
-    //tcp.set_read_timeout(Some(Duration::from_secs(30)))?;
-    //tcp.set_write_timeout(Some(Duration::from_secs(30)))?;
 
-    let mut tls = tls::TlsStream::connect(tcp, HOST).map_err(io::Error::other)?;
+    let mut tls = tls::TlsStream::connect(tcp, HOST)?;
 
     // 2) Write HTTP/1.1 request
     let body = json_body.as_bytes();
@@ -74,9 +70,9 @@ pub fn chat_completions<A: ToSocketAddrs>(
         body.len()
     );
 
-    tls.write_all(prefix.as_bytes())?;
-    tls.write_all(body)?;
-    tls.flush()?;
+    tls.write_all(prefix.as_bytes()).map_err(ort_from_err)?;
+    tls.write_all(body).map_err(ort_from_err)?;
+    tls.flush().map_err(ort_from_err)?;
 
     Ok(BufReader::new(tls))
 }
@@ -176,10 +172,20 @@ pub fn skip_header<T: Read + Write>(
 /// Attempt to connect to all the SocketAddr in order, with a timeout.
 /// The addreses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
-fn connect<A: ToSocketAddrs>(addrs: A) -> io::Result<TcpStream> {
-    let mut errs = vec![];
-    let addrs: Vec<_> = addrs.to_socket_addrs()?.collect();
+fn connect<A: ToSocketAddrs>(addrs: A) -> OrtResult<TcpSocket> {
+    // TODO: Erorr handling, don't just try the first
+
+    //let mut errs = vec![];
+    let addrs: Vec<_> = addrs.to_socket_addrs().unwrap().collect();
     for addr in addrs {
+        let addr_v4 = match addr {
+            SocketAddr::V4(v4) => v4,
+            _ => continue,
+        };
+        let sock = TcpSocket::new()?;
+        sock.connect(&addr_v4)?;
+        return Ok(sock);
+        /*
         match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
             Ok(tcp) => {
                 set_tcp_fastopen(&tcp);
@@ -189,37 +195,14 @@ fn connect<A: ToSocketAddrs>(addrs: A) -> io::Result<TcpStream> {
                 errs.push((addr, err));
             }
         }
+        */
     }
+    /*
     let err_msg: Vec<String> = errs
         .into_iter()
         .map(|(addr, err)| format!("Failed connecting to {addr:?}: {err}"))
         .collect();
     Err(io::Error::other(err_msg.join("; ")))
-}
-
-fn set_tcp_fastopen(tcp: &TcpStream) {
-    const IPPROTO_TCP: i32 = 6;
-    const TCP_FASTOPEN: i32 = 23;
-
-    let fd = tcp.as_raw_fd();
-    let optval: i32 = 1; // Enable
-    unsafe {
-        setsockopt(
-            fd,
-            IPPROTO_TCP,
-            TCP_FASTOPEN,
-            &optval as *const _ as *const core::ffi::c_void,
-            std::mem::size_of::<i32>() as u32,
-        );
-    }
-}
-
-unsafe extern "C" {
-    pub fn setsockopt(
-        socket: i32,
-        level: i32,
-        name: i32,
-        value: *const core::ffi::c_void,
-        option_len: u32,
-    ) -> i32;
+    */
+    Err(ort_error("TODO connect error handling"))
 }
