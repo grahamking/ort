@@ -65,7 +65,10 @@ unsafe extern "C" {
 
 pub struct Queue<T: Clone + Default + Debug, const N: usize> {
     data: [T; N],
-    last: AtomicU32,
+    // The next empty position
+    insert_pos: AtomicU32,
+    // The read_end is one past the last visible item, it's the full stop for reads.
+    read_end: AtomicU32,
     wait: AtomicI32,
     is_closed: AtomicBool,
 }
@@ -92,29 +95,54 @@ impl<T: Clone + Default + Debug, const N: usize> Queue<T, N> {
             .unwrap();
         Arc::new(Queue {
             data,
-            last: AtomicU32::new(0),
+            insert_pos: AtomicU32::new(0),
+            read_end: AtomicU32::new(0),
             wait: AtomicI32::new(0),
             is_closed: AtomicBool::new(false),
         })
     }
 
     pub fn last(&self) -> usize {
-        self.last.load(Ordering::Relaxed) as usize
+        self.read_end.load(Ordering::Relaxed) as usize
     }
 
     pub fn consumer(self: &Arc<Self>) -> Consumer<T, N> {
         Consumer {
             queue: Arc::clone(self),
-            current: self.last.load(Ordering::Relaxed) as usize,
+            current: self.read_end.load(Ordering::Relaxed) as usize,
         }
     }
 
+    // Why the two phase commit?
+    // We move the insert_pos indicator forward before inserting the item.
+    // That "reserves" the slot for us, no other thread will write to it.
+    // But it isn't written yet, so we shouldn't read from it.
     pub fn add(&self, item: T) {
-        let pos = self.last.fetch_add(1, Ordering::Relaxed) as usize % N;
+        let insert_at = self.insert_pos.fetch_add(1, Ordering::Relaxed);
         unsafe {
-            let ptr = self.data.as_ptr().add(pos) as *mut T;
+            let ptr = self.data.as_ptr().add(insert_at as usize % N) as *mut T;
             *ptr = item;
         }
+
+        // If the current read end is at our position, we can commit our item by
+        // moving the read end forward one, which exposes this item.
+        // If not, there must be other threads before us that haven't commited, so
+        // wait a bit.
+        loop {
+            let new_commit_pos = self.read_end.compare_exchange(
+                insert_at,
+                insert_at + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+            if new_commit_pos == Ok(insert_at) {
+                // Success, our item is visible
+                break;
+            }
+            // Othewise wait for other items to commit and retry
+            core::hint::spin_loop();
+        }
+
         self.wake_threads();
     }
 
@@ -135,7 +163,7 @@ impl<T: Clone + Default + Debug, const N: usize> Queue<T, N> {
 
     /*
     pub fn dump(&self) {
-        for i in 0..BUF_LEN {
+        for i in 0..N {
             println!("{i}: {:?}", self.data[i]);
         }
     }
