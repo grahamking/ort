@@ -8,7 +8,7 @@ use std::io::{self, Read as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use crate::net::{chunked, http};
-use crate::{CancelToken, Context as _, ListOpts, OrtResult, Settings, ort_from_err};
+use crate::{CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Settings, ort_from_err};
 
 pub fn run(
     api_key: &str,
@@ -36,7 +36,7 @@ pub fn run(
 
 /// Returns raw JSON
 fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
-    let mut reader = if dns.is_empty() {
+    let reader = if dns.is_empty() {
         http::list_models(api_key, ("openrouter.ai", 443)).map_err(ort_from_err)?
     } else {
         let addrs: Vec<_> = dns
@@ -48,12 +48,15 @@ fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
             .collect();
         http::list_models(api_key, &addrs[..]).map_err(ort_from_err)?
     };
+    let mut reader = OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
     let mut full = String::with_capacity(512 * 1024);
     if is_chunked {
         chunked::read_to_string(reader, unsafe { full.as_mut_vec() })?;
     } else {
-        reader.read_to_string(&mut full).map_err(ort_from_err)?;
+        reader
+            .read(unsafe { full.as_mut_vec().as_mut_slice() })
+            .map_err(ort_from_err)?;
     };
     Ok(full)
 }

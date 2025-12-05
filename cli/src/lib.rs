@@ -10,6 +10,8 @@ pub mod output;
 pub use output::writer;
 mod net;
 pub use net::{http, tls};
+mod buf_read;
+pub use buf_read::OrtBufReader;
 
 pub use ort_openrouter_core::CancelToken;
 pub use ort_openrouter_core::Flushable;

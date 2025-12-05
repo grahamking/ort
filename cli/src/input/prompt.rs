@@ -5,7 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 use std::ffi::CString;
-use std::io::{self, BufRead as _};
+use std::io::{self};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::thread;
@@ -312,13 +312,21 @@ pub fn start_prompt_thread<const N: usize>(
                 .collect();
             http::chat_completions(&api_key, &addrs[..], &body).unwrap() // TODO unwrap
         };
-        let response_lines = match http::skip_header(&mut reader) {
-            Ok(_) => reader.lines(),
+
+        match http::skip_header(&mut reader) {
+            Ok(true) => {
+                // TODO it's transfer encoding chunked, this is the common case
+                // which we don't handle correctly yet
+            }
+            Ok(false) => {
+                // Not chunked encoding. I don't think we ever get here.
+                // But the rest of this function assumes we do.
+            }
             Err(err) => {
                 queue.add(Response::Error(err.to_string()));
                 return;
             }
-        };
+        }
 
         let mut stats: Stats = Default::default();
         let mut token_stream_start = None;
@@ -327,17 +335,29 @@ pub fn start_prompt_thread<const N: usize>(
         let mut is_first_reasoning = true;
         let mut is_first_content = true;
 
-        for line_res in response_lines {
+        let mut line_buf = String::with_capacity(128);
+        loop {
             if cancel_token.is_cancelled() {
                 break;
             }
-            let line = match line_res {
-                Ok(l) => l,
-                Err(e) => {
-                    queue.add(Response::Error(format!("Stream read error {e}")));
-                    return;
+
+            line_buf.clear();
+            match reader.read_line(&mut line_buf) {
+                Ok(0) => {
+                    // EOF
+                    break;
                 }
-            };
+                Ok(_) => {
+                    // success
+                }
+                Err(err) => {
+                    queue.add(Response::Error(
+                        "Stream read error: ".to_string() + &err.to_string(),
+                    ));
+                    break;
+                }
+            }
+            let line = line_buf.trim();
 
             if is_start {
                 // Very first message from server, usually
@@ -347,6 +367,7 @@ pub fn start_prompt_thread<const N: usize>(
             }
 
             // SSE heartbeats and blank lines
+            // TODO: and this skips chunked transfer encoding size lines
             if line.is_empty() || line.starts_with(':') {
                 continue;
             }

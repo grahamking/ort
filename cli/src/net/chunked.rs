@@ -4,15 +4,15 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io::{BufRead as _, BufReader, Read};
+use std::io::Read;
 
-use crate::{OrtResult, ort_err};
+use crate::{OrtBufReader, OrtResult, ort_err};
 
 /// Read a transfer encoding chunked body, populating `out` with the
 /// full re-constructed body.
 /// We cannot return partial reads, chunk by chunk, because they might not be
 /// valid UTF-8, the chunks can splita byte.
-pub fn read_to_string<R: Read>(mut r: BufReader<R>, out: &mut Vec<u8>) -> OrtResult<usize> {
+pub fn read_to_string<R: Read>(mut r: OrtBufReader<R>, out: &mut Vec<u8>) -> OrtResult<usize> {
     let mut bytes_read = 0;
     // The size is always valid UTF-8. It's an ASCII hex number.
     let mut size_buf = String::with_capacity(16);
