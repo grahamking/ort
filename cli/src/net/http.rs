@@ -7,20 +7,18 @@
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use super::tls;
-use crate::{OrtBufReader, OrtError, OrtResult, Read, TcpSocket, Write, ort_error, ort_from_err};
+use crate::{
+    OrtBufReader, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, ort_error, ort_from_err,
+};
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const HOST: &str = "openrouter.ai";
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 
-pub fn list_models<A: ToSocketAddrs>(
-    api_key: &str,
-    addrs: A,
-) -> OrtResult<tls::TlsStream<TcpSocket>> {
+pub fn list_models<A: ToSocketAddrs>(api_key: &str, addrs: A) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
-    let mut tls = tls::TlsStream::connect(tcp, HOST)?;
+    let mut tls = TlsStream::connect(tcp, HOST)?;
 
     let prefix = format!(
         concat!(
@@ -44,10 +42,10 @@ pub fn chat_completions<A: ToSocketAddrs>(
     api_key: &str,
     addr: A,
     json_body: &str,
-) -> OrtResult<OrtBufReader<tls::TlsStream<TcpSocket>>> {
+) -> OrtResult<OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addr)?;
 
-    let mut tls = tls::TlsStream::connect(tcp, HOST)?;
+    let mut tls = TlsStream::connect(tcp, HOST)?;
 
     // 2) Write HTTP/1.1 request
     let body = json_body.as_bytes();
@@ -112,7 +110,7 @@ impl From<HttpError> for OrtError {
 /// Returns true if the body has transfer encoding chunked, and hence needs
 /// special handling.
 pub fn skip_header<T: Read + Write>(
-    reader: &mut OrtBufReader<tls::TlsStream<T>>,
+    reader: &mut OrtBufReader<TlsStream<T>>,
 ) -> Result<bool, HttpError> {
     let mut buffer = String::with_capacity(16);
     let status = match reader.read_line(&mut buffer) {
