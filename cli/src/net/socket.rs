@@ -7,6 +7,7 @@
 #![allow(non_camel_case_types)]
 
 use core::ffi::{c_char, c_int, c_void};
+use core::mem::size_of;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
 use crate::{OrtResult, Read, Write, ort_err};
@@ -106,7 +107,7 @@ fn set_tcp_fastopen(fd: i32) {
             IPPROTO_TCP,
             TCP_FASTOPEN,
             &optval as *const _ as *const core::ffi::c_void,
-            std::mem::size_of::<i32>() as u32,
+            size_of::<i32>() as u32,
         );
     }
 }

@@ -6,6 +6,7 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
+use core::cmp;
 use core::ffi::{c_uint, c_void};
 
 use crate::{OrtResult, ort_error, ort_from_err};
@@ -570,7 +571,7 @@ impl<T: Read + Write> Write for TlsStream<T> {
 impl<T: Read + Write> Read for TlsStream<T> {
     fn read(&mut self, out: &mut [u8]) -> OrtResult<usize> {
         if self.rpos < self.rbuf.len() {
-            let n = core::cmp::min(out.len(), self.rbuf.len() - self.rpos);
+            let n = cmp::min(out.len(), self.rbuf.len() - self.rpos);
             out[..n].copy_from_slice(&self.rbuf[self.rpos..self.rpos + n]);
             self.rpos += n;
             if self.rpos == self.rbuf.len() {
@@ -619,7 +620,7 @@ impl<T: Read + Write> Read for TlsStream<T> {
             self.rbuf.extend_from_slice(&plaintext);
             self.rpos = 0;
             // Now serve from buffer
-            let n = core::cmp::min(out.len(), self.rbuf.len());
+            let n = cmp::min(out.len(), self.rbuf.len());
             out[..n].copy_from_slice(&self.rbuf[..n]);
             self.rpos = n;
             if n == self.rbuf.len() {
