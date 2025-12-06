@@ -4,9 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io::Read;
-
-use crate::{OrtBufReader, OrtResult, ort_err};
+use crate::{OrtBufReader, OrtResult, Read, ort_err};
 
 /// Read a transfer encoding chunked body, populating `out` with the
 /// full re-constructed body.

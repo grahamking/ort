@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_int, c_void};
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::{OrtResult, ort_err};
+use crate::{OrtResult, Read, Write, ort_err};
 
 const SOCK_STREAM: c_int = 1;
 const AF_INET: c_int = 2;
@@ -72,28 +72,28 @@ impl TcpSocket {
     }
 }
 
-impl std::io::Read for TcpSocket {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl Read for TcpSocket {
+    fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         let bytes_read = unsafe { read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
         if bytes_read < 0 {
-            Err(std::io::Error::from_raw_os_error(bytes_read as i32))
+            ort_err("syscall read error")
         } else {
             Ok(bytes_read as usize)
         }
     }
 }
 
-impl std::io::Write for TcpSocket {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+impl Write for TcpSocket {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
         let bytes_written = unsafe { write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
         if bytes_written < 0 {
-            Err(std::io::Error::from_raw_os_error(bytes_written as i32))
+            ort_err("syscall write error")
         } else {
             Ok(bytes_written as usize)
         }
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> OrtResult<()> {
         Ok(())
     }
 }

@@ -4,18 +4,20 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::io::{self, Read as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use crate::net::{chunked, http};
-use crate::{CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Settings, ort_from_err};
+use crate::{
+    CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Read, Settings, Write,
+    ort_from_err,
+};
 
 pub fn run(
     api_key: &str,
     _cancel_token: CancelToken, // TODO use CancelToken
     settings: Settings,
     opts: ListOpts,
-    mut w: impl io::Write,
+    mut w: impl Write,
 ) -> OrtResult<()> {
     let models = list_models(api_key, settings.dns).context("list_models")?;
 
@@ -28,7 +30,8 @@ pub fn run(
         let mut slugs: Vec<&str> = models.split(r#""id":""#).skip(1).map(until_quote).collect();
         slugs.sort();
         for s in slugs {
-            let _ = writeln!(w, "{s}");
+            let _ = w.write(s.as_bytes());
+            let _ = w.write(b"\n");
         }
     }
     Ok(())

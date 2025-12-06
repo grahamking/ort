@@ -8,9 +8,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use std::io::Read;
-
-use crate::{OrtResult, ort_err, ort_from_err};
+use crate::{OrtResult, Read, ort_err, ort_from_err};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -21,8 +19,8 @@ pub struct OrtBufReader<R: Read> {
     cap: usize, // number of bytes currently in `buf`
 }
 
-impl<R: Read> std::io::Read for OrtBufReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl<R: Read> Read for OrtBufReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         self.inner.read(buf)
     }
 }

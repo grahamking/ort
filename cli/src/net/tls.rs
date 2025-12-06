@@ -8,12 +8,9 @@
 
 use core::ffi::{c_uint, c_void};
 
-use std::fs::File;
-use std::io::{self, Read, Write};
-
 use crate::{OrtResult, ort_error, ort_from_err};
 
-use ort_openrouter_core::{aead, ecdh, hkdf, hmac, sha2};
+use ort_openrouter_core::{Read, Write, aead, ecdh, hkdf, hmac, sha2};
 
 const DEBUG_LOG: bool = false;
 
@@ -554,7 +551,7 @@ impl<T: Read + Write> TlsStream<T> {
 }
 
 impl<T: Read + Write> Write for TlsStream<T> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
         write_record_cipher(
             &mut self.io,
             REC_TYPE_APPDATA,
@@ -565,15 +562,15 @@ impl<T: Read + Write> Write for TlsStream<T> {
         )
         .map(|_| buf.len())
     }
-    fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self) -> OrtResult<()> {
         self.io.flush()
     }
 }
 
 impl<T: Read + Write> Read for TlsStream<T> {
-    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, out: &mut [u8]) -> OrtResult<usize> {
         if self.rpos < self.rbuf.len() {
-            let n = std::cmp::min(out.len(), self.rbuf.len() - self.rpos);
+            let n = core::cmp::min(out.len(), self.rbuf.len() - self.rpos);
             out[..n].copy_from_slice(&self.rbuf[self.rpos..self.rpos + n]);
             self.rpos += n;
             if self.rpos == self.rbuf.len() {
@@ -609,7 +606,7 @@ impl<T: Read + Write> Read for TlsStream<T> {
                 };
                 // See https://www.rfc-editor.org/rfc/rfc8446#appendix-B search for
                 // "unexpected_message" for all types
-                return Err(io_err(&format!("{level} alert: {}", plaintext[1])));
+                return Err(ort_error(format!("{level} alert: {}", plaintext[1])));
             }
             if inner_type != REC_TYPE_APPDATA {
                 // Some servers pad with 0x00.. then type; we already consumed type.
@@ -622,7 +619,7 @@ impl<T: Read + Write> Read for TlsStream<T> {
             self.rbuf.extend_from_slice(&plaintext);
             self.rpos = 0;
             // Now serve from buffer
-            let n = std::cmp::min(out.len(), self.rbuf.len());
+            let n = core::cmp::min(out.len(), self.rbuf.len());
             out[..n].copy_from_slice(&self.rbuf[..n]);
             self.rpos = n;
             if n == self.rbuf.len() {
@@ -636,7 +633,7 @@ impl<T: Read + Write> Read for TlsStream<T> {
 
 // ---------------------- Record I/O helpers ----------------------------------
 
-fn write_record_plain<W: Write>(w: &mut W, typ: u8, body: &[u8]) -> io::Result<()> {
+fn write_record_plain<W: Write>(w: &mut W, typ: u8, body: &[u8]) -> OrtResult<()> {
     let mut hdr = [0u8; 5];
     hdr[0] = typ;
     hdr[1..3].copy_from_slice(&LEGACY_REC_VER.to_be_bytes());
@@ -646,13 +643,13 @@ fn write_record_plain<W: Write>(w: &mut W, typ: u8, body: &[u8]) -> io::Result<(
     Ok(())
 }
 
-fn read_exact_n<R: Read>(r: &mut R, n: usize) -> io::Result<Vec<u8>> {
+fn read_exact_n<R: Read>(r: &mut R, n: usize) -> OrtResult<Vec<u8>> {
     let mut buf = vec![0u8; n];
     r.read_exact(&mut buf)?;
     Ok(buf)
 }
 
-fn read_record_plain<R: Read>(r: &mut R) -> io::Result<(u8, Vec<u8>)> {
+fn read_record_plain<R: Read>(r: &mut R) -> OrtResult<(u8, Vec<u8>)> {
     let hdr = read_exact_n(r, 5)?; // Record Header, e.g. 16 03 03 len
     let typ = hdr[0];
     let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
@@ -668,7 +665,7 @@ fn write_record_cipher<W: Write>(
     key: &[u8; 16],
     iv12: &[u8; 12],
     seq: &mut u64,
-) -> io::Result<()> {
+) -> OrtResult<()> {
     // AES / GCM plaintext and ciphertext have the same length
     let total_len = inner.len() + 1 + AEAD_TAG_LEN;
     let mut plain = Vec::with_capacity(total_len);
@@ -701,13 +698,13 @@ fn read_record_cipher<R: Read>(
     key: &[u8; 16],
     iv12: &[u8; 12],
     seq: &mut u64,
-) -> io::Result<(u8, Vec<u8>, u8)> {
+) -> OrtResult<(u8, Vec<u8>, u8)> {
     let hdr = read_exact_n(r, 5)?;
     let typ = hdr[0];
     let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
     let ciphertext = read_exact_n(r, len)?;
     if len < AEAD_TAG_LEN {
-        return Err(io_err("short record"));
+        return Err(ort_error("short record"));
     }
     debug_print("read_record_cipher hdr", &hdr);
     debug_print("read_record_cipher ct", &ciphertext);
@@ -733,14 +730,14 @@ fn read_record_cipher<R: Read>(
 
 // ---------------------- Handshake parsing helpers ---------------------------
 
-fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> io::Result<(u8, &'a [u8], &'a [u8])> {
+fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> OrtResult<(u8, &'a [u8], &'a [u8])> {
     if rd.len() < 4 {
-        return Err(io_err("short hs"));
+        return Err(ort_error("short hs"));
     }
     let typ = rd[0];
     let len = ((rd[1] as usize) << 16) | ((rd[2] as usize) << 8) | rd[3] as usize;
     if rd.len() < 4 + len {
-        return Err(io_err("short hs body"));
+        return Err(ort_error("short hs body"));
     }
     let full = &rd[..4 + len];
     let body = &rd[4..4 + len];
@@ -748,10 +745,10 @@ fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> io::Result<(u8, &'a [u8], &'
     Ok((typ, body, full))
 }
 
-fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
+fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
     // minimal parse: skip legacy_version(2), random(32), sid, cipher(2), comp(1), exts
     if sh.len() < 2 + 32 + 1 + 2 + 1 + 2 {
-        return Err(io_err("sh too short"));
+        return Err(ort_error("sh too short"));
     }
     let mut p = sh;
 
@@ -760,7 +757,7 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
     let sid_len = p[0] as usize;
     p = &p[1..];
     if p.len() < sid_len + 2 + 1 + 2 {
-        return Err(io_err("sh sid"));
+        return Err(ort_error("sh sid"));
     }
     p = &p[sid_len..];
     let cipher = u16::from_be_bytes([p[0], p[1]]);
@@ -770,7 +767,7 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
     let ext_len = u16::from_be_bytes([p[0], p[1]]) as usize;
     p = &p[2..];
     if p.len() < ext_len {
-        return Err(io_err("sh ext too short"));
+        return Err(ort_error("sh ext too short"));
     }
     let mut ex = &p[..ext_len];
 
@@ -778,13 +775,13 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
 
     while !ex.is_empty() {
         if ex.len() < 4 {
-            return Err(io_err("ext short"));
+            return Err(ort_error("ext short"));
         }
         let et = u16::from_be_bytes([ex[0], ex[1]]);
         let el = u16::from_be_bytes([ex[2], ex[3]]) as usize;
         ex = &ex[4..];
         if ex.len() < el {
-            return Err(io_err("ext len"));
+            return Err(ort_error("ext len"));
         }
         let ed = &ex[..el];
         ex = &ex[el..];
@@ -793,15 +790,15 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
             EXT_KEY_SHARE => {
                 // KeyShareServerHello: group(2) kx_len(2) kx
                 if ed.len() < 2 + 2 + 32 {
-                    return Err(io_err("ks sh"));
+                    return Err(ort_error("ks sh"));
                 }
                 let grp = u16::from_be_bytes([ed[0], ed[1]]);
                 if grp != GROUP_X25519 {
-                    return Err(io_err("server group != x25519"));
+                    return Err(ort_error("server group != x25519"));
                 }
                 let kx_len = u16::from_be_bytes([ed[2], ed[3]]) as usize;
                 if ed.len() < 4 + kx_len || kx_len != 32 {
-                    return Err(io_err("kx len"));
+                    return Err(ort_error("kx len"));
                 }
                 let mut pk = [0u8; 32];
                 pk.copy_from_slice(&ed[4..4 + 32]);
@@ -809,19 +806,15 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> io::Result<(u16, [u8; 32])> {
             }
             EXT_SUPPORTED_VERSIONS => {
                 if ed.len() != 2 || u16::from_be_bytes([ed[0], ed[1]]) != TLS13 {
-                    return Err(io_err("server not TLS1.3"));
+                    return Err(ort_error("server not TLS1.3"));
                 }
             }
             _ => {}
         }
     }
 
-    let sp = server_pub.ok_or_else(|| io_err("no server key"))?;
+    let sp = server_pub.ok_or_else(|| ort_error("no server key"))?;
     Ok((cipher, sp))
-}
-
-fn io_err(msg: &str) -> io::Error {
-    io::Error::other(msg)
 }
 
 fn debug_print(name: &str, value: &[u8]) {
@@ -841,12 +834,15 @@ fn print_hex(v: &[u8]) {
     eprintln!("{hex}");
 }
 
+/*
+use std::fs::File;
 #[allow(dead_code)]
 fn write_bytes_to_file(bytes: &[u8], file_path: &str) -> std::io::Result<()> {
     let mut file = File::create(file_path)?;
     file.write_all(bytes)?;
     Ok(())
 }
+*/
 
 unsafe extern "C" {
     pub fn getrandom(buf: *mut c_void, buflen: usize, flags: c_uint) -> isize;

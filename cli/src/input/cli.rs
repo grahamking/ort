@@ -132,8 +132,21 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
             cancel_token,
             cfg.settings.unwrap_or_default(),
             args,
-            w,
+            WriteConvertor(w),
         ),
     };
     cmd_result.map(|_| ExitCode::SUCCESS)
+}
+
+struct WriteConvertor<T: io::Write>(T);
+
+impl<T: io::Write> crate::Write for WriteConvertor<T> {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
+        self.0.write(buf).map_err(crate::ort_from_err)
+    }
+
+    fn flush(&mut self) -> OrtResult<()> {
+        let _ = self.0.flush();
+        Ok(())
+    }
 }
