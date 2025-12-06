@@ -28,8 +28,8 @@ pub use common::{Flushable, buf_read::OrtBufReader, io::Read, io::Write};
 pub use input::args::{ArgParseError, Cmd, ListOpts, parse_list_args, parse_prompt_args};
 pub use input::to_json::build_body;
 
-pub use net::chunked;
 pub use net::socket::TcpSocket;
 pub use net::tls::TlsStream;
+pub use net::{chunked, http};
 
 pub use output::writer::{CollectedWriter, ConsoleWriter, FileWriter};

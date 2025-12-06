@@ -5,5 +5,6 @@
 //! Copyright (c) 2025 Graham King
 
 pub mod chunked;
+pub mod http;
 pub mod socket;
 pub mod tls;

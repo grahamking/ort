@@ -7,6 +7,11 @@
 use core::fmt;
 use core::net::SocketAddr;
 
+extern crate alloc;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
 use crate::{
     OrtBufReader, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, ort_error, ort_from_err,
 };
