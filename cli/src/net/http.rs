@@ -4,8 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::fmt;
-use std::net::{SocketAddr, ToSocketAddrs};
+use core::fmt;
+use core::net::SocketAddr;
 
 use crate::{
     OrtBufReader, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, ort_error, ort_from_err,
@@ -16,7 +16,7 @@ const HOST: &str = "openrouter.ai";
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 
-pub fn list_models<A: ToSocketAddrs>(api_key: &str, addrs: A) -> OrtResult<TlsStream<TcpSocket>> {
+pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
     let mut tls = TlsStream::connect(tcp, HOST)?;
 
@@ -38,12 +38,12 @@ pub fn list_models<A: ToSocketAddrs>(api_key: &str, addrs: A) -> OrtResult<TlsSt
     Ok(tls)
 }
 
-pub fn chat_completions<A: ToSocketAddrs>(
+pub fn chat_completions(
     api_key: &str,
-    addr: A,
+    addrs: Vec<SocketAddr>,
     json_body: &str,
 ) -> OrtResult<OrtBufReader<TlsStream<TcpSocket>>> {
-    let tcp = connect(addr)?;
+    let tcp = connect(addrs)?;
 
     let mut tls = TlsStream::connect(tcp, HOST)?;
 
@@ -92,7 +92,7 @@ impl HttpError {
     }
 }
 
-impl std::error::Error for HttpError {}
+impl core::error::Error for HttpError {}
 
 impl fmt::Display for HttpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,11 +168,11 @@ pub fn skip_header<T: Read + Write>(
 /// Attempt to connect to all the SocketAddr in order, with a timeout.
 /// The addreses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
-fn connect<A: ToSocketAddrs>(addrs: A) -> OrtResult<TcpSocket> {
+fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
     // TODO: Erorr handling, don't just try the first
 
     //let mut errs = vec![];
-    let addrs: Vec<_> = addrs.to_socket_addrs().unwrap().collect();
+    //let addrs: Vec<_> = addrs.to_socket_addrs().unwrap().collect();
     for addr in addrs {
         let addr_v4 = match addr {
             SocketAddr::V4(v4) => v4,

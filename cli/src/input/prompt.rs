@@ -6,7 +6,7 @@
 
 use std::ffi::CString;
 use std::io::{self};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Instant, SystemTime};
@@ -299,19 +299,17 @@ pub fn start_prompt_thread<const N: usize>(
     std::thread::spawn(move || {
         let body = build_body(model_idx, &opts, &messages).unwrap(); // TODO unwrap
         let start = Instant::now();
-        let mut reader = if dns.is_empty() {
-            let addr = ("openrouter.ai", 443);
-            http::chat_completions(&api_key, addr, &body).unwrap() // TODO unwrap
+        let addrs: Vec<_> = if dns.is_empty() {
+            ("openrouter.ai", 443).to_socket_addrs().unwrap().collect()
         } else {
-            let addrs: Vec<_> = dns
-                .into_iter()
+            dns.into_iter()
                 .map(|a| {
                     let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                     SocketAddr::new(IpAddr::V4(ip_addr), 443)
                 })
-                .collect();
-            http::chat_completions(&api_key, &addrs[..], &body).unwrap() // TODO unwrap
+                .collect()
         };
+        let mut reader = http::chat_completions(&api_key, addrs, &body).unwrap(); // TODO unwrap
 
         match http::skip_header(&mut reader) {
             Ok(true) => {

@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 
 use crate::net::http;
 use crate::{
@@ -39,18 +39,17 @@ pub fn run(
 
 /// Returns raw JSON
 fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
-    let reader = if dns.is_empty() {
-        http::list_models(api_key, ("openrouter.ai", 443)).map_err(ort_from_err)?
+    let addrs: Vec<_> = if dns.is_empty() {
+        ("openrouter.ai", 443).to_socket_addrs().unwrap().collect()
     } else {
-        let addrs: Vec<_> = dns
-            .into_iter()
+        dns.into_iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                 SocketAddr::new(IpAddr::V4(ip_addr), 443)
             })
-            .collect();
-        http::list_models(api_key, &addrs[..]).map_err(ort_from_err)?
+            .collect()
     };
+    let reader = http::list_models(api_key, addrs).map_err(ort_from_err)?;
     let mut reader = OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
     let mut full = String::with_capacity(512 * 1024);
