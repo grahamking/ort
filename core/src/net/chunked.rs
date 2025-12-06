@@ -4,6 +4,11 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+extern crate alloc;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
 use crate::{OrtBufReader, OrtResult, Read, ort_err};
 
 /// Read a transfer encoding chunked body, populating `out` with the
@@ -25,7 +30,7 @@ pub fn read_to_string<R: Read>(mut r: OrtBufReader<R>, out: &mut Vec<u8>) -> Ort
             }
             Ok(_) => {}
             Err(err) => {
-                return ort_err(format!("Error reading chunk size: {err}"));
+                return ort_err("Error reading chunk size: ".to_string() + &err.to_string());
             }
         }
         let size_str = size_buf.trim();
@@ -52,7 +57,7 @@ pub fn read_to_string<R: Read>(mut r: OrtBufReader<R>, out: &mut Vec<u8>) -> Ort
         unsafe { data_buf.set_len(size) };
 
         if let Err(err) = r.read_exact(&mut data_buf) {
-            return ort_err(format!("Error reading chunked data line: {err}"));
+            return ort_err("Error reading chunked data line: ".to_string() + &err.to_string());
         };
         bytes_read += size;
 

@@ -10,13 +10,12 @@ pub mod output;
 pub use output::writer;
 mod net;
 pub use net::http;
-mod buf_read;
-pub use buf_read::OrtBufReader;
 
 pub use ort_openrouter_core::CancelToken;
 pub use ort_openrouter_core::Flushable;
 pub use ort_openrouter_core::Stats;
 pub use ort_openrouter_core::build_body;
+pub use ort_openrouter_core::chunked;
 pub use ort_openrouter_core::{ApiKey, ConfigFile, Settings};
 pub use ort_openrouter_core::{
     ArgParseError, Context, OrtError, OrtResult, cache_dir, ensure_dir_exists, get_env,
@@ -25,7 +24,7 @@ pub use ort_openrouter_core::{
 };
 pub use ort_openrouter_core::{
     ChatCompletionsResponse, Choice, Cmd, CollectedWriter, ConsoleWriter, Consumer, DEFAULT_MODEL,
-    FileWriter, LastData, ListOpts, Message, Priority, PromptOpts, Queue, Read, ReasoningConfig,
-    ReasoningEffort, Response, Role, TcpSocket, ThinkEvent, TlsStream, Usage, Write,
-    parse_list_args, parse_prompt_args,
+    FileWriter, LastData, ListOpts, Message, OrtBufReader, Priority, PromptOpts, Queue, Read,
+    ReasoningConfig, ReasoningEffort, Response, Role, TcpSocket, ThinkEvent, TlsStream, Usage,
+    Write, parse_list_args, parse_prompt_args,
 };

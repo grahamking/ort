@@ -12,6 +12,7 @@ use alloc::string::String;
 
 use crate::OrtResult;
 
+pub mod buf_read;
 pub mod cancel_token;
 pub mod config;
 pub mod data;

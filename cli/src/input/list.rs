@@ -6,9 +6,9 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::net::{chunked, http};
+use crate::net::http;
 use crate::{
-    CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Read, Settings, Write,
+    CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Read, Settings, Write, chunked,
     ort_from_err,
 };
 
