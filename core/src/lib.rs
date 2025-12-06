@@ -28,6 +28,7 @@ pub use common::{Flushable, io::Read, io::Write};
 pub use input::args::{ArgParseError, Cmd, ListOpts, parse_list_args, parse_prompt_args};
 pub use input::to_json::build_body;
 
+pub use net::socket::TcpSocket;
 pub use net::tls::{aead, ecdh, hkdf, hmac, sha2};
 
 pub use output::writer::{CollectedWriter, ConsoleWriter, FileWriter};

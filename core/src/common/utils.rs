@@ -11,6 +11,11 @@ use alloc::vec::Vec;
 
 use core::ffi::{c_char, c_int, c_str::CStr, c_void};
 
+#[allow(non_camel_case_types)]
+type size_t = usize;
+#[allow(non_camel_case_types)]
+type ssize_t = isize;
+
 pub fn slug(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -72,7 +77,7 @@ pub fn read_to_string(filename: &str) -> Result<String, &'static str> {
     const O_RDONLY: i32 = 0;
     unsafe extern "C" {
         fn open(path: *const c_char, mode: c_int) -> c_int;
-        fn read(fd: c_int, buffer: *mut c_void, size: usize) -> c_int;
+        fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
         fn close(fd: c_int) -> c_int;
     }
 

@@ -7,9 +7,8 @@
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use super::socket::TcpSocket;
 use super::tls;
-use crate::{OrtBufReader, OrtError, OrtResult, Read, Write, ort_error, ort_from_err};
+use crate::{OrtBufReader, OrtError, OrtResult, Read, TcpSocket, Write, ort_error, ort_from_err};
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const HOST: &str = "openrouter.ai";

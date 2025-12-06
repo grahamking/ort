@@ -26,5 +26,6 @@ pub use ort_openrouter_core::{
 pub use ort_openrouter_core::{
     ChatCompletionsResponse, Choice, Cmd, CollectedWriter, ConsoleWriter, Consumer, DEFAULT_MODEL,
     FileWriter, LastData, ListOpts, Message, Priority, PromptOpts, Queue, Read, ReasoningConfig,
-    ReasoningEffort, Response, Role, ThinkEvent, Usage, Write, parse_list_args, parse_prompt_args,
+    ReasoningEffort, Response, Role, TcpSocket, ThinkEvent, Usage, Write, parse_list_args,
+    parse_prompt_args,
 };
