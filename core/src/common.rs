@@ -17,6 +17,7 @@ pub mod cancel_token;
 pub mod config;
 pub mod data;
 pub mod error;
+pub mod file;
 pub mod io;
 pub mod queue;
 pub mod stats;

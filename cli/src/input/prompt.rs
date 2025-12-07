@@ -18,10 +18,10 @@ use crate::Queue;
 use crate::build_body;
 use crate::ort_error;
 use crate::tmux_pane_id;
-use crate::writer::{self, IoFmtWriter};
+use crate::writer::IoFmtWriter;
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
-use crate::{CollectedWriter, ConsoleWriter, FileWriter};
+use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
 use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, Stats};
@@ -118,7 +118,7 @@ pub fn run(
             */
 
             let jh_last = scope.spawn(move || -> OrtResult<()> {
-                let mut last_writer = writer::LastWriter::new(opts, messages)?;
+                let mut last_writer = LastWriter::new(opts, messages)?;
                 last_writer.run(consumer_last)?;
                 Ok(())
             });

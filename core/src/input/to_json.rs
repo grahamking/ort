@@ -10,7 +10,7 @@ use core::fmt::Write;
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{Flushable, LastData, Message, OrtResult, PromptOpts, ort_err};
+use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -71,10 +71,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
 }
 
 impl LastData {
-    pub fn to_json_writer<W>(&self, writer: W) -> OrtResult<()>
-    where
-        W: Write + Flushable,
-    {
+    pub fn to_json_writer<W: Write>(&self, writer: W) -> OrtResult<()> {
         let mut w = writer;
 
         w.write_str("{\"opts\":{")?;
@@ -174,7 +171,7 @@ impl LastData {
         Message::write_json_array(&self.messages, &mut w)?;
 
         w.write_char('}')?;
-        w.flush()
+        Ok(())
     }
 }
 

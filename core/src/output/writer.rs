@@ -7,10 +7,15 @@
 use core::fmt;
 
 extern crate alloc;
+use alloc::ffi::CString;
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::{Consumer, Flushable, OrtResult, Response, Stats, ThinkEvent, ort_err};
+use crate::{
+    Consumer, File, Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats,
+    ThinkEvent, Write, cache_dir, ort_err, ort_from_err, slug, tmux_pane_id,
+};
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -189,5 +194,53 @@ impl CollectedWriter {
             "--- ".to_string() + &got_stats.unwrap().to_string() + " ---\n" + &contents.join("");
         //let out = format!("--- {} ---\n{}", got_stats.unwrap(), contents.join(""));
         Ok(out)
+    }
+}
+
+pub struct LastWriter {
+    w: File,
+    data: LastData,
+}
+
+impl LastWriter {
+    pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
+        let last_filename = format!("last-{}.json", tmux_pane_id());
+        let mut last_path = cache_dir()?;
+        last_path.push('/');
+        last_path.push_str(&last_filename);
+        let c_path = CString::new(last_path).map_err(ort_from_err)?;
+        let last_file = unsafe { File::create(c_path.as_ptr()).map_err(ort_from_err)? };
+        let data = LastData { opts, messages };
+        Ok(LastWriter { data, w: last_file })
+    }
+
+    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
+        let mut contents = Vec::with_capacity(1024);
+        while let Some(data) = rx.get_next() {
+            match data {
+                Response::Start => {}
+                Response::Think(_) => {}
+                Response::Content(content) => {
+                    contents.push(content);
+                }
+                Response::Stats(stats) => {
+                    self.data.opts.provider = Some(slug(stats.provider()));
+                }
+                Response::Error(err) => {
+                    return ort_err(format!("LastWriter: {err}"));
+                }
+                Response::None => {
+                    return ort_err("Response::None means we read the wrong Queue position");
+                }
+            }
+        }
+
+        let message = Message::assistant(contents.join(""));
+        self.data.messages.push(message);
+
+        self.data.to_json_writer(&mut self.w)?;
+        let _ = self.w.flush();
+
+        Ok(Stats::default()) // Stats is not used
     }
 }
