@@ -9,5 +9,4 @@
 //! and sending the request.
 
 pub mod cli;
-pub mod list;
 pub mod prompt;

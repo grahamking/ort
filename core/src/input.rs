@@ -5,4 +5,5 @@
 //! Copyright (c) 2025 Graham King
 
 pub mod args;
+pub mod list;
 pub mod to_json;

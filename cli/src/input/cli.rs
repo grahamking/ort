@@ -9,10 +9,11 @@ use std::io;
 use std::io::Read as _;
 use std::process::ExitCode;
 
-use super::{list, prompt};
+use super::prompt;
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::get_env;
+use crate::list;
 use crate::load_config;
 use crate::ort_err;
 use crate::{ArgParseError, Cmd, parse_list_args, parse_prompt_args};
