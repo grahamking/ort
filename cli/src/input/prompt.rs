@@ -4,10 +4,13 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::ffi::CString;
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+extern crate alloc;
+use alloc::ffi::CString;
+use alloc::sync::Arc;
+
 use std::io::{self};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Instant, SystemTime};
 use std::{fs, path::PathBuf};
@@ -17,6 +20,7 @@ use ort_openrouter_core::Context as _;
 use crate::Queue;
 use crate::build_body;
 use crate::ort_error;
+use crate::resolve;
 use crate::tmux_pane_id;
 use crate::writer::IoFmtWriter;
 use crate::{CancelToken, http};
@@ -300,7 +304,10 @@ pub fn start_prompt_thread<const N: usize>(
         let body = build_body(model_idx, &opts, &messages).unwrap(); // TODO unwrap
         let start = Instant::now();
         let addrs: Vec<_> = if dns.is_empty() {
-            ("openrouter.ai", 443).to_socket_addrs().unwrap().collect()
+            let ips = unsafe { resolve(c"openrouter.ai".as_ptr()).unwrap() };
+            ips.into_iter()
+                .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
+                .collect()
         } else {
             dns.into_iter()
                 .map(|a| {
