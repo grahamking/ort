@@ -23,6 +23,6 @@ pub use ort_openrouter_core::{
     ChatCompletionsResponse, Choice, Cmd, CollectedWriter, ConsoleWriter, Consumer, DEFAULT_MODEL,
     File, FileWriter, LastData, LastWriter, ListOpts, Message, OrtBufReader, Priority, PromptOpts,
     Queue, Read, ReasoningConfig, ReasoningEffort, Response, Role, TcpSocket, ThinkEvent,
-    TlsStream, Usage, Write, parse_list_args, parse_prompt_args,
+    TlsStream, Usage, Write, parse_list_args, parse_prompt_args, resolve,
 };
 pub use ort_openrouter_core::{chunked, http};

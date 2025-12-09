@@ -23,7 +23,9 @@ pub use common::stats::Stats;
 pub use common::utils::{
     ensure_dir_exists, get_env, path_exists, read_to_string, slug, tmux_pane_id,
 };
-pub use common::{Flushable, buf_read::OrtBufReader, file::File, io::Read, io::Write};
+pub use common::{
+    Flushable, buf_read::OrtBufReader, file::File, io::Read, io::Write, resolver::resolve,
+};
 
 pub use input::args::{ArgParseError, Cmd, ListOpts, parse_list_args, parse_prompt_args};
 pub use input::to_json::build_body;

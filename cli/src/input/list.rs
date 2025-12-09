@@ -4,11 +4,15 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+extern crate alloc;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::{
     CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Read, Settings, Write, chunked,
-    http, ort_from_err,
+    http, ort_from_err, resolve,
 };
 
 pub fn run(
@@ -39,7 +43,10 @@ pub fn run(
 /// Returns raw JSON
 fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
     let addrs: Vec<_> = if dns.is_empty() {
-        ("openrouter.ai", 443).to_socket_addrs().unwrap().collect()
+        let ips = unsafe { resolve(c"openrouter.ai".as_ptr())? };
+        ips.into_iter()
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
+            .collect()
     } else {
         dns.into_iter()
             .map(|a| {

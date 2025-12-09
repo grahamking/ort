@@ -20,6 +20,7 @@ pub mod error;
 pub mod file;
 pub mod io;
 pub mod queue;
+pub mod resolver;
 pub mod stats;
 pub mod utils;
 

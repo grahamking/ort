@@ -1,0 +1,94 @@
+//! ort: Open Router CLI
+//! https://github.com/grahamking/ort
+//!
+//! MIT License
+//! Copyright (c) 2025 Graham King
+//!
+
+#![allow(non_camel_case_types)]
+
+use core::{
+    ffi::{c_char, c_int},
+    net::Ipv4Addr,
+};
+
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
+
+use crate::{OrtResult, ort_err};
+
+const SOCK_STREAM: c_int = 1;
+const AF_INET: c_int = 2;
+
+type socklen_t = u32;
+type sa_family_t = u16;
+type in_addr_t = u32;
+type in_port_t = u16;
+
+#[repr(C)]
+struct in_addr {
+    pub s_addr: in_addr_t,
+}
+
+#[repr(C)]
+struct sockaddr_in {
+    pub sin_family: sa_family_t,
+    pub sin_port: in_port_t,
+    pub sin_addr: in_addr,
+    pub sin_zero: [u8; 8],
+}
+
+#[repr(C)]
+struct addrinfo {
+    pub ai_flags: c_int,
+    pub ai_family: c_int,
+    pub ai_socktype: c_int,
+    pub ai_protocol: c_int,
+    pub ai_addrlen: socklen_t,
+    pub ai_addr: *mut sockaddr_in,
+    pub ai_canonname: *mut c_char,
+    pub ai_next: *mut addrinfo,
+}
+
+/// # Safety
+/// System programming is for everyone
+pub unsafe fn resolve(host: *const c_char) -> OrtResult<Vec<Ipv4Addr>> {
+    let mut hints: addrinfo = unsafe { core::mem::zeroed() };
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    let mut addr_info = core::ptr::null_mut();
+    let return_code = unsafe { getaddrinfo(host, core::ptr::null(), &hints, &mut addr_info) };
+    if return_code != 0 {
+        return ort_err("getaddrinfo syscall error");
+    }
+
+    let mut ips = vec![];
+    let mut rp = addr_info;
+    while !rp.is_null() {
+        let ip_bytes = unsafe {
+            let addr = (*rp).ai_addr;
+            (*addr).sin_addr.s_addr
+        };
+
+        let ip = Ipv4Addr::from(ip_bytes.to_ne_bytes());
+        ips.push(ip);
+
+        unsafe {
+            rp = (*rp).ai_next;
+        }
+    }
+    unsafe { freeaddrinfo(addr_info) };
+
+    Ok(ips)
+}
+
+unsafe extern "C" {
+    fn getaddrinfo(
+        node: *const c_char,
+        service: *const c_char,
+        hints: *const addrinfo,
+        res: *mut *mut addrinfo,
+    ) -> c_int;
+    fn freeaddrinfo(res: *mut addrinfo);
+}
