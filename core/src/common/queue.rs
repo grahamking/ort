@@ -46,7 +46,7 @@
 //!
 //! assert!(consumer1.get_next().is_none());
 
-use core::ffi::{c_int, c_long};
+use core::ffi::c_int;
 use core::ptr::null;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
@@ -55,13 +55,7 @@ use alloc::fmt::Debug;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-const FUTEX_WAIT: c_int = 0;
-const FUTEX_WAKE: c_int = 1;
-const SYS_FUTEX: c_long = 202; // asm/unistd_64.h __NR_futex
-
-unsafe extern "C" {
-    fn syscall(num: c_long, ...) -> c_long;
-}
+use crate::libc;
 
 pub struct Queue<T: Clone + Default + Debug, const N: usize> {
     data: [T; N],
@@ -171,10 +165,10 @@ impl<T: Clone + Default + Debug, const N: usize> Queue<T, N> {
 
     fn park_thread(&self) {
         unsafe {
-            syscall(
-                SYS_FUTEX,
+            libc::syscall(
+                libc::SYS_FUTEX,
                 self.wait.as_ptr() as *const i32,
-                FUTEX_WAIT,
+                libc::FUTEX_WAIT,
                 0,
                 null::<c_int>(),
                 null::<c_int>(),
@@ -185,10 +179,10 @@ impl<T: Clone + Default + Debug, const N: usize> Queue<T, N> {
 
     fn wake_threads(&self) {
         unsafe {
-            syscall(
-                SYS_FUTEX,
+            libc::syscall(
+                libc::SYS_FUTEX,
                 self.wait.as_ptr() as *const i32,
-                FUTEX_WAKE,
+                libc::FUTEX_WAKE,
                 999, // wake all the waiters, could be i32:MAX.
                 null::<c_int>(),
                 null::<c_int>(),

@@ -9,12 +9,9 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use core::ffi::{c_char, c_int, c_str::CStr, c_void};
+use core::ffi::{c_str::CStr, c_void};
 
-#[allow(non_camel_case_types)]
-type size_t = usize;
-#[allow(non_camel_case_types)]
-type ssize_t = isize;
+use crate::libc;
 
 pub fn slug(s: &str) -> String {
     s.chars()
@@ -41,10 +38,7 @@ pub fn tmux_pane_id() -> usize {
 /// Read the value of an environment variable
 // Can't use std::env, we're no_std
 pub fn get_env(cs: &CStr) -> String {
-    unsafe extern "C" {
-        fn getenv(name: *const c_char) -> *const c_char;
-    }
-    let value_ptr = unsafe { getenv(cs.as_ptr()) };
+    let value_ptr = unsafe { libc::getenv(cs.as_ptr()) };
     if value_ptr.is_null() {
         return String::new();
     }
@@ -54,35 +48,21 @@ pub fn get_env(cs: &CStr) -> String {
 
 /// Create this directory if necessary. Does not create ancestors.
 pub fn ensure_dir_exists(dir: &str) {
-    unsafe extern "C" {
-        fn mkdir(path: *const c_char, mode: u32) -> c_int;
-    }
     let cs = CString::new(dir).unwrap();
     if !path_exists(cs.as_ref()) {
-        unsafe { mkdir(cs.as_ptr(), 0o755) };
+        unsafe { libc::mkdir(cs.as_ptr(), 0o755) };
     }
 }
 
 /// Does this file path exists, and is accessible by the user?
 pub fn path_exists(path: &CStr) -> bool {
-    unsafe extern "C" {
-        fn access(path: *const c_char, mode: c_int) -> c_int;
-    }
-    const F_OK: i32 = 0;
-    unsafe { access(path.as_ptr(), F_OK) == 0 }
+    unsafe { libc::access(path.as_ptr(), libc::F_OK) == 0 }
 }
 
 /// Read a file into memory
 pub fn read_to_string(filename: &str) -> Result<String, &'static str> {
-    const O_RDONLY: i32 = 0;
-    unsafe extern "C" {
-        fn open(path: *const c_char, mode: c_int) -> c_int;
-        fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
-        fn close(fd: c_int) -> c_int;
-    }
-
     let cs = CString::new(filename).unwrap();
-    let fd = unsafe { open(cs.as_ptr(), O_RDONLY) };
+    let fd = unsafe { libc::open(cs.as_ptr(), libc::O_RDONLY) };
     if fd < 0 {
         return Err("NOT FOUND");
     }
@@ -91,10 +71,11 @@ pub fn read_to_string(filename: &str) -> Result<String, &'static str> {
     let mut buffer = [0u8; 4096];
 
     loop {
-        let bytes_read = unsafe { read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len()) };
+        let bytes_read =
+            unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len()) };
 
         if bytes_read < 0 {
-            let _ = unsafe { close(fd) };
+            let _ = unsafe { libc::close(fd) };
             return Err("READ ERROR");
         }
         if bytes_read == 0 {

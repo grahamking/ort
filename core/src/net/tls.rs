@@ -7,7 +7,7 @@
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
 use core::cmp;
-use core::ffi::{c_uint, c_void};
+use core::ffi::c_void;
 
 extern crate alloc;
 use alloc::format;
@@ -15,7 +15,7 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{OrtResult, Read, Write, ort_error, ort_from_err};
+use crate::{OrtResult, Read, Write, libc, ort_error, ort_from_err};
 
 mod aead;
 mod ecdh;
@@ -117,11 +117,11 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
 
     // X25519
     let mut random = [0u8; 32];
-    let got_bytes = unsafe { getrandom(random.as_mut_ptr() as *mut c_void, 32, 0) };
+    let got_bytes = unsafe { libc::getrandom(random.as_mut_ptr() as *mut c_void, 32, 0) };
     debug_assert_eq!(got_bytes, 32);
 
     let mut session_id = [0u8; 32];
-    let got_bytes = unsafe { getrandom(session_id.as_mut_ptr() as *mut c_void, 32, 0) };
+    let got_bytes = unsafe { libc::getrandom(session_id.as_mut_ptr() as *mut c_void, 32, 0) };
     debug_assert_eq!(got_bytes, 32);
 
     // legacy_version
@@ -279,7 +279,7 @@ impl<T: Read + Write> TlsStream<T> {
 
         // A private key is simply random bytes. /dev/urandom is cryptographically secure.
         let mut client_private_key = [0u8; 32];
-        let _ = unsafe { getrandom(client_private_key.as_mut_ptr() as *mut c_void, 32, 0) };
+        let _ = unsafe { libc::getrandom(client_private_key.as_mut_ptr() as *mut c_void, 32, 0) };
         debug_print("Client private key", &client_private_key);
 
         Self::send_client_hello(&mut io, sni_host, &mut transcript, &client_private_key)?;
@@ -859,10 +859,6 @@ fn write_bytes_to_file(bytes: &[u8], file_path: &str) -> std::io::Result<()> {
     Ok(())
 }
 */
-
-unsafe extern "C" {
-    pub fn getrandom(buf: *mut c_void, buflen: usize, flags: c_uint) -> isize;
-}
 
 #[cfg(test)]
 pub mod tests {

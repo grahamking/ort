@@ -7,20 +7,7 @@
 
 use core::ffi::{c_char, c_int, c_void};
 
-use crate::{OrtResult, Read, Write, ort_err};
-
-#[allow(non_camel_case_types)]
-type size_t = usize;
-#[allow(non_camel_case_types)]
-type ssize_t = isize;
-
-const O_CLOEXEC: c_int = 0x80000;
-
-//const O_RDONLY: c_int = 0;
-const O_WRONLY: c_int = 1;
-//const O_RDWR: c_int = 2;
-const O_CREAT: c_int = 64;
-const O_TRUNC: c_int = 512;
+use crate::{OrtResult, Read, Write, libc, ort_err};
 
 pub struct File {
     fd: c_int,
@@ -30,8 +17,8 @@ impl File {
     /// # Safety
     /// Calls libc::open64 with the given pointer. Is actually safe.
     pub unsafe fn create(path: *const c_char) -> OrtResult<Self> {
-        let flags = O_CLOEXEC | O_WRONLY | O_CREAT | O_TRUNC;
-        let fd = unsafe { open64(path, flags, 0o660 as c_int) };
+        let flags = libc::O_CLOEXEC | libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
+        let fd = unsafe { libc::open64(path, flags, 0o660 as c_int) };
         if fd == -1 {
             return ort_err("open64 failed");
         }
@@ -41,7 +28,7 @@ impl File {
 
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
-        let bytes_read = unsafe { read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
+        let bytes_read = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
         if bytes_read < 0 {
             ort_err("syscall read error")
         } else {
@@ -52,7 +39,8 @@ impl Read for File {
 
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = unsafe { write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
+        let bytes_written =
+            unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
         if bytes_written < 0 {
             ort_err("syscall write error")
         } else {
@@ -71,10 +59,4 @@ impl core::fmt::Write for File {
         let _ = self.write(s.as_bytes()).unwrap();
         Ok(())
     }
-}
-
-unsafe extern "C" {
-    fn open64(path: *const c_char, oflag: c_int, ...) -> c_int;
-    fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
-    fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
 }
