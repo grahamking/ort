@@ -12,11 +12,12 @@ use alloc::sync::Arc;
 
 use std::io::{self};
 use std::thread;
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 use std::{fs, path::PathBuf};
 
 use ort_openrouter_core::Context as _;
 
+use crate::Instant;
 use crate::Queue;
 use crate::build_body;
 use crate::ort_error;

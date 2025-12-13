@@ -11,6 +11,8 @@ use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
 
 type size_t = usize;
 type ssize_t = isize;
+type clockid_t = c_int;
+type time_t = i64;
 
 pub type socklen_t = u32;
 pub type sa_family_t = u16;
@@ -35,6 +37,8 @@ pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
 pub const AF_INET: c_int = 2;
 pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN: i32 = 23;
+
+pub const CLOCK_MONOTONIC: clockid_t = 1;
 
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -82,6 +86,12 @@ pub struct addrinfo {
     pub ai_next: *mut addrinfo,
 }
 
+#[repr(C)]
+pub struct timespec {
+    pub tv_sec: time_t,
+    pub tv_nsec: c_long,
+}
+
 unsafe extern "C" {
     pub fn syscall(num: c_long, ...) -> c_long;
 
@@ -119,4 +129,5 @@ unsafe extern "C" {
         option_len: socklen_t,
     ) -> c_int;
 
+    pub fn clock_gettime(clock_id: clockid_t, tp: *mut timespec) -> c_int;
 }

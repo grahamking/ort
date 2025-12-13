@@ -22,6 +22,7 @@ pub mod io;
 pub mod queue;
 pub mod resolver;
 pub mod stats;
+pub mod time;
 pub mod utils;
 
 pub trait Flushable {

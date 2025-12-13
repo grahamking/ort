@@ -21,6 +21,7 @@ pub use common::data::{
 pub use common::error::{Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err};
 pub use common::queue::{Consumer, Queue};
 pub use common::stats::Stats;
+pub use common::time::Instant;
 pub use common::utils::{
     ensure_dir_exists, get_env, path_exists, read_to_string, slug, tmux_pane_id,
 };
