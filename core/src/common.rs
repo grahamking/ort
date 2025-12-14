@@ -16,6 +16,7 @@ pub mod buf_read;
 pub mod cancel_token;
 pub mod config;
 pub mod data;
+pub mod dir;
 pub mod error;
 pub mod file;
 pub mod io;

@@ -202,6 +202,11 @@ impl Usage {
 
 impl LastData {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        if json.is_empty() {
+            return Err(
+                "Cannot continue, last-<$TMUX_PANE>.json file is empty. Usually that mains previous run failed.".into(),
+            );
+        }
         let mut p = Parser::new(json);
         p.skip_ws();
         p.expect(b'{')?;

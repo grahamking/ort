@@ -4,6 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use core::cmp::max;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
@@ -12,8 +13,6 @@ use alloc::sync::Arc;
 
 use std::io::{self};
 use std::thread;
-use std::time::SystemTime;
-use std::{fs, path::PathBuf};
 
 use ort_openrouter_core::Context as _;
 
@@ -27,6 +26,7 @@ use crate::writer::IoFmtWriter;
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
 use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
+use crate::{DirFiles, last_modified};
 use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, Stats};
@@ -160,7 +160,7 @@ pub fn run_continue(
     last.push('/');
     last.push_str(&format!("last-{}.json", tmux_pane_id()));
     let cs = CString::new(last.clone()).expect("Null bytes in config cache dir");
-    let last_file = if !path_exists(cs.as_ref()) {
+    let last_file = if path_exists(cs.as_ref()) {
         last
     } else {
         most_recent(&cache_dir, "last-").context("most_recent")?
@@ -474,7 +474,7 @@ pub fn start_prompt_thread<const N: usize>(
             let now = Instant::now();
             stats.elapsed_time = now - start;
             let stream_elapsed_time = now - token_stream_start.unwrap();
-            stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / num_tokens;
+            stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1);
 
             queue.add(Response::Stats(stats));
         }
@@ -487,24 +487,17 @@ pub fn start_prompt_thread<const N: usize>(
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
 /// Uses the minimal amount of disk access to go as fast as possible.
 fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
-    let mut most_recent_file: Option<(PathBuf, SystemTime)> = None;
+    let c_dir = CString::new(dir).map_err(ort_from_err)?;
+    let dir_files = DirFiles::new(c_dir.as_c_str())?;
 
-    for entry in fs::read_dir(dir).map_err(ort_from_err)? {
-        let entry = entry.map_err(ort_from_err)?;
-        let path = entry.path();
-
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
+    let mut most_recent_file: Option<(String, Instant)> = None;
+    for name in dir_files {
         if !name.starts_with(filename_prefix) {
             continue;
         }
-        // Only then get metadata (1 disk read)
-        let metadata = entry.metadata().map_err(ort_from_err)?;
-        if !metadata.is_file() {
-            continue;
-        }
-        let modified_time = metadata.modified().map_err(ort_from_err)?;
+        let path = dir.to_string() + "/" + &name;
+        let c_name = CString::new(path.clone()).map_err(ort_from_err)?;
+        let modified_time = last_modified(c_name.as_c_str())?;
 
         if let Some((_, prev_time)) = &most_recent_file {
             if modified_time > *prev_time {
@@ -516,7 +509,7 @@ fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
     }
 
     most_recent_file
-        .map(|(path, _)| Ok(path.display().to_string()))
+        .map(|(path, _)| Ok(path))
         .unwrap_or_else(|| {
             ort_err(format!(
                 "No files found starting with prefix: {filename_prefix}"

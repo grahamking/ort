@@ -10,13 +10,17 @@ use core::time::Duration;
 
 use crate::libc;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Instant {
     secs: u64,
     nanos: u64,
 }
 
 impl Instant {
+    pub fn new(secs: u64, nanos: u64) -> Self {
+        Instant { secs, nanos }
+    }
+
     pub fn now() -> Self {
         let mut ts: libc::timespec = unsafe { core::mem::zeroed() };
         let out =

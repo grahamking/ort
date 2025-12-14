@@ -851,7 +851,6 @@ fn print_hex(v: &[u8]) {
 */
 
 /*
-use std::fs::File;
 #[allow(dead_code)]
 fn write_bytes_to_file(bytes: &[u8], file_path: &str) -> std::io::Result<()> {
     let mut file = File::create(file_path)?;

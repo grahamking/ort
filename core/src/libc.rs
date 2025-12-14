@@ -7,12 +7,24 @@
 
 #![allow(non_camel_case_types)]
 
-use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
+use core::{
+    ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ushort, c_void},
+    mem::MaybeUninit,
+};
 
 type size_t = usize;
 type ssize_t = isize;
 type clockid_t = c_int;
 type time_t = i64;
+type ino_t = u64;
+type off_t = i64;
+type dev_t = u64;
+type nlink_t = u64;
+type mode_t = u32;
+type uid_t = u32;
+type gid_t = u32;
+type blksize_t = i64;
+type blkcnt_t = i64;
 
 pub type socklen_t = u32;
 pub type sa_family_t = u16;
@@ -39,6 +51,8 @@ pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN: i32 = 23;
 
 pub const CLOCK_MONOTONIC: clockid_t = 1;
+
+pub const DT_REG: u8 = 8;
 
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -92,6 +106,50 @@ pub struct timespec {
     pub tv_nsec: c_long,
 }
 
+#[repr(C)]
+pub struct dirent {
+    pub d_ino: ino_t,
+    pub d_off: off_t,
+    pub d_reclen: c_ushort,
+    pub d_type: c_uchar,
+    pub d_name: [c_char; 256],
+}
+
+#[repr(C)]
+pub struct stat {
+    pub st_dev: dev_t,
+    pub st_ino: ino_t,
+    pub st_nlink: nlink_t,
+    pub st_mode: mode_t,
+    pub st_uid: uid_t,
+    pub st_gid: gid_t,
+    __pad0: Padding<c_int>,
+    pub st_rdev: dev_t,
+    pub st_size: off_t,
+    pub st_blksize: blksize_t,
+    pub st_blocks: blkcnt_t,
+    pub st_atime: time_t,
+    pub st_atime_nsec: i64,
+    pub st_mtime: time_t,
+    pub st_mtime_nsec: i64,
+    pub st_ctime: time_t,
+    pub st_ctime_nsec: i64,
+    __unused: Padding<[i64; 3]>,
+}
+
+// Opaque C data structure, only used as pointer type
+pub enum DIR {}
+
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct Padding<T: Copy>(MaybeUninit<T>);
+
+impl<T: Copy> Default for Padding<T> {
+    fn default() -> Self {
+        Self(MaybeUninit::zeroed())
+    }
+}
+
 unsafe extern "C" {
     pub fn syscall(num: c_long, ...) -> c_long;
 
@@ -102,9 +160,14 @@ unsafe extern "C" {
     pub fn open(path: *const c_char, mode: c_int) -> c_int;
     pub fn access(path: *const c_char, mode: c_int) -> c_int;
     pub fn close(fd: c_int) -> c_int;
+    pub fn stat(path: *const c_char, buf: *mut stat) -> c_int;
 
     pub fn mkdir(path: *const c_char, mode: u32) -> c_int;
     pub fn getenv(name: *const c_char) -> *const c_char;
+
+    pub fn opendir(dirname: *const c_char) -> *mut DIR;
+    pub fn readdir(dirp: *mut DIR) -> *mut dirent;
+    pub fn closedir(dirp: *mut DIR) -> c_int;
 
     pub fn sigemptyset(set: *mut sigset_t) -> i32;
     pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;

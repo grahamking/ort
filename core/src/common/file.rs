@@ -5,9 +5,13 @@
 //! Copyright (c) 2025 Graham King
 //!
 
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{CStr, c_char, c_int, c_void};
+use core::mem::MaybeUninit;
 
-use crate::{OrtResult, Read, Write, libc, ort_err};
+extern crate alloc;
+use alloc::string::ToString;
+
+use crate::{Instant, OrtResult, Read, Write, libc, ort_err};
 
 pub struct File {
     fd: c_int,
@@ -59,4 +63,15 @@ impl core::fmt::Write for File {
         let _ = self.write(s.as_bytes()).unwrap();
         Ok(())
     }
+}
+
+pub fn last_modified(path: &CStr) -> OrtResult<Instant> {
+    let mut st = MaybeUninit::<libc::stat>::uninit();
+    unsafe {
+        if libc::stat(path.as_ptr(), st.as_mut_ptr()) != 0 {
+            return ort_err("stat failed: ".to_string() + &path.to_string_lossy());
+        }
+    }
+    let st = unsafe { st.assume_init() };
+    Ok(Instant::new(st.st_mtime as u64, st.st_mtime_nsec as u64))
 }
