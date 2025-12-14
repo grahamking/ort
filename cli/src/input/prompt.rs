@@ -11,7 +11,6 @@ extern crate alloc;
 use alloc::ffi::CString;
 use alloc::sync::Arc;
 
-use std::io::{self};
 use std::thread;
 
 use ort_openrouter_core::Context as _;
@@ -22,10 +21,9 @@ use crate::build_body;
 use crate::ort_error;
 use crate::resolve;
 use crate::tmux_pane_id;
-use crate::writer::IoFmtWriter;
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
-use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
+use crate::{CollectedWriter, ConsoleWriter, FileWriter, Flushable, LastWriter};
 use crate::{DirFiles, last_modified};
 use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
@@ -39,7 +37,7 @@ pub fn run(
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
-    w: impl io::Write + Send,
+    w_core: impl core::fmt::Write + Flushable + Send,
 ) -> OrtResult<()> {
     // The readers must never fall further behind than this many responses
     const RESPONSE_BUF_LEN: usize = 256;
@@ -66,13 +64,10 @@ pub fn run(
     //let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
     //let path_display = path.display().to_string();
 
-    // Convert std::io::Write (Stdout) into core::fmt::Write for no_std
-    let w_core = IoFmtWriter::new(w);
-
     let scope_err = thread::scope(|scope| {
         let mut handles = vec![];
         let jh_stdout = scope.spawn(move || -> OrtResult<()> {
-            let (stats, w_core) = if is_pipe_output {
+            let (stats, mut w_core) = if is_pipe_output {
                 let mut fw = FileWriter {
                     writer: w_core,
                     show_reasoning,
@@ -89,13 +84,12 @@ pub fn run(
                 let w_core = cw.into_inner();
                 (stats, w_core)
             };
-            let mut w = w_core.into_inner();
-            let _ = writeln!(w);
+            let _ = writeln!(w_core);
             if !is_quiet {
                 //if settings.save_to_file {
                 //    let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
                 //} else {
-                let _ = write!(w, "\nStats: {stats}\n");
+                let _ = write!(w_core, "\nStats: {stats}\n");
                 //}
             }
 
@@ -153,7 +147,7 @@ pub fn run_continue(
     settings: Settings,
     mut opts: crate::PromptOpts,
     is_pipe_output: bool,
-    w: impl io::Write + Send,
+    w: impl core::fmt::Write + Flushable + Send,
 ) -> OrtResult<()> {
     let cache_dir = cache_dir()?;
     let mut last = cache_dir.clone();
@@ -200,7 +194,7 @@ pub fn run_multi(
     settings: Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
-    mut w: impl io::Write + Send,
+    mut w: impl core::fmt::Write + Flushable + Send,
 ) -> OrtResult<()> {
     // We'll likely never use this many, but making it the same as RESPONSE_BUF_LEN
     // makes for a smaller binary because generics.
