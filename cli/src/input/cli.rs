@@ -16,7 +16,6 @@ use crate::get_env;
 use crate::list;
 use crate::load_config;
 use crate::ort_err;
-use crate::writer::IoFmtWriter;
 use crate::{ArgParseError, Cmd, parse_list_args, parse_prompt_args};
 
 const STDIN_FILENO: i32 = 0;
@@ -87,10 +86,10 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
 
     let cancel_token = crate::CancelToken::init();
 
+    // Convert std::io::Write to a our own core Write
+    let w = WriteConvertor(w);
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
-            // Convert std::io::Write (Stdout) into core::fmt::Write for no_std
-            let w_core = IoFmtWriter::new(w);
             if cli_opts.merge_config {
                 cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
             } else {
@@ -110,7 +109,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
                     cli_opts,
                     messages,
                     !is_terminal,
-                    w_core,
+                    w,
                 )
             } else {
                 prompt::run_multi(
@@ -119,7 +118,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
                     cfg.settings.unwrap_or_default(),
                     cli_opts,
                     messages,
-                    w_core,
+                    w,
                 )
             }
         }
@@ -129,14 +128,14 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
             cfg.settings.unwrap_or_default(),
             cli_opts,
             !is_terminal,
-            IoFmtWriter::new(w),
+            w,
         ),
         Cmd::List(args) => list::run(
             &api_key,
             cancel_token,
             cfg.settings.unwrap_or_default(),
             args,
-            WriteConvertor(w),
+            w,
         ),
     };
     cmd_result.map(|_| ExitCode::SUCCESS)

@@ -5,6 +5,11 @@
 //! Copyright (c) 2025 Graham King
 //!
 
+use core::fmt::Arguments;
+
+extern crate alloc;
+use alloc::string::ToString;
+
 use crate::{OrtResult, ort_err, ort_from_err};
 
 pub trait Read {
@@ -50,4 +55,20 @@ pub trait Write {
 
         Ok(())
     }
+
+    fn write_fmt(&mut self, args: Arguments<'_>) -> OrtResult<()> {
+        self.write_all(args.to_string().as_bytes())
+    }
+
+    /* Not used yet
+    fn write_str(&mut self, s: &str) -> OrtResult<usize> {
+        self.write(s.as_bytes())
+    }
+
+    fn write_byte(&mut self, b: u8) -> OrtResult<()> {
+        // TODO Override this in File, and other places where we can be more efficient
+        self.write(&vec![b])?;
+        Ok(())
+    }
+    */
 }

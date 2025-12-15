@@ -6,8 +6,6 @@
 
 pub mod input;
 pub use input::cli;
-pub mod output;
-pub use output::writer;
 
 pub use ort_openrouter_core::CancelToken;
 pub use ort_openrouter_core::Flushable;

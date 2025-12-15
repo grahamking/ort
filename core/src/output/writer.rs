@@ -4,8 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
-
 extern crate alloc;
 use alloc::ffi::CString;
 use alloc::format;
@@ -13,8 +11,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    Consumer, File, Flushable, LastData, Message, OrtResult, PromptOpts, Response, Stats,
-    ThinkEvent, Write, cache_dir, ort_err, ort_from_err, slug, tmux_pane_id,
+    Consumer, File, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, Write,
+    cache_dir, ort_err, ort_from_err, slug, tmux_pane_id,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -26,12 +24,12 @@ const CLEAR_LINE: &str = "\x1b[2K";
 
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
-pub struct ConsoleWriter<W: fmt::Write + Flushable> {
+pub struct ConsoleWriter<W: Write> {
     pub writer: W, // Must handle ANSI control chars
     pub show_reasoning: bool,
 }
 
-impl<W: fmt::Write + Flushable> ConsoleWriter<W> {
+impl<W: Write> ConsoleWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
@@ -114,12 +112,12 @@ impl<W: fmt::Write + Flushable> ConsoleWriter<W> {
     }
 }
 
-pub struct FileWriter<W: fmt::Write> {
+pub struct FileWriter<W: Write> {
     pub writer: W,
     pub show_reasoning: bool,
 }
 
-impl<W: fmt::Write> FileWriter<W> {
+impl<W: Write> FileWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }

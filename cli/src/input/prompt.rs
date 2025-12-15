@@ -23,7 +23,7 @@ use crate::resolve;
 use crate::tmux_pane_id;
 use crate::{CancelToken, http};
 use crate::{ChatCompletionsResponse, Settings};
-use crate::{CollectedWriter, ConsoleWriter, FileWriter, Flushable, LastWriter};
+use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter, Write};
 use crate::{DirFiles, last_modified};
 use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
@@ -37,7 +37,7 @@ pub fn run(
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
-    w_core: impl core::fmt::Write + Flushable + Send,
+    w_core: impl Write + Send,
 ) -> OrtResult<()> {
     // The readers must never fall further behind than this many responses
     const RESPONSE_BUF_LEN: usize = 256;
@@ -147,7 +147,7 @@ pub fn run_continue(
     settings: Settings,
     mut opts: crate::PromptOpts,
     is_pipe_output: bool,
-    w: impl core::fmt::Write + Flushable + Send,
+    w: impl Write + Send,
 ) -> OrtResult<()> {
     let cache_dir = cache_dir()?;
     let mut last = cache_dir.clone();
@@ -194,7 +194,7 @@ pub fn run_multi(
     settings: Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
-    mut w: impl core::fmt::Write + Flushable + Send,
+    mut w: impl Write + Send,
 ) -> OrtResult<()> {
     // We'll likely never use this many, but making it the same as RESPONSE_BUF_LEN
     // makes for a smaller binary because generics.
