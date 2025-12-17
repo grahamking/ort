@@ -400,12 +400,16 @@ impl ReasoningConfig {
                         let v = p
                             .parse_simple_str()
                             .map_err(|err| format!("Parsing effort: {err}"))?;
-                        let e = if v.eq_ignore_ascii_case("low") {
+                        let e = if v.eq_ignore_ascii_case("none") {
+                            ReasoningEffort::None
+                        } else if v.eq_ignore_ascii_case("low") {
                             ReasoningEffort::Low
                         } else if v.eq_ignore_ascii_case("medium") {
                             ReasoningEffort::Medium
                         } else if v.eq_ignore_ascii_case("high") {
                             ReasoningEffort::High
+                        } else if v.eq_ignore_ascii_case("xhigh") {
+                            ReasoningEffort::XHigh
                         } else {
                             return Err("invalid effort".into());
                         };

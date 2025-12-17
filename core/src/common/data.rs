@@ -187,11 +187,12 @@ impl ReasoningConfig {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ReasoningEffort {
-    None, // GPT 5.1 only so far
+    None, // GPT 5.x only
     Low,
     #[default]
     Medium,
     High,
+    XHigh, // GPT 5.x only
 }
 
 impl ReasoningEffort {
@@ -201,6 +202,7 @@ impl ReasoningEffort {
             ReasoningEffort::Low => "low",
             ReasoningEffort::Medium => "medium",
             ReasoningEffort::High => "high",
+            ReasoningEffort::XHigh => "xhigh",
         }
     }
 }
@@ -212,6 +214,7 @@ impl fmt::Display for ReasoningEffort {
             ReasoningEffort::Low => write!(f, "low"),
             ReasoningEffort::Medium => write!(f, "medium"),
             ReasoningEffort::High => write!(f, "high"),
+            ReasoningEffort::XHigh => write!(f, "xhigh"),
         }
     }
 }
