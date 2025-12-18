@@ -12,6 +12,7 @@ use core::{
     mem::MaybeUninit,
 };
 
+type c_ulong = u64;
 type size_t = usize;
 type ssize_t = isize;
 type clockid_t = c_int;
@@ -25,6 +26,7 @@ type uid_t = u32;
 type gid_t = u32;
 type blksize_t = i64;
 type blkcnt_t = i64;
+pub type pthread_t = c_ulong;
 
 pub type socklen_t = u32;
 pub type sa_family_t = u16;
@@ -54,6 +56,7 @@ pub const CLOCK_MONOTONIC: clockid_t = 1;
 
 pub const DT_REG: u8 = 8;
 
+pub const PROT_NONE: c_int = 0;
 pub const PROT_READ: c_int = 1;
 pub const PROT_WRITE: c_int = 2;
 
@@ -64,6 +67,9 @@ pub const MAP_STACK: c_int = 0x020000;
 pub const CLONE_VM: c_int = 0x100;
 pub const CLONE_FS: c_int = 0x200;
 pub const CLONE_FILES: c_int = 0x400;
+pub const CLONE_SIGHAND: c_int = 0x800;
+pub const CLONE_THREAD: c_int = 0x10000;
+pub const CLONE_SETTLS: c_int = 0x80000;
 
 pub const SIGCHLD: c_int = 17;
 
@@ -150,6 +156,11 @@ pub struct stat {
     __unused: Padding<[i64; 3]>,
 }
 
+#[repr(C)]
+pub struct pthread_attr_t {
+    __size: [u64; 7],
+}
+
 // Opaque C data structure, only used as pointer type
 pub enum DIR {}
 
@@ -215,12 +226,19 @@ unsafe extern "C" {
         fd: c_int,
         offset: off_t,
     ) -> *mut c_void;
+    pub fn mprotect(addr: *mut c_void, len: size_t, prot: c_int) -> c_int;
 
-    pub fn clone(
-        cb: extern "C" fn(*mut c_void) -> c_int,
-        child_stack: *mut c_void,
-        flags: c_int,
-        arg: *mut c_void,
-        ...
+    pub fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int;
+    pub fn pthread_attr_setstack(
+        attr: *mut pthread_attr_t,
+        stackaddr: *mut c_void,
+        stacksize: size_t,
     ) -> c_int;
+    pub fn pthread_create(
+        native: *mut pthread_t,
+        attr: *const pthread_attr_t,
+        f: extern "C" fn(*mut c_void) -> *mut c_void,
+        value: *mut c_void,
+    ) -> c_int;
+    pub fn pthread_attr_destroy(attr: *mut pthread_attr_t) -> c_int;
 }

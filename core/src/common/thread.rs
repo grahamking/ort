@@ -5,23 +5,34 @@
 //! Copyright (c) 2025 Graham King
 //!
 
-use core::ffi::{c_int, c_void};
+use core::ffi::c_void;
+use core::mem;
 use core::ptr;
 
-use crate::libc;
+use crate::{OrtResult, libc, ort_err};
 
 // Linux default (libpthread) is 8 MiB. We don't need that much.
-const STACK_SIZE: usize = 2 << 20;
+const STACK_SIZE: usize = 1024 * 1024; // 1 MiB
+const GUARD_SIZE: usize = 64 * 1024; // 64 KiB
 
 /// Start a thread.
 /// Returns 0 on success, 1 if allocating stack space failed, 2 if clone failed.
 /// # Safety
-/// Does not currently make a guard page on the stack, so don't overlow.
-pub unsafe fn spawn(cb: extern "C" fn(*mut c_void) -> c_int, arg: *mut c_void) -> c_int {
+/// TODO
+pub unsafe fn spawn(
+    thread_func: extern "C" fn(*mut c_void) -> *mut c_void,
+    arg: *mut c_void,
+) -> OrtResult<libc::pthread_t> {
+    //
+    // Stack
+    // Memory returned by mmap is aligned.
+    // We never free it, when the threads are done the whole program is usually done.
+    //
+
     let stack_base = unsafe {
         libc::mmap(
             ptr::null_mut(),
-            STACK_SIZE,
+            STACK_SIZE + GUARD_SIZE,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_STACK,
             -1,
@@ -29,22 +40,28 @@ pub unsafe fn spawn(cb: extern "C" fn(*mut c_void) -> c_int, arg: *mut c_void) -
         )
     };
     if stack_base.is_null() {
-        return 1;
+        return ort_err("Failed mmap allocating thread stack");
     }
+    unsafe { libc::mprotect(stack_base, GUARD_SIZE, libc::PROT_NONE) };
 
-    // TODO: We should add a guard page in case stack overflow
+    //
+    // pthread
+    //
 
-    let tid = unsafe {
-        libc::clone(
-            cb,
-            stack_base.add(STACK_SIZE - 1),
-            libc::CLONE_VM | libc::CLONE_FS | libc::CLONE_FILES | libc::SIGCHLD,
-            arg,
-        )
+    let mut thread_id: libc::pthread_t = 0;
+    let mut attr: libc::pthread_attr_t = unsafe { mem::zeroed() };
+
+    let rc = unsafe {
+        libc::pthread_attr_init(&mut attr);
+        // Skip the guard page when handing stack to pthreads.
+        libc::pthread_attr_setstack(&mut attr, stack_base.add(GUARD_SIZE), STACK_SIZE);
+        let rc = libc::pthread_create(&mut thread_id, &attr, thread_func, arg);
+        libc::pthread_attr_destroy(&mut attr);
+        rc
     };
-    if tid <= 0 {
-        return 2;
+    if rc != 0 {
+        ort_err("pthread_create failed")
+    } else {
+        Ok(thread_id)
     }
-
-    0
 }

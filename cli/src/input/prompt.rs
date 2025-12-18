@@ -5,8 +5,9 @@
 //! Copyright (c) 2025 Graham King
 
 use core::cmp::max;
-use core::ffi::{c_int, c_void};
+use core::ffi::c_void;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+use core::ptr;
 
 extern crate alloc;
 use alloc::ffi::CString;
@@ -314,20 +315,16 @@ pub fn start_prompt_thread(
         queue,
     });
 
-    thread::spawn(move || prompt_thread(Box::into_raw(params) as *mut c_void));
-
-    /*
-    let res = unsafe { ort_thread::spawn(prompt_thread, Box::into_raw(params) as *mut c_void) };
-    if res != 0 {
-        eprintln!("Spawning thread failed: {res}");
+    unsafe {
+        if let Err(err) = ort_thread::spawn(prompt_thread, Box::into_raw(params) as *mut c_void) {
+            eprintln!("Spawning thread failed: {err}");
+        }
     }
-    */
-
     queue_clone
 }
 
 // extern "C" so that we can call it from `clone`
-extern "C" fn prompt_thread(arg: *mut c_void) -> c_int {
+extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let params = unsafe { Box::from_raw(arg as *mut PromptThreadParams) };
     let body = build_body(params.model_idx, &params.opts, &params.messages).unwrap(); // TODO unwrap
     let start = Instant::now();
@@ -359,7 +356,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> c_int {
         }
         Err(err) => {
             params.queue.add(Response::Error(err.to_string()));
-            return 1;
+            return ptr::null_mut();
         }
     }
 
@@ -509,7 +506,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> c_int {
     }
     params.queue.close();
 
-    0
+    ptr::null_mut()
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
