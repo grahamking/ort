@@ -22,6 +22,6 @@ pub use ort_openrouter_core::{
     DirFiles, File, FileWriter, Instant, LastData, LastWriter, ListOpts, Message, OrtBufReader,
     Priority, PromptOpts, Queue, Read, ReasoningConfig, ReasoningEffort, Response, Role, TcpSocket,
     ThinkEvent, TlsStream, Usage, Write, last_modified, parse_list_args, parse_prompt_args,
-    resolve,
+    resolve, thread,
 };
 pub use ort_openrouter_core::{chunked, http, list};

@@ -23,6 +23,7 @@ pub mod io;
 pub mod queue;
 pub mod resolver;
 pub mod stats;
+pub mod thread;
 pub mod time;
 pub mod utils;
 

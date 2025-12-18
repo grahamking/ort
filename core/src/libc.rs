@@ -54,6 +54,19 @@ pub const CLOCK_MONOTONIC: clockid_t = 1;
 
 pub const DT_REG: u8 = 8;
 
+pub const PROT_READ: c_int = 1;
+pub const PROT_WRITE: c_int = 2;
+
+pub const MAP_PRIVATE: c_int = 0x0002;
+pub const MAP_ANONYMOUS: c_int = 0x0020;
+pub const MAP_STACK: c_int = 0x020000;
+
+pub const CLONE_VM: c_int = 0x100;
+pub const CLONE_FS: c_int = 0x200;
+pub const CLONE_FILES: c_int = 0x400;
+
+pub const SIGCHLD: c_int = 17;
+
 #[repr(C)]
 #[allow(non_camel_case_types)]
 pub struct sigset_t {
@@ -193,4 +206,21 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub fn clock_gettime(clock_id: clockid_t, tp: *mut timespec) -> c_int;
+
+    pub fn mmap(
+        addr: *mut c_void,
+        len: size_t,
+        prot: c_int,
+        flags: c_int,
+        fd: c_int,
+        offset: off_t,
+    ) -> *mut c_void;
+
+    pub fn clone(
+        cb: extern "C" fn(*mut c_void) -> c_int,
+        child_stack: *mut c_void,
+        flags: c_int,
+        arg: *mut c_void,
+        ...
+    ) -> c_int;
 }
