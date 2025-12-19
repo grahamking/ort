@@ -12,7 +12,7 @@
 
 use ort_openrouter_cli::{
     CancelToken, Context, Message, OrtResult, PromptOpts, ReasoningConfig, ReasoningEffort,
-    Response, ThinkEvent, get_env, input::prompt, ort_err, ort_from_err,
+    Response, ThinkEvent, get_env, ort_err, ort_from_err, prompt,
 };
 use std::io::Write as _;
 

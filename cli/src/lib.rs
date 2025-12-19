@@ -25,4 +25,4 @@ pub use ort_openrouter_core::{
     ThinkEvent, TlsStream, Usage, Write, last_modified, parse_list_args, parse_prompt_args,
     resolve, thread,
 };
-pub use ort_openrouter_core::{chunked, http, list};
+pub use ort_openrouter_core::{chunked, http, list, prompt};

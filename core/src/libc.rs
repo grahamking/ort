@@ -177,6 +177,8 @@ impl<T: Copy> Default for Padding<T> {
 unsafe extern "C" {
     pub fn syscall(num: c_long, ...) -> c_long;
 
+    pub fn printf(format: *const c_char, ...) -> c_int;
+
     pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
     pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
 
