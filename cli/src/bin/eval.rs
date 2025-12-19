@@ -10,7 +10,7 @@
 //! Writes the results in a directory hierarchy.
 //! Make a MODELS_FILE and PROMPTS_FILE each with only two entries and try it, you'll see.
 
-use ort_openrouter_cli::{
+use ort_openrouter_core::{
     CancelToken, Context, Message, OrtResult, PromptOpts, ReasoningConfig, ReasoningEffort,
     Response, ThinkEvent, get_env, ort_err, ort_from_err, prompt,
 };

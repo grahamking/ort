@@ -4,8 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use ort_openrouter_cli::cli;
-use ort_openrouter_core::{OrtResult, Write, ort_from_err};
+use ort_openrouter_core::{OrtResult, Write, cli, ort_from_err};
 use std::{io::IsTerminal, process::ExitCode};
 
 fn main() -> ExitCode {

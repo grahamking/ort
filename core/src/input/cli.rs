@@ -6,6 +6,11 @@
 
 use core::ffi::{c_int, c_void};
 
+extern crate alloc;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
+
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;

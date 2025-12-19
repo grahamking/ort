@@ -32,6 +32,7 @@ pub use common::{
 };
 
 pub use input::args::{ArgParseError, Cmd, ListOpts, parse_list_args, parse_prompt_args};
+pub use input::cli;
 pub use input::list;
 pub use input::prompt;
 pub use input::to_json::build_body;
