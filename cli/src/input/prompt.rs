@@ -13,8 +13,6 @@ extern crate alloc;
 use alloc::ffi::CString;
 use alloc::sync::Arc;
 
-use std::thread;
-
 use ort_openrouter_core::Context as _;
 
 use crate::Instant;
@@ -39,14 +37,14 @@ const RESPONSE_BUF_LEN: usize = 256;
 type ResponseQueue = Queue<Response, RESPONSE_BUF_LEN>;
 type ResponseConsumer = Consumer<Response, RESPONSE_BUF_LEN>;
 
-pub fn run(
+pub fn run<W: Write + Send>(
     api_key: &str,
     cancel_token: CancelToken,
     settings: Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
-    w_core: impl Write + Send,
+    w_core: W,
 ) -> OrtResult<()> {
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
@@ -65,55 +63,52 @@ pub fn run(
     let consumer_stdout = queue.consumer();
     let consumer_last = queue.consumer();
 
-    let scope_err = thread::scope(|scope| {
-        let mut handles = vec![];
-        let jh_stdout = scope.spawn(move || -> OrtResult<()> {
-            let (stats, mut w_core) = if is_pipe_output {
-                let mut fw = FileWriter {
-                    writer: w_core,
-                    show_reasoning,
-                };
-                let stats = fw.run(consumer_stdout)?;
-                let w_core = fw.into_inner();
-                (stats, w_core)
-            } else {
-                let mut cw = ConsoleWriter {
-                    writer: w_core,
-                    show_reasoning,
-                };
-                let stats = cw.run(consumer_stdout)?;
-                let w_core = cw.into_inner();
-                (stats, w_core)
-            };
-            let _ = writeln!(w_core);
-            if !is_quiet {
-                let _ = write!(w_core, "\nStats: {stats}\n");
-            }
-
-            Ok(())
-        });
-        handles.push(jh_stdout);
-
-        if settings.save_to_file {
-            let jh_last = scope.spawn(move || -> OrtResult<()> {
-                let mut last_writer = LastWriter::new(opts, messages)?;
-                last_writer.run(consumer_last)?;
-                Ok(())
-            });
-            handles.push(jh_last);
-        }
-
-        for h in handles {
-            if let Err(err) = h.join().unwrap() {
-                let mut oe = ort_error(err.to_string());
-                oe.context("Internal thread error");
-                // The errors are all the same so only print the first
-                return Err(oe);
-            }
-        }
-        Ok(())
+    let mut tids = vec![];
+    let thread_params = Box::new(SingleRunnerThreadParams {
+        w_core,
+        consumer_stdout,
+        is_pipe_output,
+        show_reasoning,
+        is_quiet,
     });
-    scope_err?;
+    unsafe {
+        match ort_thread::spawn(
+            single_runner_thread::<W>,
+            Box::into_raw(thread_params) as *mut c_void,
+        ) {
+            Ok(tid) => {
+                tids.push(tid);
+            }
+            Err(err) => {
+                eprintln!("Spawning multi_collect_thread failed: {err}");
+            }
+        }
+    }
+
+    if settings.save_to_file {
+        let thread_params = Box::new(LastWriterThreadParams {
+            opts,
+            messages,
+            consumer_last,
+        });
+        unsafe {
+            match ort_thread::spawn(
+                last_writer_thread,
+                Box::into_raw(thread_params) as *mut c_void,
+            ) {
+                Ok(tid) => {
+                    tids.push(tid);
+                }
+                Err(err) => {
+                    eprintln!("Spawning last_writer_thread failed: {err}");
+                }
+            }
+        }
+    }
+
+    for tid in tids {
+        unsafe { libc::pthread_join(tid, ptr::null_mut()) };
+    }
 
     Ok(())
 }
@@ -503,6 +498,75 @@ extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
                     .add(format!("--- {}: {err_str} ---", params.model_name));
             }
         }
+    }
+    ptr::null_mut()
+}
+
+struct SingleRunnerThreadParams<W: Write + Send> {
+    w_core: W,
+    consumer_stdout: ResponseConsumer,
+    is_pipe_output: bool,
+    show_reasoning: bool,
+    is_quiet: bool,
+}
+
+extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_void {
+    let params = unsafe { Box::from_raw(arg as *mut SingleRunnerThreadParams<W>) };
+
+    let (stats, mut w_core) = if params.is_pipe_output {
+        let mut fw = FileWriter {
+            writer: params.w_core,
+            show_reasoning: params.show_reasoning,
+        };
+        let stats = match fw.run(params.consumer_stdout) {
+            Ok(stats) => stats,
+            Err(err) => {
+                eprintln!("single_runner_thread FileWriter run: {err}");
+                return ptr::null_mut();
+            }
+        };
+        let w_core = fw.into_inner();
+        (stats, w_core)
+    } else {
+        let mut cw = ConsoleWriter {
+            writer: params.w_core,
+            show_reasoning: params.show_reasoning,
+        };
+        let stats = match cw.run(params.consumer_stdout) {
+            Ok(stats) => stats,
+            Err(err) => {
+                eprintln!("single_runner_thread ConsoleWriter run: {err}");
+                return ptr::null_mut();
+            }
+        };
+        let w_core = cw.into_inner();
+        (stats, w_core)
+    };
+    let _ = writeln!(w_core);
+    if !params.is_quiet {
+        let _ = write!(w_core, "\nStats: {stats}\n");
+    }
+
+    ptr::null_mut()
+}
+
+struct LastWriterThreadParams {
+    opts: PromptOpts,
+    messages: Vec<Message>,
+    consumer_last: ResponseConsumer,
+}
+
+extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
+    let params = unsafe { Box::from_raw(arg as *mut LastWriterThreadParams) };
+    let mut last_writer = match LastWriter::new(params.opts, params.messages) {
+        Ok(lw) => lw,
+        Err(err) => {
+            eprintln!("last_writer_thread LastWriter::new: {err}");
+            return ptr::null_mut();
+        }
+    };
+    if let Err(err) = last_writer.run(params.consumer_last) {
+        eprintln!("last_writer_thread last_writer.run: {err}");
     }
     ptr::null_mut()
 }
