@@ -18,14 +18,15 @@ use std::thread;
 use ort_openrouter_core::Context as _;
 
 use crate::Instant;
-use crate::Queue;
 use crate::build_body;
+use crate::libc;
 use crate::ort_error;
 use crate::resolve;
 use crate::tmux_pane_id;
 use crate::{CancelToken, http, thread as ort_thread};
 use crate::{ChatCompletionsResponse, Settings};
 use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter, Write};
+use crate::{Consumer, Queue};
 use crate::{DirFiles, last_modified};
 use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
 use crate::{Message, PromptOpts};
@@ -36,6 +37,7 @@ use crate::{Response, ThinkEvent};
 const RESPONSE_BUF_LEN: usize = 256;
 
 type ResponseQueue = Queue<Response, RESPONSE_BUF_LEN>;
+type ResponseConsumer = Consumer<Response, RESPONSE_BUF_LEN>;
 
 pub fn run(
     api_key: &str,
@@ -63,10 +65,6 @@ pub fn run(
     let consumer_stdout = queue.consumer();
     let consumer_last = queue.consumer();
 
-    //let cache_dir = config::cache_dir()?;
-    //let path = cache_dir.join(format!("{}.txt", slug(&model_name)));
-    //let path_display = path.display().to_string();
-
     let scope_err = thread::scope(|scope| {
         let mut handles = vec![];
         let jh_stdout = scope.spawn(move || -> OrtResult<()> {
@@ -89,11 +87,7 @@ pub fn run(
             };
             let _ = writeln!(w_core);
             if !is_quiet {
-                //if settings.save_to_file {
-                //    let _ = write!(handle, "\nStats: {stats}. Saved to {path_display}\n");
-                //} else {
                 let _ = write!(w_core, "\nStats: {stats}\n");
-                //}
             }
 
             Ok(())
@@ -101,24 +95,6 @@ pub fn run(
         handles.push(jh_stdout);
 
         if settings.save_to_file {
-            /*
-            let jh_file = thread::spawn(move || -> OrtResult<()> {
-                let f = File::create(&path)?;
-                let mut file_writer = FileWriter {
-                    writer: Box::new(f),
-                    show_reasoning,
-                };
-                let stats = file_writer.run(rx_file)?;
-                let f = file_writer.inner();
-                let _ = writeln!(f);
-                if !is_quiet {
-                    let _ = write!(f, "\nStats: {stats}\n");
-                }
-                Ok(())
-            });
-            handles.push(jh_file);
-            */
-
             let jh_last = scope.spawn(move || -> OrtResult<()> {
                 let mut last_writer = LastWriter::new(opts, messages)?;
                 last_writer.run(consumer_last)?;
@@ -223,29 +199,27 @@ pub fn run_multi(
     let queue_done = Queue::<String, MAX_MODELS>::new();
     let mut consumer_done = queue_done.consumer();
 
-    let mut handles = Vec::with_capacity(num_models);
-
     // Collect the responses, printing them when ready
+    let mut tids = Vec::with_capacity(num_models);
     for (model_name, consumer_collected) in query_consumers {
-        let qq = queue_done.clone();
-        let handle = thread::spawn(move || -> OrtResult<()> {
-            let mut mr = CollectedWriter {};
-            match mr.run(consumer_collected) {
-                Ok(full_output) => {
-                    qq.add(full_output);
+        let thread_params = Box::new(MultiCollectThreadParams {
+            model_name,
+            consumer_collected,
+            full_output_queue: queue_done.clone(),
+        });
+        unsafe {
+            match ort_thread::spawn(
+                multi_collect_thread,
+                Box::into_raw(thread_params) as *mut c_void,
+            ) {
+                Ok(tid) => {
+                    tids.push(tid);
                 }
                 Err(err) => {
-                    let err_str = err.to_string();
-                    if err_str.contains("429 Too Many Requests") {
-                        qq.add(format!("--- {model_name}: Overloaded ---"));
-                    } else {
-                        qq.add(format!("--- {model_name}: {err_str} ---"));
-                    }
+                    eprintln!("Spawning multi_collect_thread failed: {err}");
                 }
             }
-            Ok(())
-        });
-        handles.push(handle);
+        }
     }
 
     for _ in 0..num_models {
@@ -265,16 +239,11 @@ pub fn run_multi(
     }
 
     // All the threads should be done
-    for h in handles {
+    for tid in tids {
         if cancel_token.is_cancelled() {
             break;
         }
-        if let Err(err) = h.join().unwrap() {
-            let mut oe = ort_error(err.to_string());
-            oe.context("Internal thread error");
-            // The errors are all the same so only print the first
-            return Err(oe);
-        }
+        unsafe { libc::pthread_join(tid, ptr::null_mut()) };
     }
 
     Ok(())
@@ -323,7 +292,7 @@ pub fn start_prompt_thread(
     queue_clone
 }
 
-// extern "C" so that we can call it from `clone`
+// extern "C" so that we can call it from `pthread_create`
 extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let params = unsafe { Box::from_raw(arg as *mut PromptThreadParams) };
     let body = build_body(params.model_idx, &params.opts, &params.messages).unwrap(); // TODO unwrap
@@ -506,6 +475,35 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     }
     params.queue.close();
 
+    ptr::null_mut()
+}
+
+struct MultiCollectThreadParams {
+    model_name: String,
+    consumer_collected: ResponseConsumer,
+    full_output_queue: Arc<Queue<String, 256>>,
+}
+
+extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
+    let params = unsafe { Box::from_raw(arg as *mut MultiCollectThreadParams) };
+    let mut mr = CollectedWriter {};
+    match mr.run(params.consumer_collected) {
+        Ok(full_output) => {
+            params.full_output_queue.add(full_output);
+        }
+        Err(err) => {
+            let err_str = err.to_string();
+            if err_str.contains("429 Too Many Requests") {
+                params
+                    .full_output_queue
+                    .add(format!("--- {}: Overloaded ---", params.model_name));
+            } else {
+                params
+                    .full_output_queue
+                    .add(format!("--- {}: {err_str} ---", params.model_name));
+            }
+        }
+    }
     ptr::null_mut()
 }
 

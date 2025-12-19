@@ -11,6 +11,7 @@ pub use ort_openrouter_core::CancelToken;
 pub use ort_openrouter_core::Flushable;
 pub use ort_openrouter_core::Stats;
 pub use ort_openrouter_core::build_body;
+pub use ort_openrouter_core::libc;
 pub use ort_openrouter_core::{ApiKey, ConfigFile, Settings};
 pub use ort_openrouter_core::{
     ArgParseError, Context, OrtError, OrtResult, cache_dir, ensure_dir_exists, get_env,
