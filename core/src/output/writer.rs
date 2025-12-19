@@ -24,12 +24,12 @@ const CLEAR_LINE: &str = "\x1b[2K";
 
 const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
 
-pub struct ConsoleWriter<W: Write> {
+pub struct ConsoleWriter<W: Write + Send> {
     pub writer: W, // Must handle ANSI control chars
     pub show_reasoning: bool,
 }
 
-impl<W: Write> ConsoleWriter<W> {
+impl<W: Write + Send> ConsoleWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
@@ -112,12 +112,12 @@ impl<W: Write> ConsoleWriter<W> {
     }
 }
 
-pub struct FileWriter<W: Write> {
+pub struct FileWriter<W: Write + Send> {
     pub writer: W,
     pub show_reasoning: bool,
 }
 
-impl<W: Write> FileWriter<W> {
+impl<W: Write + Send> FileWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
