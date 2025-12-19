@@ -20,34 +20,35 @@ use alloc::vec::Vec;
 
 use crate::Context as _;
 
-use crate::Instant;
+use crate::ChatCompletionsResponse;
+use crate::OrtResult;
 use crate::build_body;
+use crate::common::config;
+use crate::common::dir;
+use crate::common::file;
+use crate::common::queue;
+use crate::common::resolver;
+use crate::common::stats;
+use crate::common::time;
+use crate::common::utils;
 use crate::libc;
 use crate::ort_error;
-use crate::resolve;
-use crate::tmux_pane_id;
 use crate::{CancelToken, http, thread as ort_thread};
-use crate::{ChatCompletionsResponse, Settings};
 use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter, Write};
-use crate::{Consumer, Queue};
-use crate::{DirFiles, last_modified};
-use crate::{
-    LastData, OrtError, cache_dir, filename_read_to_string, ort_err, ort_from_err, path_exists,
-};
+use crate::{LastData, OrtError, ort_err, ort_from_err};
 use crate::{Message, PromptOpts};
-use crate::{OrtResult, Stats};
 use crate::{Response, ThinkEvent};
 
 // The readers must never fall further behind than this many responses
 const RESPONSE_BUF_LEN: usize = 256;
 
-type ResponseQueue = Queue<Response, RESPONSE_BUF_LEN>;
-type ResponseConsumer = Consumer<Response, RESPONSE_BUF_LEN>;
+type ResponseQueue = queue::Queue<Response, RESPONSE_BUF_LEN>;
+type ResponseConsumer = queue::Consumer<Response, RESPONSE_BUF_LEN>;
 
 pub fn run<W: Write + Send>(
     api_key: &str,
     cancel_token: CancelToken,
-    settings: Settings,
+    settings: config::Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
@@ -133,23 +134,23 @@ pub fn run<W: Write + Send>(
 pub fn run_continue(
     api_key: &str,
     cancel_token: CancelToken,
-    settings: Settings,
+    settings: config::Settings,
     mut opts: crate::PromptOpts,
     is_pipe_output: bool,
     w: impl Write + Send,
 ) -> OrtResult<()> {
-    let cache_dir = cache_dir()?;
+    let cache_dir = config::cache_dir()?;
     let mut last = cache_dir.clone();
     last.push('/');
-    last.push_str(&format!("last-{}.json", tmux_pane_id()));
+    last.push_str(&format!("last-{}.json", utils::tmux_pane_id()));
     let cs = CString::new(last.clone()).expect("Null bytes in config cache dir");
-    let last_file = if path_exists(cs.as_ref()) {
+    let last_file = if utils::path_exists(cs.as_ref()) {
         last
     } else {
         most_recent(&cache_dir, "last-").context("most_recent")?
     };
 
-    let mut last = match filename_read_to_string(&last_file) {
+    let mut last = match utils::filename_read_to_string(&last_file) {
         Ok(hist_str) => LastData::from_json(&hist_str)
             .map_err(|err| ort_error(format!("Failed to parse last: {err}")))?,
         Err("NOT FOUND") => {
@@ -180,7 +181,7 @@ pub fn run_continue(
 pub fn run_multi(
     api_key: &str,
     cancel_token: CancelToken,
-    settings: Settings,
+    settings: config::Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     mut w: impl Write + Send,
@@ -206,7 +207,7 @@ pub fn run_multi(
         query_consumers.push((model_name, consumer_collected));
     }
 
-    let queue_done = Queue::<String, MAX_MODELS>::new();
+    let queue_done = queue::Queue::<String, MAX_MODELS>::new();
     let mut consumer_done = queue_done.consumer();
 
     // Collect the responses, printing them when ready
@@ -311,9 +312,9 @@ pub fn start_prompt_thread(
 extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let params = unsafe { Box::from_raw(arg as *mut PromptThreadParams) };
     let body = build_body(params.model_idx, &params.opts, &params.messages).unwrap(); // TODO unwrap
-    let start = Instant::now();
+    let start = time::Instant::now();
     let addrs: Vec<_> = if params.dns.is_empty() {
-        let ips = unsafe { resolve(c"openrouter.ai".as_ptr()).unwrap() };
+        let ips = unsafe { resolver::resolve(c"openrouter.ai".as_ptr()).unwrap() };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
             .collect()
@@ -344,7 +345,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         }
     }
 
-    let mut stats: Stats = Default::default();
+    let mut stats: stats::Stats = Default::default();
     let mut token_stream_start = None;
     let mut num_tokens = 0;
     let mut is_start = true;
@@ -421,8 +422,8 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
 
                 // Record time to first token
                 if stats.time_to_first_token.is_none() {
-                    stats.time_to_first_token = Some(Instant::now() - start);
-                    token_stream_start = Some(Instant::now());
+                    stats.time_to_first_token = Some(time::Instant::now() - start);
+                    token_stream_start = Some(time::Instant::now());
                 }
 
                 // Handle reasoning content
@@ -481,7 +482,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         params.queue.add(Response::Error("Interrupted".to_string()));
     } else {
         // Clean finish, send stats
-        let now = Instant::now();
+        let now = time::Instant::now();
         stats.elapsed_time = now - start;
         let stream_elapsed_time = now - token_stream_start.unwrap();
         stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1);
@@ -496,7 +497,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
 struct MultiCollectThreadParams {
     model_name: String,
     consumer_collected: ResponseConsumer,
-    full_output_queue: Arc<Queue<String, 256>>,
+    full_output_queue: Arc<queue::Queue<String, 256>>,
 }
 
 extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
@@ -619,16 +620,16 @@ extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
 /// Uses the minimal amount of disk access to go as fast as possible.
 fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
     let c_dir = CString::new(dir).map_err(ort_from_err)?;
-    let dir_files = DirFiles::new(c_dir.as_c_str())?;
+    let dir_files = dir::DirFiles::new(c_dir.as_c_str())?;
 
-    let mut most_recent_file: Option<(String, Instant)> = None;
+    let mut most_recent_file: Option<(String, time::Instant)> = None;
     for name in dir_files {
         if !name.starts_with(filename_prefix) {
             continue;
         }
         let path = dir.to_string() + "/" + &name;
         let c_name = CString::new(path.clone()).map_err(ort_from_err)?;
-        let modified_time = last_modified(c_name.as_c_str())?;
+        let modified_time = file::last_modified(c_name.as_c_str())?;
 
         if let Some((_, prev_time)) = &most_recent_file {
             if modified_time > *prev_time {

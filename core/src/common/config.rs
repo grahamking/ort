@@ -9,10 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
-use crate::{
-    Context as _, OrtResult, PromptOpts, ensure_dir_exists, filename_read_to_string, get_env,
-    ort_err, ort_error,
-};
+use crate::{Context as _, OrtResult, PromptOpts, common::utils, ort_err, ort_error};
 
 const OPENROUTER_KEY: &str = "openrouter";
 const CONFIG_FILE: &str = "ort.json";
@@ -24,7 +21,7 @@ pub fn load_config() -> OrtResult<ConfigFile> {
     config_dir.push('/');
     config_dir.push_str(CONFIG_FILE);
     let config_file = config_dir;
-    match filename_read_to_string(&config_file) {
+    match utils::filename_read_to_string(&config_file) {
         Ok(cfg_str) => ConfigFile::from_json(&cfg_str)
             .map_err(|err| ort_error("Failed to parse config: ".to_string() + &err)),
         Err("NOT FOUND") => Ok(ConfigFile::default()),
@@ -86,23 +83,23 @@ pub fn cache_dir() -> OrtResult<String> {
     let mut cache_dir = xdg_dir(c"XDG_CACHE_HOME", ".cache")?;
     cache_dir.push('/');
     cache_dir.push_str("ort");
-    ensure_dir_exists(&cache_dir);
+    utils::ensure_dir_exists(&cache_dir);
     Ok(cache_dir)
 }
 
 /// A standard XDG directory based on environment variable, or default
 pub fn xdg_dir(var_name: &CStr, default: &'static str) -> OrtResult<String> {
-    let dir = get_env(var_name);
+    let dir = utils::get_env(var_name);
     if !dir.is_empty() {
         // If it's in the env var, we assume the dir exists
         return Ok(dir);
     }
 
-    let mut home_dir = get_env(c"HOME");
+    let mut home_dir = utils::get_env(c"HOME");
     if !home_dir.is_empty() {
         home_dir.push('/');
         home_dir.push_str(default);
-        ensure_dir_exists(&home_dir);
+        utils::ensure_dir_exists(&home_dir);
         Ok(home_dir)
     } else {
         Err(ort_error("Could not get home dir. Is $HOME set?"))

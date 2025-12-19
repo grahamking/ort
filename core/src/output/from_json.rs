@@ -13,7 +13,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{ApiKey, ConfigFile, Settings};
+use crate::common::config;
 use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -590,14 +590,14 @@ impl PromptOpts {
     }
 }
 
-impl ConfigFile {
+impl config::ConfigFile {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut p = Parser::new(json);
         p.skip_ws();
         p.expect(b'{')?;
 
-        let mut settings: Option<Settings> = None;
-        let mut keys: Vec<ApiKey> = vec![];
+        let mut settings: Option<config::Settings> = None;
+        let mut keys: Vec<config::ApiKey> = vec![];
         let mut prompt_opts: Option<PromptOpts> = None;
 
         loop {
@@ -619,7 +619,7 @@ impl ConfigFile {
                         return Err("duplicate field: settings".into());
                     }
                     let settings_json = p.value_slice()?;
-                    settings = Some(Settings::from_json(settings_json)?);
+                    settings = Some(config::Settings::from_json(settings_json)?);
                 }
                 "keys" => {
                     if !keys.is_empty() {
@@ -630,7 +630,7 @@ impl ConfigFile {
                     }
                     loop {
                         let j = p.value_slice()?;
-                        let api_key = ApiKey::from_json(j)?;
+                        let api_key = config::ApiKey::from_json(j)?;
                         keys.push(api_key);
                         p.skip_ws();
                         if p.try_consume(b',') {
@@ -661,7 +661,7 @@ impl ConfigFile {
             }
         }
 
-        Ok(ConfigFile {
+        Ok(config::ConfigFile {
             settings,
             keys,
             prompt_opts,
@@ -669,7 +669,7 @@ impl ConfigFile {
     }
 }
 
-impl Settings {
+impl config::Settings {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut p = Parser::new(json);
         p.skip_ws();
@@ -743,15 +743,15 @@ impl Settings {
             }
         }
 
-        let default = Settings::default();
-        Ok(Settings {
+        let default = config::Settings::default();
+        Ok(config::Settings {
             save_to_file: save_to_file.unwrap_or(default.save_to_file),
             dns,
         })
     }
 }
 
-impl ApiKey {
+impl config::ApiKey {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut p = Parser::new(json);
         p.skip_ws();
@@ -803,7 +803,7 @@ impl ApiKey {
             }
         }
 
-        Ok(ApiKey::new(
+        Ok(config::ApiKey::new(
             name.expect("Missing ApiKey name"),
             value.expect("Missing ApiKey value"),
         ))
@@ -1553,8 +1553,8 @@ mod tests {
     #[test]
     fn api_key() {
         let s = r#"{"name":"openrouter","value":"sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef"}"#;
-        let got = ApiKey::from_json(s).unwrap();
-        let expect = ApiKey::new(
+        let got = config::ApiKey::from_json(s).unwrap();
+        let expect = config::ApiKey::new(
             "openrouter".to_string(),
             "sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef".to_string(),
         );
@@ -1567,7 +1567,7 @@ mod tests {
     "save_to_file": true,
     "dns": ["104.18.2.115", "104.18.3.115"]
 }"#;
-        let settings = Settings::from_json(s).unwrap();
+        let settings = config::Settings::from_json(s).unwrap();
         assert!(settings.save_to_file);
         assert_eq!(settings.dns, ["104.18.2.115", "104.18.3.115"]);
     }
@@ -1592,7 +1592,7 @@ mod tests {
     }
 }
 "#;
-        let cfg = ConfigFile::from_json(s).unwrap();
+        let cfg = config::ConfigFile::from_json(s).unwrap();
         assert_eq!(cfg.keys.len(), 1);
         assert!(cfg.settings.is_some());
         assert!(cfg.prompt_opts.is_some());

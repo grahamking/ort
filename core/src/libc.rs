@@ -6,6 +6,7 @@
 //!
 
 #![allow(non_camel_case_types)]
+#![allow(clippy::upper_case_acronyms)]
 
 use core::{
     ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ushort, c_void},
@@ -63,15 +64,6 @@ pub const PROT_WRITE: c_int = 2;
 pub const MAP_PRIVATE: c_int = 0x0002;
 pub const MAP_ANONYMOUS: c_int = 0x0020;
 pub const MAP_STACK: c_int = 0x020000;
-
-pub const CLONE_VM: c_int = 0x100;
-pub const CLONE_FS: c_int = 0x200;
-pub const CLONE_FILES: c_int = 0x400;
-pub const CLONE_SIGHAND: c_int = 0x800;
-pub const CLONE_THREAD: c_int = 0x10000;
-pub const CLONE_SETTLS: c_int = 0x80000;
-
-pub const SIGCHLD: c_int = 17;
 
 #[repr(C)]
 #[allow(non_camel_case_types)]

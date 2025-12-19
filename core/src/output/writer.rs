@@ -11,8 +11,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    Consumer, File, LastData, Message, OrtResult, PromptOpts, Response, Stats, ThinkEvent, Write,
-    cache_dir, ort_err, ort_from_err, slug, tmux_pane_id,
+    LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write, common::config,
+    common::file, common::queue, common::stats, common::utils, ort_err, ort_from_err,
 };
 
 const BOLD_START: &str = "\x1b[1m";
@@ -33,7 +33,10 @@ impl<W: Write + Send> ConsoleWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
-    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
+    pub fn run<const N: usize>(
+        &mut self,
+        mut rx: queue::Consumer<Response, N>,
+    ) -> OrtResult<stats::Stats> {
         let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
         let _ = self.writer.flush();
 
@@ -121,7 +124,10 @@ impl<W: Write + Send> FileWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
-    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
+    pub fn run<const N: usize>(
+        &mut self,
+        mut rx: queue::Consumer<Response, N>,
+    ) -> OrtResult<stats::Stats> {
         let mut stats_out = None;
         while let Some(data) = rx.get_next() {
             match data {
@@ -166,7 +172,10 @@ impl<W: Write + Send> FileWriter<W> {
 pub struct CollectedWriter {}
 
 impl CollectedWriter {
-    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<String> {
+    pub fn run<const N: usize>(
+        &mut self,
+        mut rx: queue::Consumer<Response, N>,
+    ) -> OrtResult<String> {
         let mut got_stats = None;
         let mut contents = Vec::with_capacity(1024);
         while let Some(data) = rx.get_next() {
@@ -196,23 +205,26 @@ impl CollectedWriter {
 }
 
 pub struct LastWriter {
-    w: File,
+    w: file::File,
     data: LastData,
 }
 
 impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
-        let last_filename = format!("last-{}.json", tmux_pane_id());
-        let mut last_path = cache_dir()?;
+        let last_filename = format!("last-{}.json", utils::tmux_pane_id());
+        let mut last_path = config::cache_dir()?;
         last_path.push('/');
         last_path.push_str(&last_filename);
         let c_path = CString::new(last_path).map_err(ort_from_err)?;
-        let last_file = unsafe { File::create(c_path.as_ptr()).map_err(ort_from_err)? };
+        let last_file = unsafe { file::File::create(c_path.as_ptr()).map_err(ort_from_err)? };
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })
     }
 
-    pub fn run<const N: usize>(&mut self, mut rx: Consumer<Response, N>) -> OrtResult<Stats> {
+    pub fn run<const N: usize>(
+        &mut self,
+        mut rx: queue::Consumer<Response, N>,
+    ) -> OrtResult<stats::Stats> {
         let mut contents = Vec::with_capacity(1024);
         while let Some(data) = rx.get_next() {
             match data {
@@ -222,7 +234,7 @@ impl LastWriter {
                     contents.push(content);
                 }
                 Response::Stats(stats) => {
-                    self.data.opts.provider = Some(slug(stats.provider()));
+                    self.data.opts.provider = Some(utils::slug(stats.provider()));
                 }
                 Response::Error(err) => {
                     return ort_err(format!("LastWriter: {err}"));
@@ -239,6 +251,6 @@ impl LastWriter {
         self.data.to_json_writer(&mut self.w)?;
         let _ = self.w.flush();
 
-        Ok(Stats::default()) // Stats is not used
+        Ok(stats::Stats::default()) // Stats is not used
     }
 }

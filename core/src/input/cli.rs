@@ -14,14 +14,14 @@ use alloc::vec::Vec;
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
-use crate::fd_read_to_string;
-use crate::get_env;
+use crate::common::buf_read;
+use crate::common::config;
+use crate::common::utils;
+use crate::input::args;
 use crate::libc;
 use crate::list;
-use crate::load_config;
 use crate::ort_err;
 use crate::prompt;
-use crate::{ArgParseError, Cmd, parse_list_args, parse_prompt_args};
 
 const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
@@ -36,33 +36,33 @@ See https://github.com/grahamking/ort for full docs.
     unsafe { libc::write(STDERR_FILENO, usage.as_ptr() as *const c_void, usage.len()) };
 }
 
-fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
+fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
-        return Err(ArgParseError::show_help());
+        return Err(args::ArgParseError::show_help());
     }
 
     if args[1].as_str() == "list" {
-        parse_list_args(&args)
+        args::parse_list_args(&args)
     } else {
         let is_pipe_input = unsafe { libc::isatty(STDIN_FILENO) == 0 };
         let stdin = if is_pipe_input {
             let mut buffer = String::new();
-            fd_read_to_string(STDIN_FILENO, &mut buffer);
+            buf_read::fd_read_to_string(STDIN_FILENO, &mut buffer);
             Some(buffer)
         } else {
             None
         };
-        parse_prompt_args(&args, stdin)
+        args::parse_prompt_args(&args, stdin)
     }
 }
 
 pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
     // Load ~/.config/ort.json
-    let cfg = load_config()?;
+    let cfg = config::load_config()?;
 
     // Fail fast if key missing
-    let mut api_key = get_env(c"OPENROUTER_API_KEY");
+    let mut api_key = utils::get_env(c"OPENROUTER_API_KEY");
     if api_key.is_empty() {
         api_key = match cfg.get_openrouter_key() {
             Some(k) => k,
@@ -87,7 +87,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
     let cancel_token = crate::CancelToken::init();
 
     let cmd_result = match cmd {
-        Cmd::Prompt(mut cli_opts) => {
+        args::Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
                 cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
             } else {
@@ -120,7 +120,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
                 )
             }
         }
-        Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
+        args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
             cancel_token,
             cfg.settings.unwrap_or_default(),
@@ -128,7 +128,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
             !is_terminal,
             w,
         ),
-        Cmd::List(args) => list::run(
+        args::Cmd::List(args) => list::run(
             &api_key,
             cancel_token,
             cfg.settings.unwrap_or_default(),

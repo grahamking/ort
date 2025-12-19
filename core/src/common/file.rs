@@ -11,7 +11,8 @@ use core::mem::MaybeUninit;
 extern crate alloc;
 use alloc::string::ToString;
 
-use crate::{Instant, OrtResult, Read, Write, libc, ort_err};
+use crate::common::time;
+use crate::{OrtResult, Read, Write, libc, ort_err};
 
 pub struct File {
     fd: c_int,
@@ -65,7 +66,7 @@ impl core::fmt::Write for File {
     }
 }
 
-pub fn last_modified(path: &CStr) -> OrtResult<Instant> {
+pub fn last_modified(path: &CStr) -> OrtResult<time::Instant> {
     let mut st = MaybeUninit::<libc::stat>::uninit();
     unsafe {
         if libc::stat(path.as_ptr(), st.as_mut_ptr()) != 0 {
@@ -73,5 +74,8 @@ pub fn last_modified(path: &CStr) -> OrtResult<Instant> {
         }
     }
     let st = unsafe { st.assume_init() };
-    Ok(Instant::new(st.st_mtime as u64, st.st_mtime_nsec as u64))
+    Ok(time::Instant::new(
+        st.st_mtime as u64,
+        st.st_mtime_nsec as u64,
+    ))
 }

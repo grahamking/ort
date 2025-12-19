@@ -19,8 +19,8 @@ use crate::Priority;
 use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
+use crate::common::utils;
 use crate::ort_error;
-use crate::slug;
 
 #[derive(Debug)]
 pub struct ListOpts {
@@ -145,7 +145,7 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
                 if i >= args.len() {
                     return Err(ArgParseError::new_str("Missing value for -pr"));
                 }
-                provider = Some(slug(args[i].as_ref()));
+                provider = Some(utils::slug(args[i].as_ref()));
                 i += 1;
             }
             "-c" => {

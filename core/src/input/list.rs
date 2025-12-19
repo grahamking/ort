@@ -11,15 +11,15 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::{
-    CancelToken, Context as _, ListOpts, OrtBufReader, OrtResult, Read, Settings, Write, chunked,
-    http, ort_from_err, resolve,
+    CancelToken, Context as _, OrtResult, Read, Write, chunked, common::buf_read, common::config,
+    common::resolver, http, input::args, ort_from_err,
 };
 
 pub fn run(
     api_key: &str,
     _cancel_token: CancelToken, // TODO use CancelToken
-    settings: Settings,
-    opts: ListOpts,
+    settings: config::Settings,
+    opts: args::ListOpts,
     mut w: impl Write,
 ) -> OrtResult<()> {
     let models = list_models(api_key, settings.dns).context("list_models")?;
@@ -43,7 +43,7 @@ pub fn run(
 /// Returns raw JSON
 fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
     let addrs: Vec<_> = if dns.is_empty() {
-        let ips = unsafe { resolve(c"openrouter.ai".as_ptr())? };
+        let ips = unsafe { resolver::resolve(c"openrouter.ai".as_ptr())? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
             .collect()
@@ -56,7 +56,7 @@ fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
             .collect()
     };
     let reader = http::list_models(api_key, addrs).map_err(ort_from_err)?;
-    let mut reader = OrtBufReader::new(reader);
+    let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
     let mut full = String::with_capacity(512 * 1024);
     if is_chunked {

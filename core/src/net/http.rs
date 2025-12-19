@@ -13,7 +13,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    OrtBufReader, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, ort_error, ort_from_err,
+    OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read, ort_error,
+    ort_from_err,
 };
 
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
@@ -47,7 +48,7 @@ pub fn chat_completions(
     api_key: &str,
     addrs: Vec<SocketAddr>,
     json_body: &str,
-) -> OrtResult<OrtBufReader<TlsStream<TcpSocket>>> {
+) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
 
     let mut tls = TlsStream::connect(tcp, HOST)?;
@@ -75,7 +76,7 @@ pub fn chat_completions(
     tls.write_all(body).map_err(ort_from_err)?;
     tls.flush().map_err(ort_from_err)?;
 
-    Ok(OrtBufReader::new(tls))
+    Ok(buf_read::OrtBufReader::new(tls))
 }
 
 #[derive(Debug)]
@@ -115,7 +116,7 @@ impl From<HttpError> for OrtError {
 /// Returns true if the body has transfer encoding chunked, and hence needs
 /// special handling.
 pub fn skip_header<T: Read + Write>(
-    reader: &mut OrtBufReader<TlsStream<T>>,
+    reader: &mut buf_read::OrtBufReader<TlsStream<T>>,
 ) -> Result<bool, HttpError> {
     let mut buffer = String::with_capacity(16);
     let status = match reader.read_line(&mut buffer) {
