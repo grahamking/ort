@@ -4,6 +4,9 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use core::cmp::min;
+use core::ffi::c_int;
+
 extern crate alloc;
 use alloc::string::String;
 use core::cmp;
@@ -145,5 +148,44 @@ impl<R: Read> OrtBufReader<R> {
         }
 
         Ok(())
+    }
+}
+
+pub fn fd_read_to_string(fd: c_int, buffer: &mut String) {
+    const READ_CHUNK: usize = 64 * 1024;
+
+    // Write bytes directly into String's backing Vec<u8> for speed.
+    let v = unsafe { buffer.as_mut_vec() };
+
+    loop {
+        let len = v.len();
+        if v.capacity() == len {
+            v.reserve(READ_CHUNK);
+        }
+
+        let avail = v.capacity() - len;
+        let to_read = min(avail, READ_CHUNK);
+
+        let n = unsafe {
+            crate::libc::read(
+                fd,
+                v.as_mut_ptr().add(len) as *mut _,
+                to_read as crate::libc::size_t,
+            )
+        };
+        if n == 0 {
+            break; // EOF
+        }
+        if n < 0 {
+            break;
+        }
+        unsafe {
+            v.set_len(len + n as usize);
+        }
+    }
+
+    // Maintain String's UTF-8 invariant. On invalid UTF-8, clear to a valid value.
+    if core::str::from_utf8(v.as_slice()).is_err() {
+        v.clear();
     }
 }

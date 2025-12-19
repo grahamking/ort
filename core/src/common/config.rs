@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 use core::ffi::CStr;
 
 use crate::{
-    Context as _, OrtResult, PromptOpts, ensure_dir_exists, get_env, ort_err, ort_error,
-    read_to_string,
+    Context as _, OrtResult, PromptOpts, ensure_dir_exists, filename_read_to_string, get_env,
+    ort_err, ort_error,
 };
 
 const OPENROUTER_KEY: &str = "openrouter";
@@ -24,7 +24,7 @@ pub fn load_config() -> OrtResult<ConfigFile> {
     config_dir.push('/');
     config_dir.push_str(CONFIG_FILE);
     let config_file = config_dir;
-    match read_to_string(&config_file) {
+    match filename_read_to_string(&config_file) {
         Ok(cfg_str) => ConfigFile::from_json(&cfg_str)
             .map_err(|err| ort_error("Failed to parse config: ".to_string() + &err)),
         Err("NOT FOUND") => Ok(ConfigFile::default()),

@@ -14,9 +14,9 @@ pub use ort_openrouter_core::build_body;
 pub use ort_openrouter_core::libc;
 pub use ort_openrouter_core::{ApiKey, ConfigFile, Settings};
 pub use ort_openrouter_core::{
-    ArgParseError, Context, OrtError, OrtResult, cache_dir, ensure_dir_exists, get_env,
-    load_config, ort_err, ort_error, ort_from_err, path_exists, read_to_string, slug, tmux_pane_id,
-    xdg_dir,
+    ArgParseError, Context, OrtError, OrtResult, cache_dir, ensure_dir_exists, fd_read_to_string,
+    filename_read_to_string, get_env, load_config, ort_err, ort_error, ort_from_err, path_exists,
+    slug, tmux_pane_id, xdg_dir,
 };
 pub use ort_openrouter_core::{
     ChatCompletionsResponse, Choice, Cmd, CollectedWriter, ConsoleWriter, Consumer, DEFAULT_MODEL,

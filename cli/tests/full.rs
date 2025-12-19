@@ -39,7 +39,7 @@ fn test_hello() {
         .map(|s| s.to_string())
         .collect();
     let ret = ort::cli::main(args, false, &mut out).unwrap();
-    assert_eq!(ret, std::process::ExitCode::SUCCESS);
+    assert_eq!(ret, 0);
 
     out.set_position(0);
     let mut lines = out.lines().map(|l| l.unwrap());
@@ -63,7 +63,7 @@ fn test_list() {
 
     let args = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
     let ret = ort::cli::main(args, false, &mut out).unwrap();
-    assert_eq!(ret, std::process::ExitCode::SUCCESS);
+    assert_eq!(ret, 0);
 
     out.set_position(0);
     let mut count = 0;

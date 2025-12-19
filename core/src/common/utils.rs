@@ -60,7 +60,7 @@ pub fn path_exists(path: &CStr) -> bool {
 }
 
 /// Read a file into memory
-pub fn read_to_string(filename: &str) -> Result<String, &'static str> {
+pub fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let cs = CString::new(filename).unwrap();
     let fd = unsafe { libc::open(cs.as_ptr(), libc::O_RDONLY) };
     if fd < 0 {

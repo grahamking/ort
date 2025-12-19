@@ -31,7 +31,9 @@ use crate::{ChatCompletionsResponse, Settings};
 use crate::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter, Write};
 use crate::{Consumer, Queue};
 use crate::{DirFiles, last_modified};
-use crate::{LastData, OrtError, cache_dir, ort_err, ort_from_err, path_exists, read_to_string};
+use crate::{
+    LastData, OrtError, cache_dir, filename_read_to_string, ort_err, ort_from_err, path_exists,
+};
 use crate::{Message, PromptOpts};
 use crate::{OrtResult, Stats};
 use crate::{Response, ThinkEvent};
@@ -147,7 +149,7 @@ pub fn run_continue(
         most_recent(&cache_dir, "last-").context("most_recent")?
     };
 
-    let mut last = match read_to_string(&last_file) {
+    let mut last = match filename_read_to_string(&last_file) {
         Ok(hist_str) => LastData::from_json(&hist_str)
             .map_err(|err| ort_error(format!("Failed to parse last: {err}")))?,
         Err("NOT FOUND") => {

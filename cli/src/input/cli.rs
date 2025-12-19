@@ -4,14 +4,14 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::ffi::c_int;
+use core::ffi::{c_int, c_void};
 use std::io;
-use std::io::Read as _;
-use std::process::ExitCode;
 
 use crate::OrtResult;
 use crate::PromptOpts;
+use crate::fd_read_to_string;
 use crate::get_env;
+use crate::libc;
 use crate::list;
 use crate::load_config;
 use crate::ort_err;
@@ -19,17 +19,16 @@ use crate::prompt;
 use crate::{ArgParseError, Cmd, parse_list_args, parse_prompt_args};
 
 const STDIN_FILENO: i32 = 0;
+const STDERR_FILENO: i32 = 0;
 
 pub fn print_usage() {
-    eprintln!(
-        "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
-Defaults: -m {} ; -s omitted ; -p omitted\n\
+    let usage = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
+Defaults: -m ".to_string() + crate::DEFAULT_MODEL +" ; -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
 See https://github.com/grahamking/ort for full docs.
-",
-        crate::DEFAULT_MODEL
-    );
+";
+    unsafe { libc::write(STDERR_FILENO, usage.as_ptr() as *const c_void, usage.len()) };
 }
 
 fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
@@ -41,10 +40,10 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     if args[1].as_str() == "list" {
         parse_list_args(&args)
     } else {
-        let is_pipe_input = unsafe { isatty(STDIN_FILENO) == 0 };
+        let is_pipe_input = unsafe { libc::isatty(STDIN_FILENO) == 0 };
         let stdin = if is_pipe_input {
             let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer).unwrap();
+            fd_read_to_string(STDIN_FILENO, &mut buffer);
             Some(buffer)
         } else {
             None
@@ -53,11 +52,7 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     }
 }
 
-unsafe extern "C" {
-    pub fn isatty(fd: c_int) -> c_int;
-}
-
-pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> OrtResult<ExitCode> {
+pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> OrtResult<c_int> {
     // Load ~/.config/ort.json
     let cfg = load_config()?;
 
@@ -76,7 +71,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
             print_usage();
-            return Ok(ExitCode::from(2));
+            return Ok(2);
         }
         Err(err) => {
             print_usage();
@@ -138,7 +133,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
             w,
         ),
     };
-    cmd_result.map(|_| ExitCode::SUCCESS)
+    cmd_result.map(|_| 0)
 }
 
 struct WriteConvertor<T: io::Write>(T);

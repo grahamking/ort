@@ -13,7 +13,7 @@ use core::{
 };
 
 type c_ulong = u64;
-type size_t = usize;
+pub type size_t = usize;
 type ssize_t = isize;
 type clockid_t = c_int;
 type time_t = i64;
@@ -178,6 +178,7 @@ unsafe extern "C" {
     pub fn syscall(num: c_long, ...) -> c_long;
 
     pub fn printf(format: *const c_char, ...) -> c_int;
+    pub fn isatty(fd: c_int) -> c_int;
 
     pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
     pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
