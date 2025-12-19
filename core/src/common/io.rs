@@ -9,6 +9,7 @@ use core::fmt::Arguments;
 
 extern crate alloc;
 use alloc::string::ToString;
+use alloc::vec::Vec;
 
 use crate::{OrtResult, ort_err, ort_from_err};
 
@@ -71,4 +72,15 @@ pub trait Write {
         Ok(())
     }
     */
+}
+
+impl Write for &mut Vec<u8> {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
+        self.extend(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> OrtResult<()> {
+        Ok(())
+    }
 }

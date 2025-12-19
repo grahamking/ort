@@ -5,10 +5,10 @@
 //! Copyright (c) 2025 Graham King
 
 use core::ffi::{c_int, c_void};
-use std::io;
 
 use crate::OrtResult;
 use crate::PromptOpts;
+use crate::Write;
 use crate::fd_read_to_string;
 use crate::get_env;
 use crate::libc;
@@ -52,7 +52,7 @@ fn parse_args(args: Vec<String>) -> Result<Cmd, ArgParseError> {
     }
 }
 
-pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> OrtResult<c_int> {
+pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
     // Load ~/.config/ort.json
     let cfg = load_config()?;
 
@@ -81,8 +81,6 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
 
     let cancel_token = crate::CancelToken::init();
 
-    // Convert std::io::Write to a our own core Write
-    let w = WriteConvertor(w);
     let cmd_result = match cmd {
         Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
@@ -134,17 +132,4 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl io::Write + Send) -> O
         ),
     };
     cmd_result.map(|_| 0)
-}
-
-struct WriteConvertor<T: io::Write>(T);
-
-impl<T: io::Write> crate::Write for WriteConvertor<T> {
-    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        self.0.write(buf).map_err(crate::ort_from_err)
-    }
-
-    fn flush(&mut self) -> OrtResult<()> {
-        let _ = self.0.flush();
-        Ok(())
-    }
 }
