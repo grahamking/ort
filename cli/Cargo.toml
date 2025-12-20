@@ -11,9 +11,5 @@ readme.workspace = true
 name = "ort"
 path = "src/main.rs"
 
-[[bin]]
-name = "eval"
-path = "src/bin/eval.rs"
-
 [dependencies]
 ort-openrouter-core = { path = "../core" }
