@@ -8,7 +8,7 @@
 #![no_main]
 #![allow(internal_features)]
 #![feature(lang_items)]
-//#![feature(alloc_error_handler)]
+#![feature(alloc_error_handler)]
 
 use core::alloc::Layout;
 use core::ffi::{CStr, c_char, c_int, c_void};
@@ -18,7 +18,7 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use ort_openrouter_core::{OrtResult, Write, cli, libc, ort_error};
+use ort::{OrtResult, Write, cli, libc, ort_error};
 
 //
 // Allocator
@@ -47,44 +47,36 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
 
+// I think we only need this because `alloc` crate is pulling in unwinding,
+// which we never use.
 #[lang = "eh_personality"]
 extern "C" fn eh_personality() {}
 
-/*
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
     unsafe { libc::abort() }
 }
-*/
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     unsafe { libc::abort() }
 }
 
+// For some reason the `alloc` crate needs _Unwind_Resume symbol,
+// even though I have panic="abort". Maybe because liballoc was built
+// with default unwinding. Fake it to avoid re-building alloc.
+#[link(name = "gcc_s")]
+unsafe extern "C" {}
+
 /// # Safety
 /// It's all good
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
-    // Collect all environment variables into Vec<String>
-    /*
-    let mut env_vars: Vec<String> = Vec::new();
-    unsafe {
-        let mut p = libc::environ as *const *const c_char;
-        while !(*p).is_null() {
-            let cstr = CStr::from_ptr(*p);
-            env_vars.push(String::from_utf8_lossy(cstr.to_bytes()).into_owned());
-            p = p.add(1);
-        }
-    }
-    */
-
     // Collect cmd line arguments
-    let mut args = Vec::with_capacity((argc - 1) as usize);
-    for idx in 1..argc {
+    let mut args = Vec::with_capacity(argc as usize);
+    for idx in 0..argc {
         let cstr = unsafe { CStr::from_ptr(*argv.add(idx as usize)) };
         args.push(String::from_utf8_lossy(cstr.to_bytes()).into_owned());
-        //p = p.add(1);
     }
 
     // Check stdout for redirection

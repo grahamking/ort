@@ -1,14 +1,15 @@
-[workspace]
-members = ["core"]
-resolver = "3"
-
-[workspace.package]
-version = "0.2.1"
+[package]
+name = "ort"
+version = "0.3.0"
 edition = "2024"
 description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]
 license = "MIT"
 repository = "https://github.com/grahamking/ort"
+
+[[bin]]
+name = "ort"
+path = "src/main.rs"
 
 [profile.dev]
 panic = "abort"
@@ -19,3 +20,6 @@ strip = true
 codegen-units = 1
 panic = "abort"
 lto = true
+
+[dependencies]
+
