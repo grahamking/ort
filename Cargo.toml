@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "core"]
+members = ["core"]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +9,9 @@ description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]
 license = "MIT"
 repository = "https://github.com/grahamking/ort"
+
+[profile.dev]
+panic = "abort"
 
 [profile.release]
 opt-level = "s"

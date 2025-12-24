@@ -166,7 +166,10 @@ impl<T: Copy> Default for Padding<T> {
     }
 }
 
+#[link(name = "c", kind = "dylib")]
 unsafe extern "C" {
+    pub static mut environ: *mut *mut c_char;
+
     pub fn syscall(num: c_long, ...) -> c_long;
 
     pub fn printf(format: *const c_char, ...) -> c_int;
@@ -237,4 +240,10 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn pthread_attr_destroy(attr: *mut pthread_attr_t) -> c_int;
     pub fn pthread_join(native: pthread_t, value: *mut *mut c_void) -> c_int;
+
+    pub fn malloc(size: size_t) -> *mut c_void;
+    pub fn calloc(nobj: size_t, size: size_t) -> *mut c_void;
+    pub fn realloc(p: *mut c_void, size: size_t) -> *mut c_void;
+    pub fn free(p: *mut c_void);
+    pub fn abort() -> !;
 }

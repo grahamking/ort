@@ -8,7 +8,7 @@
 
 mod common;
 mod input;
-mod libc;
+pub mod libc;
 mod net;
 mod output;
 
