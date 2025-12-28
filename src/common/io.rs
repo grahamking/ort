@@ -13,6 +13,8 @@ use alloc::vec::Vec;
 
 use crate::{OrtResult, ort_err, ort_from_err};
 
+const MAX_LEN_UTF8: usize = 4;
+
 pub trait Read {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize>;
 
@@ -61,11 +63,15 @@ pub trait Write {
         self.write_all(args.to_string().as_bytes())
     }
 
-    /* Not used yet
     fn write_str(&mut self, s: &str) -> OrtResult<usize> {
         self.write(s.as_bytes())
     }
 
+    fn write_char(&mut self, c: char) -> OrtResult<usize> {
+        self.write_str(c.encode_utf8(&mut [0; MAX_LEN_UTF8]))
+    }
+
+    /* Not used yet
     fn write_byte(&mut self, b: u8) -> OrtResult<()> {
         // TODO Override this in File, and other places where we can be more efficient
         self.write(&vec![b])?;

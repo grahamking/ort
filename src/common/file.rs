@@ -42,7 +42,7 @@ impl Read for File {
     }
 }
 
-impl Write for File {
+impl Write for &mut File {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
         let bytes_written =
             unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
@@ -55,13 +55,6 @@ impl Write for File {
 
     fn flush(&mut self) -> OrtResult<()> {
         // The stdlib version is a no-op on Unix. It does not fsync.
-        Ok(())
-    }
-}
-
-impl core::fmt::Write for File {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let _ = self.write(s.as_bytes()).unwrap();
         Ok(())
     }
 }

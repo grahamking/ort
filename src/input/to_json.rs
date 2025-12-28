@@ -4,19 +4,17 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
-use core::fmt::Write;
-
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{LastData, Message, OrtResult, PromptOpts, ort_err};
+use crate::{LastData, Message, OrtResult, PromptOpts, Write, ort_err};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
 pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
     let capacity: u32 = messages.iter().map(|m| m.size()).sum::<u32>() + 100;
-    let mut w = String::with_capacity(capacity as usize);
+    let mut string_buf = String::with_capacity(capacity as usize);
+    let mut w = unsafe { string_buf.as_mut_vec() };
 
     w.write_str("{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
     write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
@@ -43,9 +41,13 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     w.write_str(", \"reasoning\": ")?;
     match &opts.reasoning {
         // No -r and nothing in config file
-        None => w.write_str("{\"enabled\": false}")?,
+        None => {
+            w.write_str("{\"enabled\": false}")?;
+        }
         // cli "-r off" or config file '"enabled": false'
-        Some(r_cfg) if !r_cfg.enabled => w.write_str("{\"enabled\": false}")?,
+        Some(r_cfg) if !r_cfg.enabled => {
+            w.write_str("{\"enabled\": false}")?;
+        }
         // Reasoning on
         Some(r_cfg) => match (r_cfg.effort, r_cfg.tokens) {
             (Some(effort), _) => {
@@ -67,7 +69,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
 
     w.write_char('}')?;
 
-    Ok(w)
+    Ok(string_buf)
 }
 
 impl LastData {
@@ -177,7 +179,7 @@ impl LastData {
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
-fn write_bool<W: Write>(w: &mut W, v: bool) -> fmt::Result {
+fn write_bool<W: Write>(w: &mut W, v: bool) -> OrtResult<usize> {
     if v {
         w.write_str("true")
     } else {
@@ -185,7 +187,7 @@ fn write_bool<W: Write>(w: &mut W, v: bool) -> fmt::Result {
     }
 }
 
-fn write_u32<W: Write>(w: &mut W, mut n: u32) -> fmt::Result {
+fn write_u32<W: Write>(w: &mut W, mut n: u32) -> OrtResult<usize> {
     if n == 0 {
         return w.write_str("0");
     }
@@ -235,7 +237,7 @@ pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
 }
 
 /// No escapes or special characters, just write the bytes
-fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> fmt::Result {
+fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     w.write_char('"')?;
     w.write_str(s)?;
     w.write_char('"')?;
@@ -243,7 +245,7 @@ fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> fmt::Result {
 }
 
 // Writes a JSON string (with surrounding quotes) with proper escaping, no allocations.
-fn write_json_str<W: Write>(w: &mut W, s: &str) -> fmt::Result {
+fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     w.write_char('"')?;
     let bytes = s.as_bytes();
     let mut start = 0;
@@ -286,7 +288,8 @@ fn write_json_str<W: Write>(w: &mut W, s: &str) -> fmt::Result {
     if start < bytes.len() {
         w.write_str(core::str::from_utf8(&bytes[start..]).unwrap())?;
     }
-    w.write_char('"')
+    w.write_char('"')?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -318,7 +321,7 @@ mod tests {
         let l = LastData { opts, messages };
 
         let mut got = String::with_capacity(64);
-        l.to_json_writer(&mut got).unwrap();
+        l.to_json_writer(unsafe { got.as_mut_vec() }).unwrap();
 
         let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 

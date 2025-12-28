@@ -249,7 +249,7 @@ impl LastWriter {
         self.data.messages.push(message);
 
         self.data.to_json_writer(&mut self.w)?;
-        let _ = self.w.flush();
+        let _ = (&mut self.w).flush();
 
         Ok(stats::Stats::default()) // Stats is not used
     }

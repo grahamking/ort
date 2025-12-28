@@ -20,7 +20,7 @@ pub use common::data::{
 pub use common::error::{Context, OrtError, OrtResult, ort_err, ort_error, ort_from_err};
 pub use common::thread;
 pub use common::utils;
-pub use common::{Flushable, io::Read, io::Write};
+pub use common::{io::Read, io::Write};
 
 pub use input::cli;
 pub use input::list;
