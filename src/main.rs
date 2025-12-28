@@ -49,14 +49,17 @@ static GLOBAL: LibcAlloc = LibcAlloc;
 
 // I think we only need this because `alloc` crate is pulling in unwinding,
 // which we never use.
+#[cfg(not(test))]
 #[lang = "eh_personality"]
 extern "C" fn eh_personality() {}
 
+#[cfg(not(test))]
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
     unsafe { libc::abort() }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     unsafe { libc::abort() }

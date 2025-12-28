@@ -4,8 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use ort_openrouter_core as ort;
-
 /*
  * TODO: Get the error from the thread
 #[test]

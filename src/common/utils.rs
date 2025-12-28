@@ -13,6 +13,11 @@ use core::ffi::{c_str::CStr, c_void};
 
 use crate::libc;
 
+pub fn print_string(prefix: &CStr, s: &str) {
+    let msg = CString::new(s.to_string()).unwrap();
+    unsafe { libc::printf(c"%s%s\n".as_ptr(), prefix.as_ptr(), msg.as_ptr()) };
+}
+
 pub fn slug(s: &str) -> String {
     s.chars()
         .map(|c| {
