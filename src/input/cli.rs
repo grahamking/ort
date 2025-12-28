@@ -76,7 +76,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
             print_usage();
-            return Ok(2);
+            return Ok(0);
         }
         Err(err) => {
             print_usage();
