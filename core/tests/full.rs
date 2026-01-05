@@ -4,6 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use ort_openrouter_core::cli;
+
 /*
  * TODO: Get the error from the thread
 #[test]
@@ -14,7 +16,7 @@ fn test_invalid_model_name() {
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-    let ret = ort::cli::main(args, true, &mut out);
+    let ret = cli::main(args, true, &mut out);
     match ret {
         Ok(_) => panic!("Invalid model ID should have produced an error"),
         Err(err) => {
@@ -33,7 +35,7 @@ fn test_hello() {
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-    let ret = ort::cli::main(args, false, &mut out).unwrap();
+    let ret = cli::main(args, false, &mut out).unwrap();
     assert_eq!(ret, 0);
 
     let contents = String::from_utf8_lossy(&out);
@@ -57,7 +59,7 @@ fn test_list() {
     let mut out = Vec::new();
 
     let args = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
-    let ret = ort::cli::main(args, false, &mut out).unwrap();
+    let ret = cli::main(args, false, &mut out).unwrap();
     assert_eq!(ret, 0);
 
     let contents = String::from_utf8_lossy(&out);

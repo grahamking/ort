@@ -18,7 +18,7 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use ort::{OrtResult, Write, cli, libc, ort_error};
+use ort_openrouter_core::{OrtResult, Write, cli, libc, ort_error};
 
 //
 // Allocator
@@ -47,13 +47,11 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
 
-#[cfg(not(test))]
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
     unsafe { libc::abort() }
 }
 
-#[cfg(not(test))]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     unsafe { libc::abort() }

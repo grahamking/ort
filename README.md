@@ -2,7 +2,7 @@
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~230 KiB statically linked ELF binary, with no dependencies, without even using the Rust stdlib.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~165 KiB statically linked ELF binary, with no dependencies, without even using the Rust stdlib.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -44,6 +44,14 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 - -nc No config. Do not merge the default prompt options from the config into the command line prompt opts. Useful for disabling the default system prompt for example.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
+
+## Build
+
+`./build.sh` (aka `cd cli; cargo build --release`). The `ort` cli must be built from the `cli/` sub-directory. Running build from the root will not work because of `cli/.cargo/config.toml`.
+
+## Test
+
+`cargo test` from the root is fine. All the code is in `core/` crate. The `cli/` crate is just to hide the weirdness. Don't look in there.
 
 ## tmux
 
