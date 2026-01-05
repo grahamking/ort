@@ -151,9 +151,6 @@ High-Impact Optimizations (Minimal Performance Cost)
 ## (moved to bottom section as I try them, or deleted if I didn't like them)
 ##
 
-- Currently target/release/ort is ~240 KiB. The big wins left are linker- and panic/unwind-related. Consider building with nightly using -Zbuild-std=core,alloc -Zbuild-std -features=panic_immediate_abort plus panic="abort" (already set) so you can delete the manual eh_personality shim and the #[link(name="gcc_s")] stub in src/main.rs, removing the libgcc
-unwinder dependency altogether.
-
 - Trim formatting machinery in errors: src/common/error.rs stores Strings and implements Display, ToString, and context.join, which drags in core::fmt glue and allocation helpers. Converting OrtError to hold &'static str plus a small error code (or a fixed small buffer) and printing fixed strings can shed several KB.
 
 - Reduce heap usage in TLS: src/net/tls.rs builds ClientHello/extensions with multiple Vecs and uses format!. Replacing them with fixed-size stack buffers and manual length accounting (no format!, no ToString) both shrinks code and keeps allocator code paths colder; similarly, consider an #[inline(never)] on the larger crypto helpers to avoid LTO inlining bloat.
@@ -170,7 +167,8 @@ Don't make it a PIE (Position Independent Executable). Saves 7 KiB.
 Remove build-id:
 	-C link-args=-Wl,--build-id=none
 
-(in RUSTFLAGS)
+- Consider building with nightly using -Zbuild-std=core,alloc -Zbuild-std -features=panic_immediate_abort plus panic="abort" (already set) so you can delete the manual eh_personality shim and the #[link(name="gcc_s")] stub in src/main.rs, removing the libgcc
+unwinder dependency altogether.
 
 ## These work, figure out if we want them
 
