@@ -33,6 +33,8 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     unsafe { libc::abort() }
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// # Safety
 /// It's all good
 #[unsafe(no_mangle)]
@@ -42,6 +44,16 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
     for idx in 0..argc {
         let cstr = unsafe { CStr::from_ptr(*argv.add(idx as usize)) };
         args.push(String::from_utf8_lossy(cstr.to_bytes()).into_owned());
+    }
+
+    if args.iter().any(|arg| arg == "--version") {
+        let mut msg = String::with_capacity(4 + VERSION.len());
+        msg.push_str("ort ");
+        msg.push_str(VERSION);
+        msg.push('\n');
+        let bytes = msg.as_bytes();
+        let _ = unsafe { libc::write(1, bytes.as_ptr().cast(), bytes.len()) };
+        return 0;
     }
 
     // Check stdout for redirection
