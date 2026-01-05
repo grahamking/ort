@@ -47,12 +47,6 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
 
-// I think we only need this because `alloc` crate is pulling in unwinding,
-// which we never use.
-#[cfg(not(test))]
-#[lang = "eh_personality"]
-extern "C" fn eh_personality() {}
-
 #[cfg(not(test))]
 #[alloc_error_handler]
 fn oom(_: Layout) -> ! {
@@ -64,12 +58,6 @@ fn oom(_: Layout) -> ! {
 fn panic(_: &core::panic::PanicInfo) -> ! {
     unsafe { libc::abort() }
 }
-
-// For some reason the `alloc` crate needs _Unwind_Resume symbol,
-// even though I have panic="abort". Maybe because liballoc was built
-// with default unwinding. Fake it to avoid re-building alloc.
-#[link(name = "gcc_s")]
-unsafe extern "C" {}
 
 /// # Safety
 /// It's all good

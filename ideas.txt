@@ -1,6 +1,191 @@
 ##
+## Suggestions from Claude Opus 4.5 to further reduce binary size
+##
+
+High-Impact Optimizations (Minimal Performance Cost)
+
+  1. Use panic_immediate_abort via build-std (~10-15 KiB savings)
+
+  Currently you link gcc_s for unwinding infrastructure. Replace with panic_immediate_abort:
+
+  # .cargo/config.toml
+  [unstable]
+  build-std = ["core", "alloc", "panic_abort"]
+  build-std-features = ["panic_immediate_abort"]
+
+  [build]
+  target = "x86_64-unknown-linux-gnu"
+
+  Remove the gcc_s link from your code. This eliminates all unwinding infrastructure.
+
+  2. Replace String-based errors with error codes (~5-10 KiB)
+
+  Your OrtError uses String for messages which pulls in formatting code:
+
+  // Current: String-based
+  pub struct OrtError {
+      msg: String,
+      context: Vec<String>,
+  }
+
+  // Optimized: Static strings
+  pub struct OrtError {
+      kind: ErrorKind,
+      context: &'static str,
+  }
+
+  #[repr(u8)]
+  pub enum ErrorKind {
+      TlsHandshake = 1,
+      NetworkError = 2,
+      // ... etc
+  }
+
+ 3. Optimize opt-level (~3-8 KiB, slight perf trade-off)                                                                                                                  14:07:39 [127/1120]
+
+  Try opt-level = "z" instead of "s":
+
+  [profile.release]
+  opt-level = "z"  # Changed from "s"
+
+  Test if the performance hit is acceptable for your use case.
+
+  4. Remove format! macros (~5-15 KiB)
+
+  Search for format!(), write!(), and writeln!() calls. Replace with:
+  - Pre-built string constants
+  - Manual byte buffer writing
+  - String concatenation with push_str()
+
+● Search(pattern: "format!|write!|writeln!", output_mode: "count")
+  ⎿  Found 73 matches across 12 files (ctrl+o to expand)
+
+● You have 73 formatting macro calls - significant savings opportunity by replacing hot paths with string literals.
+
+  5. Use fixed-size buffers in TLS handshake (~2-5 KiB)
+
+  Replace Vec<u8> allocations in TLS with stack arrays:
+
+  // Instead of: let mut buf = Vec::with_capacity(8192);
+  let mut buf = [0u8; 8192];
+  let mut len = 0;
+  // ... write to &mut buf[len..]
+
+  6. Disable inlining aggressively (~10-15 KiB, slight perf loss)
+
+  # .cargo/config.toml
+  rustflags = [
+      # ... existing flags ...
+      "-C", "llvm-args=-inline-threshold=0",
+  ]
+
+  This prevents aggressive inlining. Test performance impact.
+
+  7. Remove debug_assertions in release (~1-3 KiB)                                                                                                                          14:07:39 [87/1120]
+
+  [profile.release]
+  debug-assertions = false  # Explicitly disable
+
+  Medium-Impact Optimizations
+
+  8. Use abort for allocation failures (~2-4 KiB)
+
+  Your allocator could use simpler error handling:
+
+  unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+      let ptr = libc::malloc(layout.size()) as *mut u8;
+      if ptr.is_null() {
+          libc::abort(); // Instead of returning null
+      }
+      ptr
+  }
+
+  9. Reduce dynamic symbols (~1-2 KiB)
+
+  You have 50 dynamic symbols. Use version scripts to hide unnecessary ones:
+
+  # Create link.ld
+  {
+    global: main;
+    local: *;
+  };
+
+  # .cargo/config.toml
+  rustflags = [
+      # ...
+      "-C", "link-arg=-Wl,--version-script=link.ld",
+  ]
+
+  10. Remove DWARF sections if present
+
+● Bash(readelf -S target/release/ort | grep -E 'debug|eh_frame')
+  ⎿    [12] .eh_frame_hdr     PROGBITS         000000000020b2a0  0000b2a0
+       [13] .eh_frame         PROGBITS         000000000020bb68  0000bb68
+
+● Your binary has .eh_frame sections (exception handling frames). Remove with:
+
+  rustflags = [
+      # ...
+      "-C", "link-arg=-Wl,--no-eh-frame-hdr",
+  ]
+
+  Low-Impact / Advanced Optimizations
+
+  11. Use #[inline(never)] on cold paths
+
+  Mark error handling and uncommon paths:
+
+  #[inline(never)]
+  #[cold]
+  fn handle_error(...) { ... }
+
+  13. Custom sections removal                                                                                                                                               14:09:21 [20/1120]
+
+● Bash(readelf -S target/release/ort | awk '{print $2, $6}' | grep -v '^$' | head -20)
+  ⎿  are starting
+
+     Headers:
+     … +17 lines (ctrl+o to expand)
+
+● Bash(size -A target/release/ort | head -20)
+  ⎿  target/release/ort  :
+     section                   size      addr
+     .interp                     28   2097832
+     … +17 lines (ctrl+o to expand)
+
+● Perfect! Section breakdown shows:
+  - .text: 164 KiB (code) - largest section
+  - .rodata: 40.7 KiB (string literals, constants)
+  - .eh_frame: 15 KiB total - unwinding tables (removable with suggestion #1)
+
+  Estimated Savings Summary
+
+  | Optimization           | Savings   | Performance Impact |
+  |------------------------|-----------|--------------------|
+  | panic_immediate_abort  | 10-15 KiB | None               |
+  | Error codes vs Strings | 5-10 KiB  | None               |
+  | Remove format! macros  | 5-15 KiB  | None               |
+  | opt-level = "z"        | 3-8 KiB   | Slight (~5-10%)    |
+  | Fixed TLS buffers      | 2-5 KiB   | None               |
+  | Inline threshold=0     | 10-15 KiB | Moderate (~10-20%) |
+  | Version script         | 1-2 KiB   | None               |
+  | Total (no perf loss)   | 23-47 KiB | Minimal            |
+  | Total (with perf)      | 36-70 KiB | Acceptable         |
+  | UPX compression        | ~92 KiB   | Startup only       |
+
+  Recommended Implementation Order
+
+  1. Start with #1 (panic_immediate_abort) - biggest win, zero downside
+  2. Try #3 (opt-level = "z") - test if perf acceptable
+  3. Profile hot paths, then remove format! from them (#4)
+  4. Consider UPX (#12) if distribution size matters
+
+
+ ---------
+
+##
 ## Suggestions from Codex 5.1 to further reduce binary size:
-## (moved to bottom section as I try them)
+## (moved to bottom section as I try them, or deleted if I didn't like them)
 ##
 
 - Currently target/release/ort is ~240 KiB. The big wins left are linker- and panic/unwind-related. Consider building with nightly using -Zbuild-std=core,alloc -Zbuild-std -features=panic_immediate_abort plus panic="abort" (already set) so you can delete the manual eh_personality shim and the #[link(name="gcc_s")] stub in src/main.rs, removing the libgcc
