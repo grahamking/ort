@@ -12,6 +12,7 @@ pub mod libc;
 mod net;
 mod output;
 
+pub use common::alloc::LibcAlloc;
 pub use common::cancel_token::CancelToken;
 pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
@@ -31,4 +32,4 @@ pub use net::socket::TcpSocket;
 pub use net::tls::TlsStream;
 pub use net::{chunked, http};
 
-pub use output::writer::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
+pub use output::writer::StdoutWriter;

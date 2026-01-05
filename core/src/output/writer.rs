@@ -5,6 +5,8 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
+use core::ffi::c_void;
+
 use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -14,6 +16,7 @@ use crate::{
     LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write, common::config,
     common::file, common::queue, common::stats, common::utils, ort_err, ort_from_err,
 };
+use crate::{libc, ort_error};
 
 const BOLD_START: &str = "\x1b[1m";
 const BOLD_END: &str = "\x1b[0m";
@@ -252,5 +255,22 @@ impl LastWriter {
         let _ = (&mut self.w).flush();
 
         Ok(stats::Stats::default()) // Stats is not used
+    }
+}
+
+pub struct StdoutWriter {}
+
+impl Write for StdoutWriter {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
+        let bytes_written = unsafe { libc::write(1, buf.as_ptr() as *const c_void, buf.len()) };
+        if bytes_written >= 0 {
+            Ok(bytes_written as usize)
+        } else {
+            Err(ort_error("Failed writing to stdout"))
+        }
+    }
+
+    fn flush(&mut self) -> OrtResult<()> {
+        Ok(())
     }
 }

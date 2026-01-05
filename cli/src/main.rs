@@ -11,38 +11,14 @@
 #![feature(alloc_error_handler)]
 
 use core::alloc::Layout;
-use core::ffi::{CStr, c_char, c_int, c_void};
+use core::ffi::{CStr, c_char, c_int};
 
 extern crate alloc;
 use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use ort_openrouter_core::{OrtResult, Write, cli, libc, ort_error};
-
-//
-// Allocator
-//
-
-struct LibcAlloc;
-
-unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { libc::malloc(layout.size().max(layout.align())) as *mut u8 }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        unsafe { libc::calloc(1, layout.size().max(layout.align())) as *mut u8 }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        unsafe { libc::free(ptr as *mut c_void) }
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, _layout: Layout, new_size: usize) -> *mut u8 {
-        unsafe { libc::realloc(ptr as *mut c_void, new_size) as *mut u8 }
-    }
-}
+use ort_openrouter_core::{LibcAlloc, StdoutWriter, cli, libc};
 
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
@@ -78,22 +54,5 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
             unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
             1
         }
-    }
-}
-
-struct StdoutWriter {}
-
-impl Write for StdoutWriter {
-    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = unsafe { libc::write(1, buf.as_ptr() as *const c_void, buf.len()) };
-        if bytes_written >= 0 {
-            Ok(bytes_written as usize)
-        } else {
-            Err(ort_error("Failed writing to stdout"))
-        }
-    }
-
-    fn flush(&mut self) -> OrtResult<()> {
-        Ok(())
     }
 }
