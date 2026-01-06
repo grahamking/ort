@@ -18,14 +18,34 @@ use crate::{
 };
 use crate::{libc, ort_error};
 
-const BOLD_START: &str = "\x1b[1m";
-const BOLD_END: &str = "\x1b[0m";
-const BACK_ONE: &str = "\x1b[1D";
-const CURSOR_OFF: &str = "\x1b[?25l";
-const CURSOR_ON: &str = "\x1b[?25h";
-const CLEAR_LINE: &str = "\x1b[2K";
+const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
 
-const SPINNER: [u8; 4] = [b'|', b'/', b'-', b'\\'];
+//const CURSOR_OFF: &str = "\x1b[?25l";
+const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
+
+// \r{CLEAR_LINE}\n
+const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
+
+// These are all surrounded by BOLD_START and BOLD_END, but I can't find a way to
+// do string concatenation at build time with constants
+//const BOLD_START: &str = "\x1b[1m";
+//const BOLD_END: &str = "\x1b[0m";
+const MSG_PROCESSING: &[u8] = "\x1b[1mProcessing...\x1b[0m\r".as_bytes();
+const MSG_THINK_TAG_END: &[u8] = "\x1b[1m</think>\x1b[0m\n".as_bytes();
+const MSG_THINKING: &[u8] = "\x1b[1mThinking...\x1b[0m  ".as_bytes();
+const MSG_THINK_TAG_START: &[u8] = "\x1b[1m<think>\x1b[0m".as_bytes();
+
+// The spinner displays a sequence of these characters: | / - \ , which when
+// animated look like they are spinning.
+// The array includes the ANSI escape to move back one character after each one
+// is printed, so they overwrite each other.
+//const BACK_ONE: &[u8] = "\x1b[1D".as_bytes();
+const SPINNER: [&[u8]; 4] = [
+    "|\x1b[1D".as_bytes(),
+    "/\x1b[1D".as_bytes(),
+    "-\x1b[1D".as_bytes(),
+    "\\\x1b[1D".as_bytes(),
+];
 
 pub struct ConsoleWriter<W: Write + Send> {
     pub writer: W, // Must handle ANSI control chars
@@ -40,7 +60,7 @@ impl<W: Write + Send> ConsoleWriter<W> {
         &mut self,
         mut rx: queue::Consumer<Response, N>,
     ) -> OrtResult<stats::Stats> {
-        let _ = write!(self.writer, "{CURSOR_OFF}Connecting...\r");
+        let _ = self.writer.write(MSG_CONNECTING);
         let _ = self.writer.flush();
 
         let mut is_first_content = true;
@@ -49,35 +69,31 @@ impl<W: Write + Send> ConsoleWriter<W> {
         while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {
-                    let _ = write!(self.writer, "{BOLD_START}Processing...{BOLD_END} \r");
+                    let _ = self.writer.write(MSG_PROCESSING);
                     let _ = self.writer.flush();
                 }
                 Response::Think(think) => {
                     if self.show_reasoning {
                         match think {
                             ThinkEvent::Start => {
-                                let _ = write!(self.writer, "{BOLD_START}<think>{BOLD_END}");
+                                let _ = self.writer.write(MSG_THINK_TAG_START);
                             }
                             ThinkEvent::Content(s) => {
-                                let _ = write!(self.writer, "{s}");
+                                let _ = self.writer.write_all(s.as_bytes());
                                 let _ = self.writer.flush();
                             }
                             ThinkEvent::Stop => {
-                                let _ = writeln!(self.writer, "{BOLD_START}</think>{BOLD_END}");
+                                let _ = self.writer.write(MSG_THINK_TAG_END);
                             }
                         }
                     } else {
                         match think {
                             ThinkEvent::Start => {
-                                let _ = write!(self.writer, "{BOLD_START}Thinking...{BOLD_END}  ");
+                                let _ = self.writer.write(MSG_THINKING);
                                 let _ = self.writer.flush();
                             }
                             ThinkEvent::Content(_) => {
-                                let _ = write!(
-                                    self.writer,
-                                    "{}{BACK_ONE}",
-                                    SPINNER[spindx % SPINNER.len()] as char
-                                );
+                                let _ = self.writer.write(SPINNER[spindx % SPINNER.len()]);
                                 let _ = self.writer.flush();
                                 spindx += 1;
                             }
@@ -88,17 +104,17 @@ impl<W: Write + Send> ConsoleWriter<W> {
                 Response::Content(content) => {
                     if is_first_content {
                         // Erase the Processing or Thinking line
-                        let _ = write!(self.writer, "\r{CLEAR_LINE}\n");
+                        let _ = self.writer.write(MSG_CLEAR_LINE);
                         is_first_content = false;
                     }
-                    let _ = write!(self.writer, "{content}");
+                    let _ = self.writer.write_all(content.as_bytes());
                     let _ = self.writer.flush();
                 }
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
                 Response::Error(_err) => {
-                    let _ = write!(self.writer, "{CURSOR_ON}");
+                    let _ = self.writer.write(CURSOR_ON);
                     let _ = self.writer.flush();
                     // Original passed through provider error detail
                     return Err(ort_error(ErrorKind::ResponseStreamError, "Response error"));
@@ -109,7 +125,7 @@ impl<W: Write + Send> ConsoleWriter<W> {
             }
         }
 
-        let _ = write!(self.writer, "{CURSOR_ON}");
+        let _ = self.writer.write(CURSOR_ON);
         let _ = self.writer.flush();
 
         let Some(stats) = stats_out else {
@@ -140,19 +156,19 @@ impl<W: Write + Send> FileWriter<W> {
                     if self.show_reasoning {
                         match think {
                             ThinkEvent::Start => {
-                                let _ = write!(self.writer, "<think>");
+                                let _ = self.writer.write("<think>".as_bytes());
                             }
                             ThinkEvent::Content(s) => {
-                                let _ = write!(self.writer, "{s}");
+                                let _ = self.writer.write_all(s.as_bytes());
                             }
                             ThinkEvent::Stop => {
-                                let _ = write!(self.writer, "</think>\n\n");
+                                let _ = self.writer.write("</think>\n\n".as_bytes());
                             }
                         }
                     }
                 }
                 Response::Content(content) => {
-                    let _ = write!(self.writer, "{content}");
+                    let _ = self.writer.write_all(content.as_bytes());
                 }
                 Response::Stats(stats) => {
                     stats_out = Some(stats);

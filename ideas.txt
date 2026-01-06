@@ -5,15 +5,6 @@
 
 High-Impact Optimizations (Minimal Performance Cost)
 
- 3. Optimize opt-level (~3-8 KiB, slight perf trade-off)
-
-  Try opt-level = "z" instead of "s":
-
-  [profile.release]
-  opt-level = "z"  # Changed from "s"
-
-  Test if the performance hit is acceptable for your use case.
-
   4. Remove format! macros (~5-15 KiB)
 
   Search for format!(), write!(), and writeln!() calls. Replace with:

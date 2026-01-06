@@ -588,7 +588,7 @@ extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_
         let w_core = cw.into_inner();
         (stats, w_core)
     };
-    let _ = writeln!(w_core);
+    let _ = w_core.write(b"\n");
     if !params.is_quiet {
         let _ = write!(w_core, "\nStats: {stats}\n");
     }
