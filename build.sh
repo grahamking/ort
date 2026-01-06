@@ -7,3 +7,8 @@
 pushd cli
 cargo build --release
 popd
+
+# Saves about 3 KiB
+if command -v llvm-strip >/dev/null 2>&1; then
+    llvm-strip --strip-sections --strip-all target/release/ort
+fi
