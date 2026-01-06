@@ -5,11 +5,11 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
-use crate::{Context as _, OrtResult, PromptOpts, common::utils, ort_err, ort_error};
+use crate::{Context as _, ErrorKind, OrtResult, PromptOpts, common::utils, ort_err, ort_error};
 
 const OPENROUTER_KEY: &str = "openrouter";
 const CONFIG_FILE: &str = "ort.json";
@@ -22,10 +22,11 @@ pub fn load_config() -> OrtResult<ConfigFile> {
     config_dir.push_str(CONFIG_FILE);
     let config_file = config_dir;
     match utils::filename_read_to_string(&config_file) {
-        Ok(cfg_str) => ConfigFile::from_json(&cfg_str)
-            .map_err(|err| ort_error("Failed to parse config: ".to_string() + &err)),
+        Ok(cfg_str) => {
+            ConfigFile::from_json(&cfg_str).map_err(|_| ort_error(ErrorKind::ConfigParseFailed, ""))
+        }
         Err("NOT FOUND") => Ok(ConfigFile::default()),
-        Err(e) => ort_err(e).context(config_file),
+        Err(_e) => ort_err(ErrorKind::ConfigReadFailed, "").context("config_file"),
     }
 }
 
@@ -102,6 +103,9 @@ pub fn xdg_dir(var_name: &CStr, default: &'static str) -> OrtResult<String> {
         utils::ensure_dir_exists(&home_dir);
         Ok(home_dir)
     } else {
-        Err(ort_error("Could not get home dir. Is $HOME set?"))
+        Err(ort_error(
+            ErrorKind::MissingHomeDir,
+            "Could not get home dir. Is $HOME set?",
+        ))
     }
 }

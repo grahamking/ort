@@ -7,7 +7,7 @@
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{LastData, Message, OrtResult, PromptOpts, Write, ort_err};
+use crate::{LastData, Message, OrtResult, PromptOpts, Write, ort_err, ErrorKind};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -221,7 +221,10 @@ pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
     write_json_str_simple(w, data.role.as_str())?;
     match (&data.content, &data.reasoning) {
         (Some(_), Some(_)) | (None, None) => {
-            return ort_err("Message must have exactly one of 'content' or 'reasoning'.");
+            return ort_err(
+                ErrorKind::InvalidMessageSchema,
+                "Message must have exactly one of 'content' or 'reasoning'.",
+            );
         }
         (Some(content), _) => {
             w.write_str(",\"content\":")?;

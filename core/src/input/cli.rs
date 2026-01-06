@@ -20,7 +20,7 @@ use crate::common::utils;
 use crate::input::args;
 use crate::libc;
 use crate::list;
-use crate::ort_err;
+use crate::{ort_err, ErrorKind};
 use crate::prompt;
 
 const STDIN_FILENO: i32 = 0;
@@ -67,7 +67,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
         api_key = match cfg.get_openrouter_key() {
             Some(k) => k,
             None => {
-                return ort_err("OPENROUTER_API_KEY is not set.");
+                return ort_err(ErrorKind::MissingApiKey, "OPENROUTER_API_KEY is not set.");
             }
         }
     };

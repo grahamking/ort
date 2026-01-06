@@ -4,84 +4,182 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt::{self, Display};
+use core::fmt;
 
 extern crate alloc;
-use alloc::string::{String, ToString};
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::ffi::CString;
+use alloc::string::ToString;
+
+use crate::libc;
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    // Configuration & arguments
+    //
+    MissingApiKey = 1,
+    // Argument parse error
+    InvalidArguments,
+    // Failed to parse config
+    ConfigParseFailed,
+    // Failed to read config file
+    ConfigReadFailed,
+    MissingHomeDir,
+
+    // Conversation/history
+    HistoryMissing,
+    HistoryParseFailed,
+    HistoryReadFailed,
+    HistoryLookupFailed,
+
+    // Input validation
+    InvalidMessageSchema,
+
+    // Output & streaming
+    //
+    StdoutWriteFailed,
+    QueueDesync,
+    // OpenRouter did not return usage stats
+    MissingUsageStats,
+    ResponseStreamError,
+    LastWriterError,
+
+    // Filesystem
+    FileCreateFailed,
+    FileReadFailed,
+    FileWriteFailed,
+    FileStatFailed,
+    DirOpenFailed,
+
+    // Threads
+    //
+    // Failed mmap allocating thread stack
+    ThreadStackAllocFailed,
+    // pthread_create failed
+    ThreadSpawnFailed,
+
+    // Networking
+    //
+    DnsResolveFailed,
+    // libc::socket failed
+    SocketCreateFailed,
+    // libc::connect failed
+    SocketConnectFailed,
+    SocketReadFailed,
+    SocketWriteFailed,
+
+    // Generic I/O
+    UnexpectedEof,
+
+    // HTTP chunked transfer decoding
+    //
+    // EOF while reading chunk size
+    ChunkedEofInSize,
+    // Error reading chunk size
+    ChunkedSizeReadError,
+    ChunkedInvalidSize,
+    // Error reading chunked data line
+    ChunkedDataReadError,
+
+    // HTTP / higher-level protocol
+    HttpStatusError,
+    HttpConnectError,
+
+    // TLS handshake / record processing
+    //
+    TlsExpectedHandshakeRecord,
+    TlsExpectedServerHello,
+    // Expected server to send dummy Change Cipher Spec
+    TlsExpectedChangeCipherSpec,
+    TlsExpectedEncryptedRecords,
+    TlsBadHandshakeFragment,
+    TlsFinishedVerifyFailed,
+    TlsUnsupportedCipher,
+    TlsAlertReceived,
+    TlsRecordTooShort,
+    TlsHandshakeHeaderTooShort,
+    TlsHandshakeBodyTooShort,
+    TlsServerHelloTooShort,
+    TlsServerHelloSessionIdInvalid,
+    TlsServerHelloExtTooShort,
+    TlsExtensionHeaderTooShort,
+    TlsExtensionLengthInvalid,
+    TlsKeyShareServerHelloInvalid,
+    TlsServerGroupUnsupported,
+    TlsKeyShareLengthInvalid,
+    TlsServerNotTls13,
+    TlsMissingServerKey,
+
+    // Misc
+    FormatError,
+    Other,
+}
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OrtError {
-    msg: String,
-    context: Vec<String>,
+    pub kind: ErrorKind,
+    pub context: &'static str,
 }
 
-pub fn ort_error<T: Into<String>>(msg: T) -> OrtError {
-    OrtError {
-        msg: msg.into(),
-        context: vec![],
+pub fn ort_error(kind: ErrorKind, context: &'static str) -> OrtError {
+    OrtError { kind, context }
+}
+
+pub fn ort_err<X>(kind: ErrorKind, context: &'static str) -> Result<X, OrtError> {
+    Err(ort_error(kind, context))
+}
+
+pub fn ort_from_err<E: core::fmt::Display>(
+    kind: ErrorKind,
+    context: &'static str,
+    e: E,
+) -> OrtError {
+    let c_s = CString::new("\nERROR: ".to_string() + &e.to_string()).unwrap();
+    unsafe {
+        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
     }
+
+    ort_error(kind, context)
 }
 
-pub fn ort_err<X, T: Into<String>>(msg: T) -> Result<X, OrtError> {
-    Err(OrtError {
-        msg: msg.into(),
-        context: vec![],
-    })
-}
+impl OrtError {
+    #[cfg(debug_assertions)]
+    pub fn debug_print(&self) {
+        use crate::libc;
+        use alloc::ffi::CString;
+        use alloc::string::ToString;
+        let s = self.to_string();
+        let c_s = CString::new(s).unwrap();
+        unsafe {
+            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+        }
+    }
 
-pub fn ort_from_err<E: core::fmt::Display>(e: E) -> OrtError {
-    ort_error(e.to_string())
+    #[cfg(not(debug_assertions))]
+    pub fn debug_print(&self) {}
 }
 
 impl core::error::Error for OrtError {}
 
 impl fmt::Display for OrtError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.context.is_empty() {
-            write!(f, "{}", self.msg)
-        } else {
-            write!(
-                f,
-                "Error: {}. Context: {}",
-                self.msg,
-                self.context.join(",")
-            )
-        }
+        write!(f, "{:?}: {}", self.kind, self.context)
     }
 }
 
 impl From<core::fmt::Error> for OrtError {
     fn from(err: core::fmt::Error) -> OrtError {
-        ort_error(err.to_string())
-    }
-}
-
-impl OrtError {
-    // Save extra context with this error.
-    pub fn context<T: Into<String>>(&mut self, s: T) -> &mut Self {
-        self.context.push(s.into());
-        self
+        // fmt::Error has no payload; treat as format error.
+        let _ = err;
+        ort_error(ErrorKind::FormatError, "")
     }
 }
 
 pub trait Context<T, E> {
     /// Wrap the error value with additional context.
-    fn context<C>(self, context: C) -> Result<T, OrtError>
-    where
-        C: Display + Send + Sync + 'static;
-
-    /*
-    /// Wrap the error value with additional context that is evaluated lazily
-    /// only once an error does occur.
-    fn with_context<C, F>(self, f: F) -> Result<T, Error>
-    where
-        C: Display + Send + Sync + 'static,
-        F: FnOnce() -> C;
-    */
+    fn context(self, context: &'static str) -> Result<T, OrtError>;
 }
 
 impl<T, E> Context<T, E> for Result<T, E>
@@ -89,32 +187,14 @@ where
     E: Into<OrtError>,
 {
     /// Wrap the error value with additional context.
-    fn context<C>(self, context: C) -> OrtResult<T>
-    where
-        C: Display + Send + Sync + 'static,
-    {
+    fn context(self, context: &'static str) -> OrtResult<T> {
         match self {
             Ok(ok) => Ok(ok),
             Err(error) => {
                 let mut err: OrtError = error.into();
-                err.context(context.to_string());
+                err.context = context;
                 Err(err)
             }
         }
     }
-
-    /*
-    /// Wrap the error value with additional context that is evaluated lazily
-    /// only once an error does occur.
-    pub fn with_context<C, F>(self, context: F) -> OrtResult<T>
-    where
-        C: Display + Send + Sync + 'static,
-        F: FnOnce() -> C
-    {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(error) => Err(error.ext_context(context())),
-        }
-    }
-    */
 }

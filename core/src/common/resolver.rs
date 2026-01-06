@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{OrtResult, libc, ort_err};
+use crate::{OrtResult, libc, ort_err, ErrorKind};
 
 /// # Safety
 /// System programming is for everyone
@@ -22,7 +22,7 @@ pub unsafe fn resolve(host: *const c_char) -> OrtResult<Vec<Ipv4Addr>> {
     let mut addr_info = core::ptr::null_mut();
     let return_code = unsafe { libc::getaddrinfo(host, core::ptr::null(), &hints, &mut addr_info) };
     if return_code != 0 {
-        return ort_err("getaddrinfo syscall error");
+        return ort_err(ErrorKind::DnsResolveFailed, "getaddrinfo syscall error");
     }
 
     let mut ips = vec![];

@@ -13,10 +13,41 @@ use core::ffi::{c_str::CStr, c_void};
 
 use crate::libc;
 
+/// Converts the number to a string, putting it plus a carriage return into `buf`.
+/// `buf` must be big enough to hold the largest possible number of digits in
+/// your number + 2 ('\n' and '\0').
+/// Returns the length of the converted string, not including null bute.
+pub fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
+    if num == 0 {
+        buf[0] = b'0';
+        buf[1] = 0;
+        return 2;
+    }
+
+    let mut div = 1usize;
+    while num / div >= 10 {
+        div *= 10;
+    }
+
+    let mut i = 0usize;
+    while div != 0 {
+        buf[i] = b'0' + (num / div) as u8;
+        num %= div;
+        div /= 10;
+        i += 1;
+    }
+    buf[i] = b'\n';
+    i += 1;
+    buf[i] = 0;
+    i + 1
+}
+
+/* Not currently used
 pub fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(s.to_string()).unwrap();
     unsafe { libc::printf(c"%s%s\n".as_ptr(), prefix.as_ptr(), msg.as_ptr()) };
 }
+*/
 
 pub fn slug(s: &str) -> String {
     s.chars()

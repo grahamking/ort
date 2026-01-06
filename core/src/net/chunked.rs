@@ -5,11 +5,11 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
-use alloc::format;
+use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::{OrtResult, Read, common::buf_read, ort_err};
+use crate::{ErrorKind, OrtResult, Read, common::buf_read, libc, ort_err};
 
 /// Read a transfer encoding chunked body, populating `out` with the
 /// full re-constructed body.
@@ -29,11 +29,12 @@ pub fn read_to_string<R: Read>(
         size_buf.clear();
         match r.read_line(&mut size_buf) {
             Ok(0) => {
-                return ort_err("EOF while reading chunk size");
+                return ort_err(ErrorKind::ChunkedEofInSize, "");
             }
             Ok(_) => {}
             Err(err) => {
-                return ort_err("Error reading chunk size: ".to_string() + &err.to_string());
+                err.debug_print();
+                return ort_err(ErrorKind::ChunkedSizeReadError, "");
             }
         }
         let size_str = size_buf.trim();
@@ -43,8 +44,13 @@ pub fn read_to_string<R: Read>(
         }
         let size = match usize::from_str_radix(size_str, 16) {
             Ok(n) => n,
-            Err(err) => {
-                return ort_err(format!("invalid chunk size: '{size_str}': {err}"));
+            Err(_err) => {
+                let c_s =
+                    CString::new("ERROR invalid chunked size: ".to_string() + size_str).unwrap();
+                unsafe {
+                    libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                }
+                return ort_err(ErrorKind::ChunkedInvalidSize, "");
             }
         };
         if size == 0 {
@@ -59,8 +65,9 @@ pub fn read_to_string<R: Read>(
         }
         unsafe { data_buf.set_len(size) };
 
-        if let Err(err) = r.read_exact(&mut data_buf) {
-            return ort_err("Error reading chunked data line: ".to_string() + &err.to_string());
+        if let Err(_err) = r.read_exact(&mut data_buf) {
+            // Original included err detail
+            return ort_err(ErrorKind::ChunkedDataReadError, "");
         };
         bytes_read += size;
 

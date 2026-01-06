@@ -36,7 +36,7 @@ use crate::libc;
 use crate::ort_error;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
 use crate::{CancelToken, http, thread as ort_thread};
-use crate::{LastData, OrtError, ort_err, ort_from_err};
+use crate::{ErrorKind, LastData, ort_err, ort_from_err};
 use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
 
@@ -153,14 +153,24 @@ pub fn run_continue(
 
     let mut last = match utils::filename_read_to_string(&last_file) {
         Ok(hist_str) => LastData::from_json(&hist_str)
-            .map_err(|err| ort_error(format!("Failed to parse last: {err}")))?,
+            .map_err(|_err| ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last"))?,
         Err("NOT FOUND") => {
-            return ort_err("No last conversation, cannot continue");
+            return ort_err(
+                ErrorKind::HistoryMissing,
+                "No last conversation, cannot continue",
+            );
         }
-        Err(e) => {
-            let mut err: OrtError = ort_from_err(e);
-            err.context(last_file);
-            return Err(err);
+        Err(_e) => {
+            #[cfg(debug_assertions)]
+            {
+                // In debug build print the path.
+                let c_last_file = CString::new(last_file).unwrap();
+                unsafe { libc::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes()) };
+            }
+            return Err(ort_error(
+                ErrorKind::HistoryReadFailed,
+                "Error reading last conversation file",
+            ));
         }
     };
 
@@ -244,7 +254,9 @@ pub fn run_multi(
         }
         match consumer_done.get_next() {
             Some(model_output) => {
-                write!(w, "{}\n\n", model_output).map_err(ort_from_err)?;
+                write!(w, "{}\n\n", model_output).map_err(|e| {
+                    ort_from_err(ErrorKind::SocketWriteFailed, "write multi model output", e)
+                })?;
                 let _ = w.flush();
             }
             None => {
@@ -620,7 +632,8 @@ extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
 /// Find the most recent file in `dir` that starts with `filename_prefix`.
 /// Uses the minimal amount of disk access to go as fast as possible.
 fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
-    let c_dir = CString::new(dir).map_err(ort_from_err)?;
+    let c_dir = CString::new(dir)
+        .map_err(|e| ort_from_err(ErrorKind::FileReadFailed, "CString::new most_recent dir", e))?;
     let dir_files = dir::DirFiles::new(c_dir.as_c_str())?;
 
     let mut most_recent_file: Option<(String, time::Instant)> = None;
@@ -629,7 +642,13 @@ fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
             continue;
         }
         let path = dir.to_string() + "/" + &name;
-        let c_name = CString::new(path.clone()).map_err(ort_from_err)?;
+        let c_name = CString::new(path.clone()).map_err(|e| {
+            ort_from_err(
+                ErrorKind::FileReadFailed,
+                "CString::new candidate filename",
+                e,
+            )
+        })?;
         let modified_time = file::last_modified(c_name.as_c_str())?;
 
         if let Some((_, prev_time)) = &most_recent_file {
@@ -644,8 +663,9 @@ fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
     most_recent_file
         .map(|(path, _)| Ok(path))
         .unwrap_or_else(|| {
-            ort_err(format!(
-                "No files found starting with prefix: {filename_prefix}"
-            ))
+            ort_err(
+                ErrorKind::HistoryLookupFailed,
+                "No files found starting with prefix",
+            )
         })
 }

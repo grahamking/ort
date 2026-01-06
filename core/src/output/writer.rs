@@ -13,8 +13,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write, common::config,
-    common::file, common::queue, common::stats, common::utils, ort_err, ort_from_err,
+    ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write,
+    common::config, common::file, common::queue, common::stats, common::utils, ort_err,
+    ort_from_err,
 };
 use crate::{libc, ort_error};
 
@@ -97,10 +98,11 @@ impl<W: Write + Send> ConsoleWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(err) => {
+                Response::Error(_err) => {
                     let _ = write!(self.writer, "{CURSOR_ON}");
                     let _ = self.writer.flush();
-                    return ort_err(err.to_string());
+                    // Original passed through provider error detail
+                    return ort_err(ErrorKind::ResponseStreamError, "Response error");
                 }
                 Response::None => {
                     panic!("Response::None means we read the wrong Queue position");
@@ -112,7 +114,7 @@ impl<W: Write + Send> ConsoleWriter<W> {
         let _ = self.writer.flush();
 
         let Some(stats) = stats_out else {
-            return ort_err("OpenRouter did not return usage stats");
+            return ort_err(ErrorKind::MissingUsageStats, "");
         };
         Ok(stats)
     }
@@ -156,17 +158,20 @@ impl<W: Write + Send> FileWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(err) => {
-                    return ort_err(err.to_string());
+                Response::Error(_err) => {
+                    return ort_err(ErrorKind::ResponseStreamError, "Response error");
                 }
                 Response::None => {
-                    return ort_err("Response::None means we read the wrong Queue position");
+                    return ort_err(
+                        ErrorKind::QueueDesync,
+                        "Response::None means we read the wrong Queue position",
+                    );
                 }
             }
         }
 
         let Some(stats) = stats_out else {
-            return ort_err("OpenRouter did not return usage stats");
+            return ort_err(ErrorKind::MissingUsageStats, "");
         };
         Ok(stats)
     }
@@ -191,11 +196,18 @@ impl CollectedWriter {
                 Response::Stats(stats) => {
                     got_stats = Some(stats);
                 }
-                Response::Error(err) => {
-                    return ort_err("CollectedWriter".to_string() + &err.to_string());
+                Response::Error(_err) => {
+                    // Original message: CollectedWriter + err detail
+                    return ort_err(
+                        ErrorKind::ResponseStreamError,
+                        "CollectedWriter response error",
+                    );
                 }
                 Response::None => {
-                    return ort_err("Response::None means we read the wrong Queue position");
+                    return ort_err(
+                        ErrorKind::QueueDesync,
+                        "Response::None means we read the wrong Queue position",
+                    );
                 }
             }
         }
@@ -218,8 +230,12 @@ impl LastWriter {
         let mut last_path = config::cache_dir()?;
         last_path.push('/');
         last_path.push_str(&last_filename);
-        let c_path = CString::new(last_path).map_err(ort_from_err)?;
-        let last_file = unsafe { file::File::create(c_path.as_ptr()).map_err(ort_from_err)? };
+        let c_path = CString::new(last_path)
+            .map_err(|e| ort_from_err(ErrorKind::FileCreateFailed, "CString::new last path", e))?;
+        let last_file = unsafe {
+            file::File::create(c_path.as_ptr())
+                .map_err(|e| ort_from_err(ErrorKind::FileCreateFailed, "create last file", e))?
+        };
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })
     }
@@ -239,11 +255,15 @@ impl LastWriter {
                 Response::Stats(stats) => {
                     self.data.opts.provider = Some(utils::slug(stats.provider()));
                 }
-                Response::Error(err) => {
-                    return ort_err(format!("LastWriter: {err}"));
+                Response::Error(_err) => {
+                    // Original: format!(\"LastWriter: {err}\")
+                    return ort_err(ErrorKind::LastWriterError, "LastWriter run error");
                 }
                 Response::None => {
-                    return ort_err("Response::None means we read the wrong Queue position");
+                    return ort_err(
+                        ErrorKind::QueueDesync,
+                        "Response::None means we read the wrong Queue position",
+                    );
                 }
             }
         }
@@ -266,7 +286,7 @@ impl Write for StdoutWriter {
         if bytes_written >= 0 {
             Ok(bytes_written as usize)
         } else {
-            Err(ort_error("Failed writing to stdout"))
+            Err(ort_error(ErrorKind::StdoutWriteFailed, ""))
         }
     }
 

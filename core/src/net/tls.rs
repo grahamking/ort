@@ -6,16 +6,19 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
-use core::cmp;
 use core::ffi::c_void;
+use core::{cmp, ffi::CStr};
 
 extern crate alloc;
+use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{OrtResult, Read, Write, libc, ort_error, ort_from_err};
+use crate::{
+    ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, libc, ort_error, ort_from_err,
+};
 
 mod aead;
 mod ecdh;
@@ -237,17 +240,24 @@ fn client_hello_msg(sni_host: &str, client_private_key: &[u8]) -> OrtResult<Vec<
 
 /// Read ServerHello (plaintext Handshake record)
 fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
-    let (typ, payload) = read_record_plain(io).map_err(ort_from_err)?;
+    let (typ, payload) = read_record_plain(io)
+        .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_plain", e))?;
     if typ != REC_TYPE_HANDSHAKE {
-        return Err(ort_error("expected Handshake"));
+        return Err(ort_error(ErrorKind::TlsExpectedHandshakeRecord, ""));
     }
     let sh_buf = payload;
 
     // There can be multiple handshake messages; we need the ServerHello bytes specifically
     let mut rd = &sh_buf[..];
-    let (sh_typ, sh_body, sh_full) = read_handshake_message(&mut rd).map_err(ort_from_err)?;
+    let (sh_typ, sh_body, sh_full) = read_handshake_message(&mut rd).map_err(|e| {
+        ort_from_err(
+            ErrorKind::TlsHandshakeHeaderTooShort,
+            "read_handshake_message",
+            e,
+        )
+    })?;
     if sh_typ != HS_SERVER_HELLO {
-        return Err(ort_error("expected ServerHello"));
+        return Err(ort_error(ErrorKind::TlsExpectedServerHello, ""));
     }
 
     // TODO: later remove the copy. The slices are into sh_buf
@@ -340,7 +350,8 @@ impl<T: Read + Write> TlsStream<T> {
         client_private_key: &[u8; 32],
     ) -> OrtResult<()> {
         let ch_msg = client_hello_msg(sni_host, client_private_key)?;
-        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg).map_err(ort_from_err)?;
+        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)
+            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write ClientHello", e))?;
         transcript.extend_from_slice(&ch_msg);
         Ok(())
     }
@@ -353,11 +364,10 @@ impl<T: Read + Write> TlsStream<T> {
 
     fn receive_dummy_change_cipher_spec<R: Read>(io: &mut R) -> OrtResult<()> {
         // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
-        let (typ, _) = read_record_plain(io).map_err(ort_from_err)?;
+        let (typ, _) = read_record_plain(io)
+            .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_plain", e))?;
         if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
-            return Err(ort_error(
-                "Expected server to send dummy Change Cipher Spec",
-            ));
+            return Err(ort_error(ErrorKind::TlsExpectedChangeCipherSpec, ""));
         }
         Ok(())
     }
@@ -374,9 +384,9 @@ impl<T: Read + Write> TlsStream<T> {
             &handshake.server_handshake_iv,
             seq_dec_hs,
         )
-        .map_err(ort_from_err)?;
+        .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_cipher", e))?;
         if typ != REC_TYPE_APPDATA {
-            return Err(ort_error("expected encrypted records"));
+            return Err(ort_error(ErrorKind::TlsExpectedEncryptedRecords, ""));
         }
 
         // Decrypted TLSInnerPlaintext: ... | content_type
@@ -387,7 +397,9 @@ impl<T: Read + Write> TlsStream<T> {
             // here ct already stripped of content-type 0x16 by read_record_cipher().
             let (mtyp, body, full) = match read_handshake_message(&mut p) {
                 Ok(x) => x,
-                Err(_) => return Err(ort_error("bad handshake fragment")),
+                Err(_) => {
+                    return Err(ort_error(ErrorKind::TlsBadHandshakeFragment, ""));
+                }
             };
             transcript.extend_from_slice(full);
 
@@ -399,7 +411,7 @@ impl<T: Read + Write> TlsStream<T> {
                 let thash = digest_bytes(&transcript[..transcript.len() - full.len()]);
                 let expected = hmac::sign(&s_finished_key, &thash);
                 if expected.as_slice() != body {
-                    return Err(ort_error("server Finished verify failed"));
+                    return Err(ort_error(ErrorKind::TlsFinishedVerifyFailed, ""));
                 }
                 // Done collecting server handshake.
                 break;
@@ -416,10 +428,19 @@ impl<T: Read + Write> TlsStream<T> {
     ) -> OrtResult<HandshakeState> {
         // Parse minimal ServerHello to get cipher & key_share
         let (cipher, server_public_key_bytes) =
-            parse_server_hello_for_keys(sh_body).map_err(ort_from_err)?;
+            parse_server_hello_for_keys(sh_body).map_err(|e| {
+                ort_from_err(
+                    ErrorKind::TlsServerHelloTooShort,
+                    "parse_server_hello_for_keys",
+                    e,
+                )
+            })?;
         debug_print("Server public key", &server_public_key_bytes);
         if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
-            return Err(ort_error("server picked unsupported cipher"));
+            return Err(ort_error(
+                ErrorKind::TlsUnsupportedCipher,
+                "server picked unsupported cipher",
+            ));
         }
 
         // ECDH(X25519) shared secret
@@ -555,7 +576,7 @@ impl<T: Read + Write> TlsStream<T> {
             &handshake.client_handshake_iv,
             seq_enc_hs,
         )
-        .map_err(ort_from_err)?;
+        .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_cipher", e))?;
 
         Ok(())
     }
@@ -615,9 +636,19 @@ impl<T: Read + Write> Read for TlsStream<T> {
                     2 => "fatal",
                     _ => "unknown",
                 };
+                let err_level = CString::new(level.to_string() + " alert: ").unwrap();
+
                 // See https://www.rfc-editor.org/rfc/rfc8446#appendix-B search for
                 // "unexpected_message" for all types
-                return Err(ort_error(format!("{level} alert: {}", plaintext[1])));
+                let mut err_code_buf: [u8; 5] = [0u8; 5];
+                let len = to_ascii(plaintext[1] as usize, &mut err_code_buf);
+                let err_code = unsafe { CStr::from_bytes_with_nul_unchecked(&err_code_buf[..len]) };
+                unsafe {
+                    libc::write(2, err_level.as_ptr().cast(), err_level.count_bytes());
+                    libc::write(2, err_code.as_ptr().cast(), err_code.count_bytes());
+                }
+
+                return Err(ort_error(ErrorKind::TlsAlertReceived, ""));
             }
             if inner_type != REC_TYPE_APPDATA {
                 // Some servers pad with 0x00.. then type; we already consumed type.
@@ -715,7 +746,7 @@ fn read_record_cipher<R: Read>(
     let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
     let ciphertext = read_exact_n(r, len)?;
     if len < AEAD_TAG_LEN {
-        return Err(ort_error("short record"));
+        return Err(ort_error(ErrorKind::TlsRecordTooShort, "short record"));
     }
     debug_print("read_record_cipher hdr", &hdr);
     debug_print("read_record_cipher ct", &ciphertext);
@@ -743,12 +774,12 @@ fn read_record_cipher<R: Read>(
 
 fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> OrtResult<(u8, &'a [u8], &'a [u8])> {
     if rd.len() < 4 {
-        return Err(ort_error("short hs"));
+        return Err(ort_error(ErrorKind::TlsHandshakeHeaderTooShort, ""));
     }
     let typ = rd[0];
     let len = ((rd[1] as usize) << 16) | ((rd[2] as usize) << 8) | rd[3] as usize;
     if rd.len() < 4 + len {
-        return Err(ort_error("short hs body"));
+        return Err(ort_error(ErrorKind::TlsHandshakeBodyTooShort, ""));
     }
     let full = &rd[..4 + len];
     let body = &rd[4..4 + len];
@@ -759,7 +790,7 @@ fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> OrtResult<(u8, &'a [u8], &'a
 fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
     // minimal parse: skip legacy_version(2), random(32), sid, cipher(2), comp(1), exts
     if sh.len() < 2 + 32 + 1 + 2 + 1 + 2 {
-        return Err(ort_error("sh too short"));
+        return Err(ort_error(ErrorKind::TlsServerHelloTooShort, ""));
     }
     let mut p = sh;
 
@@ -768,7 +799,7 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
     let sid_len = p[0] as usize;
     p = &p[1..];
     if p.len() < sid_len + 2 + 1 + 2 {
-        return Err(ort_error("sh sid"));
+        return Err(ort_error(ErrorKind::TlsServerHelloSessionIdInvalid, ""));
     }
     p = &p[sid_len..];
     let cipher = u16::from_be_bytes([p[0], p[1]]);
@@ -778,7 +809,7 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
     let ext_len = u16::from_be_bytes([p[0], p[1]]) as usize;
     p = &p[2..];
     if p.len() < ext_len {
-        return Err(ort_error("sh ext too short"));
+        return Err(ort_error(ErrorKind::TlsServerHelloExtTooShort, ""));
     }
     let mut ex = &p[..ext_len];
 
@@ -786,13 +817,13 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
 
     while !ex.is_empty() {
         if ex.len() < 4 {
-            return Err(ort_error("ext short"));
+            return Err(ort_error(ErrorKind::TlsExtensionHeaderTooShort, ""));
         }
         let et = u16::from_be_bytes([ex[0], ex[1]]);
         let el = u16::from_be_bytes([ex[2], ex[3]]) as usize;
         ex = &ex[4..];
         if ex.len() < el {
-            return Err(ort_error("ext len"));
+            return Err(ort_error(ErrorKind::TlsExtensionLengthInvalid, ""));
         }
         let ed = &ex[..el];
         ex = &ex[el..];
@@ -801,15 +832,18 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
             EXT_KEY_SHARE => {
                 // KeyShareServerHello: group(2) kx_len(2) kx
                 if ed.len() < 2 + 2 + 32 {
-                    return Err(ort_error("ks sh"));
+                    return Err(ort_error(ErrorKind::TlsKeyShareServerHelloInvalid, ""));
                 }
                 let grp = u16::from_be_bytes([ed[0], ed[1]]);
                 if grp != GROUP_X25519 {
-                    return Err(ort_error("server group != x25519"));
+                    return Err(ort_error(
+                        ErrorKind::TlsServerGroupUnsupported,
+                        "server group != x25519",
+                    ));
                 }
                 let kx_len = u16::from_be_bytes([ed[2], ed[3]]) as usize;
                 if ed.len() < 4 + kx_len || kx_len != 32 {
-                    return Err(ort_error("kx len"));
+                    return Err(ort_error(ErrorKind::TlsKeyShareLengthInvalid, ""));
                 }
                 let mut pk = [0u8; 32];
                 pk.copy_from_slice(&ed[4..4 + 32]);
@@ -817,14 +851,14 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
             }
             EXT_SUPPORTED_VERSIONS => {
                 if ed.len() != 2 || u16::from_be_bytes([ed[0], ed[1]]) != TLS13 {
-                    return Err(ort_error("server not TLS1.3"));
+                    return Err(ort_error(ErrorKind::TlsServerNotTls13, ""));
                 }
             }
             _ => {}
         }
     }
 
-    let sp = server_pub.ok_or_else(|| ort_error("no server key"))?;
+    let sp = server_pub.ok_or_else(|| ort_error(ErrorKind::TlsMissingServerKey, ""))?;
     Ok((cipher, sp))
 }
 

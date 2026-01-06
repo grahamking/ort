@@ -8,12 +8,14 @@ use core::fmt;
 use core::net::SocketAddr;
 
 extern crate alloc;
+use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::libc;
 use crate::{
-    OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read, ort_error,
+    ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read, ort_error,
     ort_from_err,
 };
 
@@ -38,8 +40,10 @@ pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream
         HOST, api_key, USER_AGENT,
     );
 
-    tls.write_all(prefix.as_bytes()).map_err(ort_from_err)?;
-    tls.flush().map_err(ort_from_err)?;
+    tls.write_all(prefix.as_bytes())
+        .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write list_models request", e))?;
+    tls.flush()
+        .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush list_models request", e))?;
 
     Ok(tls)
 }
@@ -72,9 +76,22 @@ pub fn chat_completions(
         body.len()
     );
 
-    tls.write_all(prefix.as_bytes()).map_err(ort_from_err)?;
-    tls.write_all(body).map_err(ort_from_err)?;
-    tls.flush().map_err(ort_from_err)?;
+    tls.write_all(prefix.as_bytes()).map_err(|e| {
+        ort_from_err(
+            ErrorKind::SocketWriteFailed,
+            "write chat_completions header",
+            e,
+        )
+    })?;
+    tls.write_all(body).map_err(|e| {
+        ort_from_err(
+            ErrorKind::SocketWriteFailed,
+            "write chat_completions body",
+            e,
+        )
+    })?;
+    tls.flush()
+        .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush chat_completions", e))?;
 
     Ok(buf_read::OrtBufReader::new(tls))
 }
@@ -108,7 +125,11 @@ impl fmt::Display for HttpError {
 
 impl From<HttpError> for OrtError {
     fn from(err: HttpError) -> OrtError {
-        ort_error(err.to_string())
+        let c_s = CString::new("\nHTTP ERROR: ".to_string() + &err.to_string()).unwrap();
+        unsafe {
+            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+        }
+        ort_error(ErrorKind::HttpStatusError, "")
     }
 }
 
@@ -206,5 +227,8 @@ fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
         .collect();
     Err(io::Error::other(err_msg.join("; ")))
     */
-    Err(ort_error("TODO connect error handling"))
+    Err(ort_error(
+        ErrorKind::HttpConnectError,
+        "connect error handling TODO",
+    ))
 }

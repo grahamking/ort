@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{OrtResult, Read, ort_err, ort_from_err};
+use crate::{OrtResult, Read, ort_err, ort_from_err, ErrorKind};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -53,7 +53,10 @@ impl<R: Read> OrtBufReader<R> {
     #[inline]
     fn fill_buf(&mut self) -> OrtResult<()> {
         self.pos = 0;
-        let n = self.inner.read(&mut self.buf).map_err(ort_from_err)?;
+        let n = self
+            .inner
+            .read(&mut self.buf)
+            .map_err(|e| ort_from_err(ErrorKind::Other, "buffered read error", e))?;
         self.cap = n;
         Ok(())
     }
@@ -97,7 +100,8 @@ impl<R: Read> OrtBufReader<R> {
             let chunk = &self.buf[self.pos..end];
 
             // Interpret as UTF-8 and append to the caller's String
-            let s = core::str::from_utf8(chunk).map_err(ort_from_err)?;
+            let s = core::str::from_utf8(chunk)
+                .map_err(|e| ort_from_err(ErrorKind::FormatError, "utf8 decode", e))?;
             buf.push_str(s);
 
             total += chunk.len();
@@ -133,16 +137,19 @@ impl<R: Read> OrtBufReader<R> {
 
             // For large remaining reads, bypass the internal buffer
             if len - offset >= BUF_SIZE {
-                let n = self.inner.read(&mut buf[offset..]).map_err(ort_from_err)?;
+                let n = self
+                    .inner
+                    .read(&mut buf[offset..])
+                    .map_err(|e| ort_from_err(ErrorKind::Other, "buffered read_exact", e))?;
                 if n == 0 {
-                    return ort_err("unexpected EOF in read_exact");
+                    return ort_err(ErrorKind::UnexpectedEof, "unexpected EOF in read_exact");
                 }
                 offset += n;
             } else {
                 // For small remaining reads, refill internal buffer and copy
                 self.fill_buf()?;
                 if self.cap == 0 {
-                    return ort_err("unexpected EOF in read_exact");
+                    return ort_err(ErrorKind::UnexpectedEof, "unexpected EOF in read_exact");
                 }
             }
         }

@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use crate::{
     CancelToken, Context as _, OrtResult, Read, Write, chunked, common::buf_read, common::config,
-    common::resolver, http, input::args, ort_from_err,
+    common::resolver, http, input::args, ort_from_err, ErrorKind,
 };
 
 pub fn run(
@@ -26,8 +26,10 @@ pub fn run(
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
-        w.write_all(models.as_bytes()).map_err(ort_from_err)?;
-        w.flush().map_err(ort_from_err)?;
+        w.write_all(models.as_bytes())
+            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e))?;
+        w.flush()
+            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush models JSON", e))?;
     } else {
         // Extract and print model ids alphabetically
         let mut slugs: Vec<&str> = models.split(r#""id":""#).skip(1).map(until_quote).collect();
@@ -55,7 +57,8 @@ fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
             })
             .collect()
     };
-    let reader = http::list_models(api_key, addrs).map_err(ort_from_err)?;
+    let reader = http::list_models(api_key, addrs)
+        .map_err(|e| ort_from_err(ErrorKind::HttpConnectError, "list_models connect", e))?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
     let mut full = String::with_capacity(512 * 1024);
@@ -64,7 +67,7 @@ fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
     } else {
         reader
             .read(unsafe { full.as_mut_vec().as_mut_slice() })
-            .map_err(ort_from_err)?;
+            .map_err(|e| ort_from_err(ErrorKind::ChunkedDataReadError, "read models body", e))?;
     };
     Ok(full)
 }

@@ -9,7 +9,7 @@ use core::ffi::c_void;
 use core::mem;
 use core::ptr;
 
-use crate::{OrtResult, libc, ort_err};
+use crate::{ErrorKind, OrtResult, libc, ort_err};
 
 // Linux default (libpthread) is 8 MiB. We don't need that much.
 const STACK_SIZE: usize = 1024 * 1024; // 1 MiB
@@ -40,7 +40,7 @@ pub unsafe fn spawn(
         )
     };
     if stack_base.is_null() {
-        return ort_err("Failed mmap allocating thread stack");
+        return ort_err(ErrorKind::ThreadStackAllocFailed, "");
     }
     unsafe { libc::mprotect(stack_base, GUARD_SIZE, libc::PROT_NONE) };
 
@@ -60,7 +60,7 @@ pub unsafe fn spawn(
         rc
     };
     if rc != 0 {
-        ort_err("pthread_create failed")
+        ort_err(ErrorKind::ThreadSpawnFailed, "")
     } else {
         Ok(thread_id)
     }

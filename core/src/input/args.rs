@@ -20,7 +20,7 @@ use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
 use crate::common::utils;
-use crate::ort_error;
+use crate::{ErrorKind, ort_error};
 
 #[derive(Debug)]
 pub struct ListOpts {
@@ -254,7 +254,8 @@ impl ArgParseError {
 
 impl From<ArgParseError> for OrtError {
     fn from(err: ArgParseError) -> OrtError {
-        ort_error(err.to_string())
+        let _ = err;
+        ort_error(ErrorKind::InvalidArguments, "")
     }
 }
 

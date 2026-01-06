@@ -8,6 +8,9 @@ use crate::libc;
 use core::alloc::Layout;
 use core::ffi::c_void;
 
+#[cfg(feature = "print-allocations")]
+use crate::common::utils::to_ascii;
+
 pub struct LibcAlloc;
 
 // In case you were wondering, yes all three methods get used. Rust does
@@ -72,32 +75,6 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
         }
         unsafe { libc::realloc(ptr as *mut c_void, new_size) as *mut u8 }
     }
-}
-
-#[cfg(feature = "print-allocations")]
-fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
-    if num == 0 {
-        buf[0] = b'0';
-        buf[1] = 0;
-        return 2;
-    }
-
-    let mut div = 1usize;
-    while num / div >= 10 {
-        div *= 10;
-    }
-
-    let mut i = 0usize;
-    while div != 0 {
-        buf[i] = b'0' + (num / div) as u8;
-        num %= div;
-        div /= 10;
-        i += 1;
-    }
-    buf[i] = b'\n';
-    i += 1;
-    buf[i] = 0;
-    i + 1
 }
 
 /*
