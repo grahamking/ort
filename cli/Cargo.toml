@@ -12,5 +12,9 @@ readme.workspace = true
 name = "ort"
 path = "src/main.rs"
 
+[features]
+# Will print to stderr "+530\n" and "-530\n" when memory is allocated and freed
+print-allocations = ["ort-openrouter-core/print-allocations"]
+
 [dependencies]
 ort-openrouter-core = { path = "../core" }
