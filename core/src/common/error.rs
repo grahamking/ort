@@ -7,10 +7,6 @@
 use core::fmt;
 
 extern crate alloc;
-use alloc::ffi::CString;
-use alloc::string::ToString;
-
-use crate::libc;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,12 +123,28 @@ pub fn ort_error(kind: ErrorKind, context: &'static str) -> OrtError {
     OrtError { kind, context }
 }
 
+// In release mode we only have a more general error
+#[cfg(not(debug_assertions))]
 pub fn ort_from_err<E: core::fmt::Display>(
     kind: ErrorKind,
     context: &'static str,
-    e: E,
+    _err: E,
 ) -> OrtError {
-    let c_s = CString::new("\nERROR: ".to_string() + &e.to_string()).unwrap();
+    ort_error(kind, context)
+}
+
+// In debug mode we print the error. All the generics makes for a larger binary.
+#[cfg(debug_assertions)]
+pub fn ort_from_err<E: core::fmt::Display>(
+    kind: ErrorKind,
+    context: &'static str,
+    err: E,
+) -> OrtError {
+    use crate::libc;
+    use alloc::ffi::CString;
+    use alloc::string::ToString;
+
+    let c_s = CString::new("\nERROR: ".to_string() + &err.to_string()).unwrap();
     unsafe {
         libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
     }

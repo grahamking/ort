@@ -2,7 +2,7 @@
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~165 KiB statically linked ELF binary, with no dependencies, without even using the Rust stdlib.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact <160 KiB statically linked ELF binary, with no dependencies, without even using the Rust stdlib.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 

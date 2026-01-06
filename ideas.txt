@@ -5,30 +5,7 @@
 
 High-Impact Optimizations (Minimal Performance Cost)
 
-  2. Replace String-based errors with error codes (~5-10 KiB)
-
-  Your OrtError uses String for messages which pulls in formatting code:
-
-  // Current: String-based
-  pub struct OrtError {
-      msg: String,
-      context: Vec<String>,
-  }
-
-  // Optimized: Static strings
-  pub struct OrtError {
-      kind: ErrorKind,
-      context: &'static str,
-  }
-
-  #[repr(u8)]
-  pub enum ErrorKind {
-      TlsHandshake = 1,
-      NetworkError = 2,
-      // ... etc
-  }
-
- 3. Optimize opt-level (~3-8 KiB, slight perf trade-off)                                                                                                                  14:07:39 [127/1120]
+ 3. Optimize opt-level (~3-8 KiB, slight perf trade-off)
 
   Try opt-level = "z" instead of "s":
 
@@ -102,7 +79,7 @@ High-Impact Optimizations (Minimal Performance Cost)
   #[cold]
   fn handle_error(...) { ... }
 
-  13. Custom sections removal                                                                                                                                               14:09:21 [20/1120]
+  13. Custom sections removal
 
 ● Bash(readelf -S target/release/ort | awk '{print $2, $6}' | grep -v '^$' | head -20)
   ⎿  are starting
