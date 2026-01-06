@@ -14,8 +14,7 @@ use alloc::vec::Vec;
 
 use crate::{
     ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write,
-    common::config, common::file, common::queue, common::stats, common::utils, ort_err,
-    ort_from_err,
+    common::config, common::file, common::queue, common::stats, common::utils, ort_from_err,
 };
 use crate::{libc, ort_error};
 
@@ -102,7 +101,7 @@ impl<W: Write + Send> ConsoleWriter<W> {
                     let _ = write!(self.writer, "{CURSOR_ON}");
                     let _ = self.writer.flush();
                     // Original passed through provider error detail
-                    return ort_err(ErrorKind::ResponseStreamError, "Response error");
+                    return Err(ort_error(ErrorKind::ResponseStreamError, "Response error"));
                 }
                 Response::None => {
                     panic!("Response::None means we read the wrong Queue position");
@@ -114,7 +113,7 @@ impl<W: Write + Send> ConsoleWriter<W> {
         let _ = self.writer.flush();
 
         let Some(stats) = stats_out else {
-            return ort_err(ErrorKind::MissingUsageStats, "");
+            return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
         Ok(stats)
     }
@@ -159,19 +158,19 @@ impl<W: Write + Send> FileWriter<W> {
                     stats_out = Some(stats);
                 }
                 Response::Error(_err) => {
-                    return ort_err(ErrorKind::ResponseStreamError, "Response error");
+                    return Err(ort_error(ErrorKind::ResponseStreamError, "Response error"));
                 }
                 Response::None => {
-                    return ort_err(
+                    return Err(ort_error(
                         ErrorKind::QueueDesync,
                         "Response::None means we read the wrong Queue position",
-                    );
+                    ));
                 }
             }
         }
 
         let Some(stats) = stats_out else {
-            return ort_err(ErrorKind::MissingUsageStats, "");
+            return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
         Ok(stats)
     }
@@ -198,16 +197,16 @@ impl CollectedWriter {
                 }
                 Response::Error(_err) => {
                     // Original message: CollectedWriter + err detail
-                    return ort_err(
+                    return Err(ort_error(
                         ErrorKind::ResponseStreamError,
                         "CollectedWriter response error",
-                    );
+                    ));
                 }
                 Response::None => {
-                    return ort_err(
+                    return Err(ort_error(
                         ErrorKind::QueueDesync,
                         "Response::None means we read the wrong Queue position",
-                    );
+                    ));
                 }
             }
         }
@@ -257,13 +256,16 @@ impl LastWriter {
                 }
                 Response::Error(_err) => {
                     // Original: format!(\"LastWriter: {err}\")
-                    return ort_err(ErrorKind::LastWriterError, "LastWriter run error");
+                    return Err(ort_error(
+                        ErrorKind::LastWriterError,
+                        "LastWriter run error",
+                    ));
                 }
                 Response::None => {
-                    return ort_err(
+                    return Err(ort_error(
                         ErrorKind::QueueDesync,
                         "Response::None means we read the wrong Queue position",
-                    );
+                    ));
                 }
             }
         }

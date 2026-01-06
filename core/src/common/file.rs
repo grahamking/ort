@@ -11,7 +11,7 @@ use core::mem::MaybeUninit;
 extern crate alloc;
 
 use crate::common::time;
-use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_err};
+use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_error};
 
 pub struct File {
     fd: c_int,
@@ -24,7 +24,7 @@ impl File {
         let flags = libc::O_CLOEXEC | libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
         let fd = unsafe { libc::open64(path, flags, 0o660 as c_int) };
         if fd == -1 {
-            return ort_err(ErrorKind::FileCreateFailed, "open64 failed");
+            return Err(ort_error(ErrorKind::FileCreateFailed, "open64 failed"));
         }
         Ok(File { fd })
     }
@@ -34,7 +34,7 @@ impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         let bytes_read = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
         if bytes_read < 0 {
-            ort_err(ErrorKind::FileReadFailed, "syscall read error")
+            Err(ort_error(ErrorKind::FileReadFailed, "syscall read error"))
         } else {
             Ok(bytes_read as usize)
         }
@@ -46,7 +46,7 @@ impl Write for &mut File {
         let bytes_written =
             unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
         if bytes_written < 0 {
-            ort_err(ErrorKind::FileWriteFailed, "syscall write error")
+            Err(ort_error(ErrorKind::FileWriteFailed, "syscall write error"))
         } else {
             Ok(bytes_written as usize)
         }
@@ -66,7 +66,7 @@ pub fn last_modified(path: &CStr) -> OrtResult<time::Instant> {
             #[cfg(debug_assertions)]
             libc::write(2, path.as_ptr().cast(), path.count_bytes());
 
-            return ort_err(ErrorKind::FileStatFailed, "");
+            return Err(ort_error(ErrorKind::FileStatFailed, ""));
         }
     }
     let st = unsafe { st.assume_init() };

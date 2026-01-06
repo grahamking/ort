@@ -10,7 +10,7 @@ use core::ffi::CStr;
 extern crate alloc;
 use alloc::string::{String, ToString};
 
-use crate::{OrtResult, libc, ort_err, ErrorKind};
+use crate::{ErrorKind, OrtResult, libc, ort_error};
 
 /// Iterator over the regular files in this directory.
 pub struct DirFiles {
@@ -21,7 +21,7 @@ impl DirFiles {
     pub fn new(p: &CStr) -> OrtResult<Self> {
         let dir: *mut libc::DIR = unsafe { libc::opendir(p.as_ptr()) };
         if dir.is_null() {
-            return ort_err(ErrorKind::DirOpenFailed, "opendir returned null");
+            return Err(ort_error(ErrorKind::DirOpenFailed, "opendir returned null"));
         }
         Ok(DirFiles { dir })
     }

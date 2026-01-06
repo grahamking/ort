@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{OrtResult, Read, ort_err, ort_from_err, ErrorKind};
+use crate::{ErrorKind, OrtResult, Read, ort_error, ort_from_err};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -142,14 +142,20 @@ impl<R: Read> OrtBufReader<R> {
                     .read(&mut buf[offset..])
                     .map_err(|e| ort_from_err(ErrorKind::Other, "buffered read_exact", e))?;
                 if n == 0 {
-                    return ort_err(ErrorKind::UnexpectedEof, "unexpected EOF in read_exact");
+                    return Err(ort_error(
+                        ErrorKind::UnexpectedEof,
+                        "unexpected EOF in read_exact",
+                    ));
                 }
                 offset += n;
             } else {
                 // For small remaining reads, refill internal buffer and copy
                 self.fill_buf()?;
                 if self.cap == 0 {
-                    return ort_err(ErrorKind::UnexpectedEof, "unexpected EOF in read_exact");
+                    return Err(ort_error(
+                        ErrorKind::UnexpectedEof,
+                        "unexpected EOF in read_exact",
+                    ));
                 }
             }
         }

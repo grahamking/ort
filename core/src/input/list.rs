@@ -11,8 +11,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::{
-    CancelToken, Context as _, OrtResult, Read, Write, chunked, common::buf_read, common::config,
-    common::resolver, http, input::args, ort_from_err, ErrorKind,
+    CancelToken, Context as _, ErrorKind, OrtResult, Read, Write, chunked, common::buf_read,
+    common::config, common::resolver, http, input::args, ort_from_err,
 };
 
 pub fn run(

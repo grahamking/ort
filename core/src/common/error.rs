@@ -127,10 +127,6 @@ pub fn ort_error(kind: ErrorKind, context: &'static str) -> OrtError {
     OrtError { kind, context }
 }
 
-pub fn ort_err<X>(kind: ErrorKind, context: &'static str) -> Result<X, OrtError> {
-    Err(ort_error(kind, context))
-}
-
 pub fn ort_from_err<E: core::fmt::Display>(
     kind: ErrorKind,
     context: &'static str,

@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use crate::{ErrorKind, OrtResult, ort_err, ort_from_err};
+use crate::{ErrorKind, OrtResult, ort_error, ort_from_err};
 
 const MAX_LEN_UTF8: usize = 4;
 
@@ -38,7 +38,7 @@ pub trait Read {
         }
 
         if !buf.is_empty() {
-            ort_err(ErrorKind::UnexpectedEof, "")
+            Err(ort_error(ErrorKind::UnexpectedEof, ""))
         } else {
             Ok(())
         }
@@ -53,7 +53,7 @@ pub trait Write {
         while !buf.is_empty() {
             match self.write(buf) {
                 Ok(0) => {
-                    return ort_err(ErrorKind::UnexpectedEof, "EOF");
+                    return Err(ort_error(ErrorKind::UnexpectedEof, "EOF"));
                 }
                 Ok(n) => buf = &buf[n..],
                 Err(e) => return Err(e),

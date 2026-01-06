@@ -36,7 +36,7 @@ use crate::libc;
 use crate::ort_error;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
 use crate::{CancelToken, http, thread as ort_thread};
-use crate::{ErrorKind, LastData, ort_err, ort_from_err};
+use crate::{ErrorKind, LastData, ort_from_err};
 use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
 
@@ -155,10 +155,10 @@ pub fn run_continue(
         Ok(hist_str) => LastData::from_json(&hist_str)
             .map_err(|_err| ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last"))?,
         Err("NOT FOUND") => {
-            return ort_err(
+            return Err(ort_error(
                 ErrorKind::HistoryMissing,
                 "No last conversation, cannot continue",
-            );
+            ));
         }
         Err(_e) => {
             #[cfg(debug_assertions)]
@@ -663,9 +663,9 @@ fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
     most_recent_file
         .map(|(path, _)| Ok(path))
         .unwrap_or_else(|| {
-            ort_err(
+            Err(ort_error(
                 ErrorKind::HistoryLookupFailed,
                 "No files found starting with prefix",
-            )
+            ))
         })
 }

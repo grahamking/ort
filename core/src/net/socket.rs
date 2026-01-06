@@ -8,7 +8,7 @@ use core::ffi::{c_int, c_void};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_err};
+use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_error};
 
 pub struct TcpSocket {
     fd: i32,
@@ -18,7 +18,7 @@ impl TcpSocket {
     pub fn new() -> OrtResult<Self> {
         let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
         if fd == -1 {
-            return ort_err(ErrorKind::SocketCreateFailed, "");
+            return Err(ort_error(ErrorKind::SocketCreateFailed, ""));
         }
         set_tcp_fastopen(fd);
         Ok(TcpSocket { fd })
@@ -30,7 +30,7 @@ impl TcpSocket {
         let res =
             unsafe { libc::connect(self.fd, &c_addr as *const _ as *const libc::sockaddr, len) };
         if res == -1 {
-            return ort_err(ErrorKind::SocketConnectFailed, "");
+            return Err(ort_error(ErrorKind::SocketConnectFailed, ""));
         }
         Ok(())
     }
@@ -40,7 +40,7 @@ impl Read for TcpSocket {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         let bytes_read = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
         if bytes_read < 0 {
-            ort_err(ErrorKind::SocketReadFailed, "syscall read error")
+            Err(ort_error(ErrorKind::SocketReadFailed, "syscall read error"))
         } else {
             Ok(bytes_read as usize)
         }
@@ -52,7 +52,10 @@ impl Write for TcpSocket {
         let bytes_written =
             unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
         if bytes_written < 0 {
-            ort_err(ErrorKind::SocketWriteFailed, "syscall write error")
+            Err(ort_error(
+                ErrorKind::SocketWriteFailed,
+                "syscall write error",
+            ))
         } else {
             Ok(bytes_written as usize)
         }

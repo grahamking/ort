@@ -9,7 +9,7 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::{ErrorKind, OrtResult, Read, common::buf_read, libc, ort_err};
+use crate::{ErrorKind, OrtResult, Read, common::buf_read, libc, ort_error};
 
 /// Read a transfer encoding chunked body, populating `out` with the
 /// full re-constructed body.
@@ -29,12 +29,12 @@ pub fn read_to_string<R: Read>(
         size_buf.clear();
         match r.read_line(&mut size_buf) {
             Ok(0) => {
-                return ort_err(ErrorKind::ChunkedEofInSize, "");
+                return Err(ort_error(ErrorKind::ChunkedEofInSize, ""));
             }
             Ok(_) => {}
             Err(err) => {
                 err.debug_print();
-                return ort_err(ErrorKind::ChunkedSizeReadError, "");
+                return Err(ort_error(ErrorKind::ChunkedSizeReadError, ""));
             }
         }
         let size_str = size_buf.trim();
@@ -50,7 +50,7 @@ pub fn read_to_string<R: Read>(
                 unsafe {
                     libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
                 }
-                return ort_err(ErrorKind::ChunkedInvalidSize, "");
+                return Err(ort_error(ErrorKind::ChunkedInvalidSize, ""));
             }
         };
         if size == 0 {
@@ -67,7 +67,7 @@ pub fn read_to_string<R: Read>(
 
         if let Err(_err) = r.read_exact(&mut data_buf) {
             // Original included err detail
-            return ort_err(ErrorKind::ChunkedDataReadError, "");
+            return Err(ort_error(ErrorKind::ChunkedDataReadError, ""));
         };
         bytes_read += size;
 
