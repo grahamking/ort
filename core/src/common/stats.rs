@@ -12,7 +12,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Clone)]
 pub struct Stats {
     pub used_model: String,
     pub provider: String,

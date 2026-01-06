@@ -9,7 +9,7 @@ use core::fmt;
 extern crate alloc;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum ErrorKind {
     // Configuration & arguments
     //
@@ -108,12 +108,13 @@ pub enum ErrorKind {
 
     // Misc
     FormatError,
+    RateLimited,
     Other,
 }
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct OrtError {
     pub kind: ErrorKind,
     pub context: &'static str,

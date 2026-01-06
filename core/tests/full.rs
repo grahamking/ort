@@ -39,6 +39,9 @@ fn test_hello() {
     assert_eq!(ret, 0);
 
     let contents = String::from_utf8_lossy(&out);
+    if contents.is_empty() {
+        panic!("No output from 'ort'. Try it at the command line.");
+    }
     let mut lines = contents.lines();
 
     let first_line = lines.next().unwrap();

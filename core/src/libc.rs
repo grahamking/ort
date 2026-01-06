@@ -8,10 +8,7 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::upper_case_acronyms)]
 
-use core::{
-    ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ushort, c_void},
-    mem::MaybeUninit,
-};
+use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ushort, c_void};
 
 type c_ulong = u64;
 pub type size_t = usize;
@@ -134,7 +131,7 @@ pub struct stat {
     pub st_mode: mode_t,
     pub st_uid: uid_t,
     pub st_gid: gid_t,
-    __pad0: Padding<c_int>,
+    __pad0: c_int,
     pub st_rdev: dev_t,
     pub st_size: off_t,
     pub st_blksize: blksize_t,
@@ -145,7 +142,7 @@ pub struct stat {
     pub st_mtime_nsec: i64,
     pub st_ctime: time_t,
     pub st_ctime_nsec: i64,
-    __unused: Padding<[i64; 3]>,
+    __unused: [i64; 3],
 }
 
 #[repr(C)]
@@ -155,16 +152,6 @@ pub struct pthread_attr_t {
 
 // Opaque C data structure, only used as pointer type
 pub enum DIR {}
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-struct Padding<T: Copy>(MaybeUninit<T>);
-
-impl<T: Copy> Default for Padding<T> {
-    fn default() -> Self {
-        Self(MaybeUninit::zeroed())
-    }
-}
 
 #[link(name = "c", kind = "dylib")]
 unsafe extern "C" {

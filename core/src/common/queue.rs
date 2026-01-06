@@ -51,13 +51,12 @@ use core::ptr::null;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
 extern crate alloc;
-use alloc::fmt::Debug;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::libc;
 
-pub struct Queue<T: Clone + Default + Debug, const N: usize> {
+pub struct Queue<T: Clone + Default, const N: usize> {
     data: [T; N],
     // The next empty position
     insert_pos: AtomicU32,
@@ -67,12 +66,12 @@ pub struct Queue<T: Clone + Default + Debug, const N: usize> {
     is_closed: AtomicBool,
 }
 
-pub struct Consumer<T: Clone + Default + Debug, const N: usize> {
+pub struct Consumer<T: Clone + Default, const N: usize> {
     queue: Arc<Queue<T, N>>,
     current: usize,
 }
 
-impl<T: Clone + Default + Debug, const N: usize> Consumer<T, N> {
+impl<T: Clone + Default, const N: usize> Consumer<T, N> {
     pub fn get_next(&mut self) -> Option<T> {
         let item = self.queue.get(self.current);
         self.current += 1;
@@ -80,13 +79,15 @@ impl<T: Clone + Default + Debug, const N: usize> Consumer<T, N> {
     }
 }
 
-impl<T: Clone + Default + Debug, const N: usize> Queue<T, N> {
+impl<T: Clone + Default, const N: usize> Queue<T, N> {
     pub fn new() -> Arc<Self> {
-        let data: [T; N] = (0..N)
-            .map(|_| T::default())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let data: [T; N] = unsafe {
+            (0..N)
+                .map(|_| T::default())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap_unchecked()
+        };
         Arc::new(Queue {
             data,
             insert_pos: AtomicU32::new(0),
@@ -192,7 +193,7 @@ impl<T: Clone + Default + Debug, const N: usize> Queue<T, N> {
     }
 }
 
-impl<T: Clone + Default + Debug, const N: usize> Drop for Queue<T, N> {
+impl<T: Clone + Default, const N: usize> Drop for Queue<T, N> {
     fn drop(&mut self) {
         self.close();
     }
@@ -203,7 +204,7 @@ mod tests {
     use super::*;
     const NUM_ITEMS: usize = 40;
 
-    #[derive(Default, Debug, Clone)]
+    #[derive(Default, Clone)]
     pub struct Item {
         pub val: usize,
         #[allow(dead_code)]

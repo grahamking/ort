@@ -22,12 +22,10 @@ use crate::ReasoningEffort;
 use crate::common::utils;
 use crate::{ErrorKind, ort_error};
 
-#[derive(Debug)]
 pub struct ListOpts {
     pub is_json: bool,
 }
 
-#[derive(Debug)]
 pub enum Cmd {
     List(ListOpts),
     Prompt(crate::PromptOpts),

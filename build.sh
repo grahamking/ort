@@ -7,6 +7,7 @@
 pushd cli
 cargo build --release
 popd
+dirs -c
 
 # Saves about 3 KiB
 if command -v llvm-strip >/dev/null 2>&1; then

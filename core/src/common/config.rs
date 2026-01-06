@@ -9,7 +9,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::CStr;
 
-use crate::{Context as _, ErrorKind, OrtResult, PromptOpts, common::utils, ort_error};
+use crate::{ErrorKind, OrtResult, PromptOpts, common::utils, ort_error};
 
 const OPENROUTER_KEY: &str = "openrouter";
 const CONFIG_FILE: &str = "ort.json";
@@ -26,7 +26,7 @@ pub fn load_config() -> OrtResult<ConfigFile> {
             ConfigFile::from_json(&cfg_str).map_err(|_| ort_error(ErrorKind::ConfigParseFailed, ""))
         }
         Err("NOT FOUND") => Ok(ConfigFile::default()),
-        Err(_e) => Err(ort_error(ErrorKind::ConfigReadFailed, "")).context("config_file"),
+        Err(_e) => Err(ort_error(ErrorKind::ConfigReadFailed, "")),
     }
 }
 
@@ -51,7 +51,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Settings {
     /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
     pub save_to_file: bool,
@@ -68,6 +68,7 @@ impl Default for Settings {
     }
 }
 
+// The unit tests in output/from_json.rs need PartialEq
 #[derive(Debug, PartialEq)]
 pub struct ApiKey {
     name: String,

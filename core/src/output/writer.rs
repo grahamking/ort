@@ -47,6 +47,8 @@ const SPINNER: [&[u8]; 4] = [
     "\\\x1b[1D".as_bytes(),
 ];
 
+const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
+
 pub struct ConsoleWriter<W: Write + Send> {
     pub writer: W, // Must handle ANSI control chars
     pub show_reasoning: bool,
@@ -113,11 +115,18 @@ impl<W: Write + Send> ConsoleWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(_err) => {
+                Response::Error(err) => {
                     let _ = self.writer.write(CURSOR_ON);
                     let _ = self.writer.flush();
-                    // Original passed through provider error detail
-                    return Err(ort_error(ErrorKind::ResponseStreamError, "Response error"));
+                    if err.to_string().contains(ERR_RATE_LIMITED) {
+                        return Err(ort_error(ErrorKind::RateLimited, ""));
+                    } else {
+                        return Err(ort_from_err(
+                            ErrorKind::ResponseStreamError,
+                            "OpenRouter said no",
+                            err,
+                        ));
+                    }
                 }
                 Response::None => {
                     panic!("Response::None means we read the wrong Queue position");
@@ -173,8 +182,16 @@ impl<W: Write + Send> FileWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(_err) => {
-                    return Err(ort_error(ErrorKind::ResponseStreamError, "Response error"));
+                Response::Error(err) => {
+                    if err.to_string().contains(ERR_RATE_LIMITED) {
+                        return Err(ort_error(ErrorKind::RateLimited, ""));
+                    } else {
+                        return Err(ort_from_err(
+                            ErrorKind::ResponseStreamError,
+                            "OpenRouter said no",
+                            err,
+                        ));
+                    }
                 }
                 Response::None => {
                     return Err(ort_error(

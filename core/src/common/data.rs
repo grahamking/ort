@@ -57,13 +57,12 @@ pub struct Usage {
     pub cost: f32, // In dollars, usually a very small fraction
 }
 
-#[derive(Default, Debug)]
 pub struct LastData {
     pub opts: PromptOpts,
     pub messages: Vec<Message>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PromptOpts {
     pub prompt: Option<String>,
     /// Model IDs, e.g. 'moonshotai/kimi-k2'
@@ -294,7 +293,7 @@ impl fmt::Display for Role {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub enum Response {
     /// The first time we get anything at all on the SSE stream
     Start,
