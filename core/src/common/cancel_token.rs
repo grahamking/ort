@@ -48,7 +48,7 @@ unsafe fn install_sigint_handler() {
     unsafe {
         let mut sa: libc::sigaction = mem::zeroed();
         sa.sa_flags = 0;
-        sa.sa_sigaction = handle_sigint as usize; // treated as sa_handler when SA_SIGINFO not set
+        sa.sa_sigaction = handle_sigint as *const () as usize; // treated as sa_handler when SA_SIGINFO not set
         libc::sigemptyset(&mut sa.sa_mask);
         libc::sigaction(SIGINT, &sa, ptr::null_mut());
     }

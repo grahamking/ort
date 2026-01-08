@@ -6,11 +6,7 @@
 
 #![no_std]
 #![no_main]
-#![allow(internal_features)]
-#![feature(lang_items)]
-#![feature(alloc_error_handler)]
 
-use core::alloc::Layout;
 use core::ffi::{CStr, c_char, c_int};
 
 extern crate alloc;
@@ -22,18 +18,6 @@ use ort_openrouter_core::{LibcAlloc, StdoutWriter, cli, libc};
 
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
-
-#[alloc_error_handler]
-fn oom(_: Layout) -> ! {
-    unsafe { libc::abort() }
-}
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    unsafe { libc::abort() }
-}
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// # Safety
 /// It's all good
@@ -47,12 +31,11 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
     }
 
     if args.iter().any(|arg| arg == "--version") {
-        let mut msg = String::with_capacity(4 + VERSION.len());
-        msg.push_str("ort ");
-        msg.push_str(VERSION);
-        msg.push('\n');
-        let bytes = msg.as_bytes();
-        let _ = unsafe { libc::write(1, bytes.as_ptr().cast(), bytes.len()) };
+        let v = CString::new(
+            env!("CARGO_BIN_NAME").to_string() + " " + env!("CARGO_PKG_VERSION") + "\n",
+        )
+        .unwrap();
+        let _ = unsafe { libc::write(1, v.as_ptr().cast(), v.count_bytes()) };
         return 0;
     }
 

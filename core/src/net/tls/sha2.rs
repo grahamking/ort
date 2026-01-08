@@ -29,11 +29,6 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
     ];
 
     #[inline(always)]
-    fn rotr(x: u32, n: u32) -> u32 {
-        (x >> n) | (x << (32 - n))
-    }
-
-    #[inline(always)]
     fn ch(x: u32, y: u32, z: u32) -> u32 {
         (x & y) ^ (!x & z)
     }
@@ -45,22 +40,22 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
 
     #[inline(always)]
     fn big_sigma0(x: u32) -> u32 {
-        rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22)
+        x.rotate_right(2) ^ x.rotate_right(13) ^ x.rotate_right(22)
     }
 
     #[inline(always)]
     fn big_sigma1(x: u32) -> u32 {
-        rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25)
+        x.rotate_right(6) ^ x.rotate_right(11) ^ x.rotate_right(25)
     }
 
     #[inline(always)]
     fn small_sigma0(x: u32) -> u32 {
-        rotr(x, 7) ^ rotr(x, 18) ^ (x >> 3)
+        x.rotate_right(7) ^ x.rotate_right(18) ^ (x >> 3)
     }
 
     #[inline(always)]
     fn small_sigma1(x: u32) -> u32 {
-        rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10)
+        x.rotate_right(17) ^ x.rotate_right(19) ^ (x >> 10)
     }
 
     let bit_len = (b.len() as u64) * 8;

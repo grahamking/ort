@@ -1,3 +1,5 @@
+cargo-features = ["panic-immediate-abort"]
+
 [workspace]
 members = ["core", "cli"]
 default-members = ["core"]
@@ -12,11 +14,11 @@ license = "MIT"
 repository = "https://github.com/grahamking/ort"
 
 [profile.dev]
-panic = "abort"
+panic = "immediate-abort"
 
 [profile.release]
 opt-level = "s"
 strip = true
 codegen-units = 1
-panic = "abort"
+panic = "immediate-abort"
 lto = true

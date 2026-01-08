@@ -111,14 +111,14 @@ impl PromptOpts {
             // cmd line one, and the config file default.
             self.models = o.models;
         }
-        if o.provider.is_some() {
-            self.provider.get_or_insert(o.provider.unwrap());
+        if let Some(provider) = o.provider {
+            self.provider.get_or_insert(provider);
         }
-        if o.system.is_some() {
-            self.system.get_or_insert(o.system.unwrap());
+        if let Some(system) = o.system {
+            self.system.get_or_insert(system);
         }
-        if o.priority.is_some() {
-            self.priority.get_or_insert(o.priority.unwrap());
+        if let Some(priority) = o.priority {
+            self.priority.get_or_insert(priority);
         }
         self.reasoning
             .get_or_insert(o.reasoning.unwrap_or_default());
