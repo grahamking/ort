@@ -1,7 +1,0 @@
-[build]
-# What do we have here?
-#
-# - target-cpu=native : Target your specific CPU, not some ancient generic CPU for maximum compatibility. Obviously good. I don't ship a binary, it is built locally from a git checkout (later from `cargo install`), so we should use all the features of your real CPU (e.g. AVX-512).
-# - relocation-model=static : Don't make this a Position Independent Executable (PIE). This makes the binary about 10 KiB smaller and should gain single-digit percent performance. It defeats some security features that are not relevant to us, as we do not handle untrusted input.
-# - link-args=-Wl,--build-id=none : Don't generate and inject a BuildID. It never seems useful. Here it does not shrink the binary, but in other experiments I did it helped, so include it.
-rustflags = ["-C", "target-cpu=native", "-C", "relocation-model=static", "-C", "link-args=-Wl,--build-id=none,--no-eh-frame-hdr"]

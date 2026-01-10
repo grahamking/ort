@@ -29,7 +29,7 @@ const STDERR_FILENO: i32 = 0;
 pub fn print_usage() {
     let usage = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
 Defaults: -m ".to_string() + crate::DEFAULT_MODEL +" ; -s omitted ; -p omitted\n\
-Example:\n  ort -p price -m moonshotai/kimi-k2 -s \"Respond like a pirate\" \"Write a limerick about AI\"
+Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
 See https://github.com/grahamking/ort for full docs.
 ";

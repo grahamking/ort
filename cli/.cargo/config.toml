@@ -1,3 +1,7 @@
+[build]
+# Keep this in sync with build.sh in workspace root, see the note there.
+rustflags = ["-Ctarget-cpu=native", "-Crelocation-model=static", "-Clink-args=-Wl,--build-id=none,--no-eh-frame-hdr", "-Cforce-frame-pointers=yes"]
+
 [unstable]
 # Build std from source to avoid unwinding infrastructure. Save over 60 KiB and a dynamic link to libgcc_s.
-build-std = ["core", "alloc", "panic_abort"]
+build-std = ["core", "alloc"]
