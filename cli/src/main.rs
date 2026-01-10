@@ -3,24 +3,43 @@
 //!
 //! MIT License
 //! Copyright (c) 2025 Graham King
+//!
+//! This main.rs contains two main:
+//! - A no_std release build
+//! - A regular debug build
 
-#![no_std]
-#![no_main]
+#![cfg_attr(not(debug_assertions), no_std)]
+#![cfg_attr(not(debug_assertions), no_main)]
 
+use ort_openrouter_core::{StdoutWriter, cli, libc};
+
+#[cfg(debug_assertions)]
+use std::ffi::CString;
+
+#[cfg(not(debug_assertions))]
+extern crate alloc;
+#[cfg(not(debug_assertions))]
+use alloc::{
+    ffi::CString,
+    string::{String, ToString},
+    vec::Vec,
+};
+
+#[cfg(not(debug_assertions))]
 use core::ffi::{CStr, c_char, c_int};
 
-extern crate alloc;
-use alloc::ffi::CString;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+#[cfg(not(debug_assertions))]
+use ort_openrouter_core::LibcAlloc;
 
-use ort_openrouter_core::{LibcAlloc, StdoutWriter, cli, libc};
-
+#[cfg(not(debug_assertions))]
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
 
+/// The release mode main
+///
 /// # Safety
 /// It's all good
+#[cfg(not(debug_assertions))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
     // Collect cmd line arguments
@@ -30,12 +49,7 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
         args.push(String::from_utf8_lossy(cstr.to_bytes()).into_owned());
     }
 
-    if args.iter().any(|arg| arg == "--version") {
-        let v = CString::new(
-            env!("CARGO_BIN_NAME").to_string() + " " + env!("CARGO_PKG_VERSION") + "\n",
-        )
-        .unwrap();
-        let _ = unsafe { libc::write(1, v.as_ptr().cast(), v.count_bytes()) };
+    if is_version_flag(&args) {
         return 0;
     }
 
@@ -49,5 +63,42 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
             unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
             1
         }
+    }
+}
+
+/// Debug mode main
+/// Try to keep this as similar to the release main as possible
+#[cfg(debug_assertions)]
+fn main() -> std::process::ExitCode {
+    // Collect cmd line arguments
+    let args: Vec<String> = std::env::args().collect();
+
+    if is_version_flag(&args) {
+        return 0.into();
+    }
+
+    // Check stdout for redirection
+    let is_terminal = unsafe { libc::isatty(1) == 1 };
+
+    match cli::main(args, is_terminal, StdoutWriter {}) {
+        Ok(exit_code) => (exit_code as u8).into(),
+        Err(err) => {
+            let err_msg = CString::new(err.to_string()).unwrap();
+            unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
+            1.into()
+        }
+    }
+}
+
+fn is_version_flag(args: &[String]) -> bool {
+    if args.iter().any(|arg| arg == "--version") {
+        let v = CString::new(
+            env!("CARGO_BIN_NAME").to_string() + " " + env!("CARGO_PKG_VERSION") + "\n",
+        )
+        .unwrap();
+        let _ = unsafe { libc::write(1, v.as_ptr().cast(), v.count_bytes()) };
+        true
+    } else {
+        false
     }
 }

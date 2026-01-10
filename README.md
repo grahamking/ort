@@ -47,11 +47,11 @@ Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/
 
 ## Build
 
-`./build.sh` (aka `cd cli; cargo build --release`). The `ort` cli must be built from the `cli/` sub-directory. Running build from the root will not work because of `cli/.cargo/config.toml`.
+`ort` has both a debug and a release build. The debug build and the tests are normal: `cargo build` and `cargo test` from workspace root.
 
-## Test
+To build in release mode use `./build_release.sh`. This tries to make the smallest binary possible. It uses immediate abort panic, and specific RUSTFLAGS. Running `cargo build --release` alone will not work.
 
-`cargo test` from the root is fine. All the code is in `core/` crate. The `cli/` crate is just to hide the weirdness. Don't look in there.
+All the core is in `core/` crate. The `cli/` crate is to contain the weirdness.
 
 ## tmux
 
