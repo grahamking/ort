@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "ort-openrouter-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ort-openrouter-core",
 ]
 
 [[package]]
 name = "ort-openrouter-core"
-version = "0.3.0"
+version = "0.3.1"
