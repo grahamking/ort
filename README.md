@@ -1,3 +1,17 @@
+# Install
+
+1. Install rust from [rust-lang.org](https://rust-lang.org/) or your package manager, any version should work.
+2. Install the Rust version and component we need: `rustup toolchain install nightly-2026-01-07 --component rust-src`
+3. Install `ort`:
+
+```
+cargo +nightly-2026-01-07 install --locked -Zbuild-std=core,alloc ort-openrouter-cli
+```
+
+The binary is called `ort`.
+
+Linux only.
+
 # Honest CLI for openrouter.ai
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
