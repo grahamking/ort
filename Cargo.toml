@@ -1,11 +1,8 @@
 cargo-features = ["panic-immediate-abort", "profile-rustflags"]
 
-[workspace]
-members = ["core", "cli"]
-resolver = "3"
-
-[workspace.package]
-version = "0.3.2"
+[package]
+name = "ort-openrouter-cli"
+version = "0.3.3"
 edition = "2024"
 description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]
@@ -13,8 +10,13 @@ license = "MIT"
 repository = "https://github.com/grahamking/ort"
 readme = "README.md"
 
-[workspace.dependencies]
-ort-openrouter-core = { path = "core", version = "0.3.2" }
+[features]
+# Will print to stderr "+530\n" and "-530\n" when memory is allocated and freed
+print-allocations = []
+
+[[bin]]
+name = "ort"
+path = "src/main.rs"
 
 [profile.release]
 opt-level = "s"

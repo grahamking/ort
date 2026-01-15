@@ -65,8 +65,6 @@ Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/
 
 To build in release mode use `./build_release.sh`. This tries to make the smallest binary possible. It uses immediate abort panic, and specific RUSTFLAGS. Running `cargo build --release` alone will not work.
 
-All the core is in `core/` crate. The `cli/` crate is to contain the weirdness.
-
 ## tmux
 
 Continuation (`-c`) is TMUX aware. It continues the last conversation *from the current tmux pane*. That means you can carry on multiple conversations, one per pane. If there is no previous conversation for this pane, or you are not in tmux, it uses the most recent conversation globally.

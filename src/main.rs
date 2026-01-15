@@ -11,7 +11,7 @@
 #![cfg_attr(not(debug_assertions), no_std)]
 #![cfg_attr(not(debug_assertions), no_main)]
 
-use ort_openrouter_core::{StdoutWriter, cli, libc};
+use ort_openrouter_cli::{StdoutWriter, cli, libc};
 
 #[cfg(debug_assertions)]
 use std::ffi::CString;
@@ -29,7 +29,7 @@ use alloc::{
 use core::ffi::{CStr, c_char, c_int};
 
 #[cfg(not(debug_assertions))]
-use ort_openrouter_core::LibcAlloc;
+use ort_openrouter_cli::LibcAlloc;
 
 #[cfg(not(debug_assertions))]
 #[global_allocator]
