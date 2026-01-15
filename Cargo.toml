@@ -1,4 +1,4 @@
-cargo-features = ["panic-immediate-abort"]
+cargo-features = ["panic-immediate-abort", "profile-rustflags"]
 
 [workspace]
 members = ["core", "cli"]
@@ -18,3 +18,4 @@ strip = true
 codegen-units = 1
 panic = "immediate-abort"
 lto = true
+rustflags = ["-Ctarget-cpu=native", "-Crelocation-model=static", "-Clink-args=-Wl,--build-id=none,--no-eh-frame-hdr", "-Cforce-frame-pointers=yes"]
