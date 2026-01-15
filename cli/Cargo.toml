@@ -17,4 +17,4 @@ path = "src/main.rs"
 print-allocations = ["ort-openrouter-core/print-allocations"]
 
 [dependencies]
-ort-openrouter-core = { path = "../core" }
+ort-openrouter-core = { workspace = true }
