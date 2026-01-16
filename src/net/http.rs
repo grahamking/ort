@@ -35,6 +35,8 @@ pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream
             "Host: {}\r\n",
             "Authorization: Bearer {}\r\n",
             "User-Agent: {}\r\n",
+            "HTTP-Referer: https://github.com/grahamking/ort\r\n",
+            "X-Title: ort\r\n",
             "\r\n"
         ),
         HOST, api_key, USER_AGENT,
@@ -67,6 +69,10 @@ pub fn chat_completions(
             "Host: {}\r\n",
             "Authorization: Bearer {}\r\n",
             "User-Agent: {}\r\n",
+            // ID for openrouter.ai App rankings
+            "HTTP-Referer: https://github.com/grahamking/ort\r\n",
+            // Name to appear in openrouter.ai App rankings
+            "X-Title: ort\r\n",
             "Content-Length: {}\r\n",
             "\r\n"
         ),
