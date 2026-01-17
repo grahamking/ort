@@ -12,7 +12,6 @@ use core::ptr;
 extern crate alloc;
 use alloc::boxed::Box;
 use alloc::ffi::CString;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec;
@@ -525,11 +524,11 @@ extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
             if err_str.contains("429 Too Many Requests") {
                 params
                     .full_output_queue
-                    .add(format!("--- {}: Overloaded ---", params.model_name));
+                    .add("--- ".to_string() + &params.model_name + ": Overloaded");
             } else {
                 params
                     .full_output_queue
-                    .add(format!("--- {}: {err_str} ---", params.model_name));
+                    .add("--- ".to_string() + &params.model_name + ": " + &err_str);
             }
         }
     }

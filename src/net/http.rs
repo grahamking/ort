@@ -9,40 +9,62 @@ use core::net::SocketAddr;
 
 extern crate alloc;
 use alloc::ffi::CString;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::libc;
 use crate::{
     ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read, ort_error,
     ort_from_err,
 };
+use crate::{libc, utils};
 
-const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const HOST: &str = "openrouter.ai";
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
+
+const LIST_REQ_PREFIX: &str = concat!(
+    "GET /api/v1/models HTTP/1.1\r\n",
+    "Accept: application/json\r\n",
+    "Host: openrouter.ai\r\n",
+    "User-Agent: ",
+    env!("CARGO_PKG_NAME"),
+    "/",
+    env!("CARGO_PKG_VERSION"),
+    "\r\n",
+    "HTTP-Referer: https://github.com/grahamking/ort\r\n",
+    "X-Title: ort\r\n",
+    "Authorization: Bearer "
+);
+
+const CHAT_REQ_PREFIX: &str = concat!(
+    "POST /api/v1/chat/completions HTTP/1.1\r\n",
+    "Content-Type: application/json\r\n",
+    "Accept: text/event-stream\r\n",
+    "Host: openrouter.ai\r\n",
+    "User-Agent: ",
+    env!("CARGO_PKG_NAME"),
+    "/",
+    env!("CARGO_PKG_VERSION"),
+    "\r\n",
+    // ID for openrouter.ai App rankings
+    "HTTP-Referer: https://github.com/grahamking/ort\r\n",
+    // Name to appear in openrouter.ai App rankings
+    "X-Title: ort\r\n",
+    "Authorization: Bearer "
+);
 
 pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
     let mut tls = TlsStream::connect(tcp, HOST)?;
 
-    let prefix = format!(
-        concat!(
-            "GET /api/v1/models HTTP/1.1\r\n",
-            "Accept: application/json\r\n",
-            "Host: {}\r\n",
-            "Authorization: Bearer {}\r\n",
-            "User-Agent: {}\r\n",
-            "HTTP-Referer: https://github.com/grahamking/ort\r\n",
-            "X-Title: ort\r\n",
-            "\r\n"
-        ),
-        HOST, api_key, USER_AGENT,
-    );
+    let mut req = String::with_capacity(LIST_REQ_PREFIX.len() + 128);
+    req.push_str(LIST_REQ_PREFIX);
+    // The prefix finished with "Authorization: Bearer ". Append the API key
+    // and the final double CRLF.
+    req.push_str(api_key);
+    req.push_str("\r\n\r\n");
 
-    tls.write_all(prefix.as_bytes())
+    tls.write_all(req.as_bytes())
         .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write list_models request", e))?;
     tls.flush()
         .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush list_models request", e))?;
@@ -61,28 +83,18 @@ pub fn chat_completions(
 
     // 2) Write HTTP/1.1 request
     let body = json_body.as_bytes();
-    let prefix = format!(
-        concat!(
-            "POST /api/v1/chat/completions HTTP/1.1\r\n",
-            "Content-Type: application/json\r\n",
-            "Accept: text/event-stream\r\n",
-            "Host: {}\r\n",
-            "Authorization: Bearer {}\r\n",
-            "User-Agent: {}\r\n",
-            // ID for openrouter.ai App rankings
-            "HTTP-Referer: https://github.com/grahamking/ort\r\n",
-            // Name to appear in openrouter.ai App rankings
-            "X-Title: ort\r\n",
-            "Content-Length: {}\r\n",
-            "\r\n"
-        ),
-        HOST,
-        api_key,
-        USER_AGENT,
-        body.len()
-    );
+    let mut len_buf: [u8; 16] = [0; 16];
+    let str_len = utils::to_ascii(body.len(), &mut len_buf[..]);
 
-    tls.write_all(prefix.as_bytes()).map_err(|e| {
+    let mut req = String::with_capacity(CHAT_REQ_PREFIX.len() + 128);
+    req.push_str(CHAT_REQ_PREFIX);
+    req.push_str(api_key);
+    req.push_str("\r\nContent-Length: ");
+    // Subtract two to strip the \n and \0 that to_ascii adds
+    req.push_str(unsafe { str::from_utf8_unchecked(&len_buf[..str_len - 2]) });
+    req.push_str("\r\n\r\n");
+
+    tls.write_all(req.as_bytes()).map_err(|e| {
         ort_from_err(
             ErrorKind::SocketWriteFailed,
             "write chat_completions header",
@@ -152,7 +164,9 @@ pub fn skip_header<T: Read + Write>(
         }
         Ok(_) => buffer.clone(),
         Err(err) => {
-            return Err(HttpError::status(format!("Internal TLS error: {err}")));
+            return Err(HttpError::status(
+                "Internal TLS error: ".to_string() + &err.to_string(),
+            ));
         }
     };
     let status = status.trim();
@@ -161,9 +175,9 @@ pub fn skip_header<T: Read + Write>(
     let mut is_chunked = false;
     buffer.clear();
     loop {
-        reader
-            .read_line(&mut buffer)
-            .map_err(|err| HttpError::status(format!("Reading response header: {err}")))?;
+        reader.read_line(&mut buffer).map_err(|err| {
+            HttpError::status("Reading response header: ".to_string() + &err.to_string())
+        })?;
         let header = buffer.trim();
         if header.is_empty() {
             // end of headers
@@ -226,13 +240,11 @@ fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
         }
         */
     }
-    /*
-    let err_msg: Vec<String> = errs
-        .into_iter()
-        .map(|(addr, err)| format!("Failed connecting to {addr:?}: {err}"))
-        .collect();
-    Err(io::Error::other(err_msg.join("; ")))
-    */
+    //let err_msg: Vec<String> = errs
+    //    .into_iter()
+    //    .map(|(addr, err)| format!("Failed connecting to {addr:?}: {err}"))
+    //    .collect();
+    //Err(io::Error::other(err_msg.join("; ")))
     Err(ort_error(
         ErrorKind::HttpConnectError,
         "connect error handling TODO",

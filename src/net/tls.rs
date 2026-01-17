@@ -11,7 +11,6 @@ use core::{cmp, ffi::CStr};
 
 extern crate alloc;
 use alloc::ffi::CString;
-use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -727,8 +726,8 @@ fn write_record_cipher<W: Write>(
     let out = aead::aes_128_gcm_encrypt(key, &nonce, &hdr, &plain).unwrap();
 
     debug_print("write_record_cipher header", &hdr);
-    let final_label = format!("write_record_cipher final {total_len}");
-    debug_print(final_label.as_str(), &out);
+    //let final_label = format!("write_record_cipher final {total_len}");
+    //debug_print(final_label.as_str(), &out);
 
     w.write_all(&hdr)?;
     w.write_all(&out)?;

@@ -8,8 +8,7 @@ use core::str::FromStr;
 
 extern crate alloc;
 use alloc::borrow::{Cow, ToOwned};
-use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -38,7 +37,7 @@ impl ChatCompletionsResponse {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("ChatCompletionsResponse parsing key: {err}"))?;
+                .map_err(|err| "ChatCompletionsResponse parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -121,7 +120,7 @@ impl Choice {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("Choice::from_json parsing key: {err}"))?;
+                .map_err(|err| "Choice::from_json parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -170,7 +169,7 @@ impl Usage {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("Usage parsing key: {err}"))?;
+                .map_err(|err| "Usage parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -222,7 +221,7 @@ impl LastData {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("LastData parsing key: {err}"))?;
+                .map_err(|err| "LastData parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -294,7 +293,7 @@ impl Message {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("Message parsing key: {err}"))?;
+                .map_err(|err| "Message parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -371,7 +370,7 @@ impl ReasoningConfig {
             // Key
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("ReasoningConfig parsing key: {err}"))?;
+                .map_err(|err| "ReasoningConfig parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -399,7 +398,7 @@ impl ReasoningConfig {
                     } else {
                         let v = p
                             .parse_simple_str()
-                            .map_err(|err| format!("Parsing effort: {err}"))?;
+                            .map_err(|err| "Parsing effort: ".to_string() + err)?;
                         let e = if v.eq_ignore_ascii_case("none") {
                             ReasoningEffort::None
                         } else if v.eq_ignore_ascii_case("low") {
@@ -532,7 +531,7 @@ impl PromptOpts {
                         // Grab the exact object slice and delegate to ReasoningConfig::from_json
                         let slice = p.value_slice()?; // must be an object
                         let cfg = ReasoningConfig::from_json(slice).map_err(|e| {
-                            format!("parser::PromptOpts::from_json {e}, invalid reasoning")
+                            "parser::PromptOpts::from_json invalid reasoning: ".to_string() + &e
                         })?;
                         reasoning = Some(cfg);
                     }
@@ -608,7 +607,7 @@ impl config::ConfigFile {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("ConfigFile parsing key: {err}"))?;
+                .map_err(|err| "ConfigFile parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -686,7 +685,7 @@ impl config::Settings {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("Settings parsing key: {err}"))?;
+                .map_err(|err| "Settings parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -768,7 +767,7 @@ impl config::ApiKey {
 
             let key = p
                 .parse_simple_str()
-                .map_err(|err| format!("ApiKey parsing key: {err}"))?;
+                .map_err(|err| "ApiKey parsing key: ".to_string() + err)?;
             p.skip_ws();
             p.expect(b':')?;
             p.skip_ws();
@@ -780,7 +779,7 @@ impl config::ApiKey {
                     }
                     name = Some(
                         p.parse_string()
-                            .map_err(|err| format!("Parsing name: {err}"))?,
+                            .map_err(|err| "Parsing name: ".to_string() + &err)?,
                     );
                 }
                 "value" => {
@@ -789,7 +788,7 @@ impl config::ApiKey {
                     }
                     value = Some(
                         p.parse_string()
-                            .map_err(|err| format!("Parsing name: {err}"))?,
+                            .map_err(|err| "Parsing name: ".to_string() + &err)?,
                     );
                 }
                 _ => return Err("unknown field".into()),
@@ -893,10 +892,7 @@ impl<'a> Parser<'a> {
             self.i += 5;
             Ok(false)
         } else {
-            Err(format!(
-                "Expected boolean, got '{}'",
-                String::from_utf8_lossy(&self.b[self.i..])
-            ))
+            Err("Expected boolean, got: ".to_string() + &String::from_utf8_lossy(&self.b[self.i..]))
         }
     }
 
@@ -1110,11 +1106,9 @@ impl<'a> Parser<'a> {
     fn parse_string(&mut self) -> Result<String, Cow<'static, str>> {
         self.skip_ws();
         if self.peek() != Some(b'"') {
-            return Err(format!(
-                "expected string got: '{}'",
-                String::from_utf8_lossy(&self.b[self.i..])
-            )
-            .into());
+            return Err(("expected string got: ".to_string()
+                + &String::from_utf8_lossy(&self.b[self.i..]))
+                .into());
         }
         let start = self.i + 1;
         let mut i = start;

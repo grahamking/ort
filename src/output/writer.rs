@@ -245,7 +245,6 @@ impl CollectedWriter {
 
         let out =
             "--- ".to_string() + &got_stats.unwrap().to_string() + " ---\n" + &contents.join("");
-        //let out = format!("--- {} ---\n{}", got_stats.unwrap(), contents.join(""));
         Ok(out)
     }
 }
@@ -287,7 +286,6 @@ impl LastWriter {
                     self.data.opts.provider = Some(utils::slug(stats.provider()));
                 }
                 Response::Error(_err) => {
-                    // Original: format!(\"LastWriter: {err}\")
                     return Err(ort_error(
                         ErrorKind::LastWriterError,
                         "LastWriter run error",

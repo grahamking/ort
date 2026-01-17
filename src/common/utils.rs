@@ -42,6 +42,28 @@ pub fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     i + 1
 }
 
+pub fn num_to_string(mut num: usize) -> String {
+    if num == 0 {
+        return "0".to_string();
+    }
+
+    let mut buf: [u8; 20] = [0; 20];
+    let mut div = 1usize;
+    while num / div >= 10 {
+        div *= 10;
+    }
+
+    let mut i = 0usize;
+    while div != 0 {
+        buf[i] = b'0' + (num / div) as u8;
+        num %= div;
+        div /= 10;
+        i += 1;
+    }
+
+    unsafe { String::from_utf8_unchecked(buf[..i].into()) }
+}
+
 /* Not currently used
 pub fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(s.to_string()).unwrap();
@@ -67,9 +89,15 @@ pub fn last_filename() -> String {
     // 4 because we never expect more than two chars, but to_ascii adds CR and nul byte.
     let mut buf: [u8; 4] = [0, 0, 0, 0];
     let buf_len = to_ascii(id, &mut buf[..]);
+
+    let mut out = String::with_capacity(16);
+    out.push_str("last-");
     // safety: to_ascii only returns chars '0'-'9'.
     // buf_len-2 to trim the carriage return and null byte
-    "last-".to_string() + unsafe { str::from_utf8_unchecked(&buf[..buf_len - 2]) } + ".json"
+    out.push_str(unsafe { str::from_utf8_unchecked(&buf[..buf_len - 2]) });
+    out.push_str(".json");
+
+    out
 }
 
 pub fn tmux_pane_id() -> usize {

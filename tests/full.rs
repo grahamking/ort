@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use ort_openrouter_core::cli;
+use ort_openrouter_cli::cli;
 
 /*
  * TODO: Get the error from the thread
