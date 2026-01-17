@@ -16,7 +16,7 @@ use crate::libc;
 /// Converts the number to a string, putting it plus a carriage return into `buf`.
 /// `buf` must be big enough to hold the largest possible number of digits in
 /// your number + 2 ('\n' and '\0').
-/// Returns the length of the converted string, not including null bute.
+/// Returns the length of the converted string, including null bute.
 pub fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     if num == 0 {
         buf[0] = b'0';
@@ -59,6 +59,17 @@ pub fn slug(s: &str) -> String {
             }
         })
         .collect()
+}
+
+// The filename of the last invocation of `ort`, taking into account tmux pane ID.
+pub fn last_filename() -> String {
+    let id = tmux_pane_id();
+    // 4 because we never expect more than two chars, but to_ascii adds CR and nul byte.
+    let mut buf: [u8; 4] = [0, 0, 0, 0];
+    let buf_len = to_ascii(id, &mut buf[..]);
+    // safety: to_ascii only returns chars '0'-'9'.
+    // buf_len-2 to trim the carriage return and null byte
+    "last-".to_string() + unsafe { str::from_utf8_unchecked(&buf[..buf_len - 2]) } + ".json"
 }
 
 pub fn tmux_pane_id() -> usize {

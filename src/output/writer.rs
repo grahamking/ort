@@ -8,7 +8,6 @@ extern crate alloc;
 use core::ffi::c_void;
 
 use alloc::ffi::CString;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -258,7 +257,7 @@ pub struct LastWriter {
 
 impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
-        let last_filename = format!("last-{}.json", utils::tmux_pane_id());
+        let last_filename = utils::last_filename();
         let mut last_path = config::cache_dir()?;
         last_path.push('/');
         last_path.push_str(&last_filename);

@@ -143,7 +143,7 @@ pub fn run_continue(
     let cache_dir = config::cache_dir()?;
     let mut last = cache_dir.clone();
     last.push('/');
-    last.push_str(&format!("last-{}.json", utils::tmux_pane_id()));
+    last.push_str(&utils::last_filename());
     let cs = CString::new(last.clone()).expect("Null bytes in config cache dir");
     let last_file = if utils::path_exists(cs.as_ref()) {
         last
