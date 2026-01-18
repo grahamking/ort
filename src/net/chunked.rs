@@ -11,67 +11,97 @@ use alloc::vec::Vec;
 
 use crate::{ErrorKind, OrtResult, Read, common::buf_read, libc, ort_error};
 
-/// Read a transfer encoding chunked body, populating `out` with the
-/// full re-constructed body.
-/// We cannot return partial reads, chunk by chunk, because they might not be
-/// valid UTF-8, the chunks can splita byte.
-pub fn read_to_string<R: Read>(
-    mut r: buf_read::OrtBufReader<R>,
-    out: &mut Vec<u8>,
-) -> OrtResult<usize> {
-    let mut bytes_read = 0;
-    // The size is always valid UTF-8. It's an ASCII hex number.
-    let mut size_buf = String::with_capacity(16);
-    // The data chunks might be split on a UTF-8 byte
-    let mut data_buf = Vec::with_capacity(4096);
-    loop {
-        // Read size line
-        size_buf.clear();
-        match r.read_line(&mut size_buf) {
-            Ok(0) => {
-                return Err(ort_error(ErrorKind::ChunkedEofInSize, ""));
-            }
-            Ok(_) => {}
-            Err(err) => {
-                err.debug_print();
-                return Err(ort_error(ErrorKind::ChunkedSizeReadError, ""));
-            }
+/// Read a transfer encoding chunked body, chunk by chunk.
+///
+/// This normally returns the chunks as provided by upstream, except if that
+/// would split a mutli-byte char in which case we return N chunks at once.
+pub fn read_to_string<R: Read>(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R> {
+    ChunkedIterator::new(r)
+}
+
+pub struct ChunkedIterator<R: Read> {
+    r: buf_read::OrtBufReader<R>,
+    size_buf: String,
+    data_buf: Vec<u8>,
+}
+
+/// Lending Iterator. This doesn't implement Iterator because that doesn't allow the Item
+/// to borrow from the iterator (so Item couldn't be &str).
+impl<R: Read> ChunkedIterator<R> {
+    fn new(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R> {
+        ChunkedIterator {
+            r,
+            size_buf: String::with_capacity(16),
+            data_buf: Vec::with_capacity(4096),
         }
-        let size_str = size_buf.trim();
-        if size_str.is_empty() {
-            // Skip initial blank line
-            continue;
-        }
-        let size = match usize::from_str_radix(size_str, 16) {
-            Ok(n) => n,
-            Err(_err) => {
-                let c_s =
-                    CString::new("ERROR invalid chunked size: ".to_string() + size_str).unwrap();
-                unsafe {
-                    libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+    }
+
+    pub fn next_chunk(&mut self) -> Option<OrtResult<&str>> {
+        let mut bytes_read = 0;
+        // Usually we only go through the loop once per call.
+        // Exceptions are the initial blank line, and splitting a multi-byte char.
+        loop {
+            // Read size line
+            // The size is always valid UTF-8. It's an ASCII hex number.
+            self.size_buf.clear();
+            match self.r.read_line(&mut self.size_buf) {
+                Ok(0) => {
+                    return Some(Err(ort_error(ErrorKind::ChunkedEofInSize, "")));
                 }
-                return Err(ort_error(ErrorKind::ChunkedInvalidSize, ""));
+                Ok(_) => {}
+                Err(err) => {
+                    err.debug_print();
+                    return Some(Err(ort_error(ErrorKind::ChunkedSizeReadError, "")));
+                }
             }
-        };
-        if size == 0 {
-            // How transfer-encoding chunked signals EOF
+            let size_str = self.size_buf.trim();
+            if size_str.is_empty() {
+                // Skip initial blank line
+                continue;
+            }
+            let size = match usize::from_str_radix(size_str, 16) {
+                Ok(n) => n,
+                Err(_err) => {
+                    let c_s = CString::new("ERROR invalid chunked size: ".to_string() + size_str)
+                        .unwrap();
+                    unsafe {
+                        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                    }
+                    return Some(Err(ort_error(ErrorKind::ChunkedInvalidSize, "")));
+                }
+            };
+            if size == 0 {
+                // How transfer-encoding chunked signals EOF
+                return None;
+            }
+
+            // Ensure buffer capacity (do not shrink)
+            if bytes_read == 0 {
+                self.data_buf.clear();
+            }
+            // no-op if already enough space, so we don't need to check
+            self.data_buf.reserve_exact(size);
+            unsafe { self.data_buf.set_len(size + bytes_read) };
+
+            if let Err(_err) = self.r.read_exact(&mut self.data_buf[bytes_read..]) {
+                // Original included err detail
+                return Some(Err(ort_error(ErrorKind::ChunkedDataReadError, "")));
+            };
+            bytes_read += size;
+
+            // If we split a UTF-8 multi-byte character on the end of the chunk,
+            // fetch the next chunk. This really happens.
+            let last_byte = self.data_buf[self.data_buf.len() - 1];
+            if (last_byte & 0b1000_0000) != 0 {
+                //let c_s = CString::new("SPLIT MULTI-BYTE CHAR\n").unwrap();
+                //unsafe { libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes()) };
+                continue;
+            }
             break;
         }
-
-        // Ensure buffer capacity (do not shrink)
-        data_buf.clear();
-        if data_buf.capacity() < size {
-            data_buf.reserve_exact(size);
-        }
-        unsafe { data_buf.set_len(size) };
-
-        if let Err(_err) = r.read_exact(&mut data_buf) {
-            // Original included err detail
-            return Err(ort_error(ErrorKind::ChunkedDataReadError, ""));
-        };
-        bytes_read += size;
-
-        out.append(&mut data_buf);
+        Some(Ok(unsafe {
+            //String::from_utf8_unchecked(self.data_buf.clone())
+            str::from_utf8_unchecked(&self.data_buf)
+        }))
     }
-    Ok(bytes_read)
 }

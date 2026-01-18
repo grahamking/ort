@@ -63,7 +63,11 @@ fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
     let is_chunked = http::skip_header(&mut reader)?;
     let mut full = String::with_capacity(512 * 1024);
     if is_chunked {
-        chunked::read_to_string(reader, unsafe { full.as_mut_vec() })?;
+        let mut chunked = chunked::read_to_string(reader);
+        while let Some(chunk) = chunked.next_chunk() {
+            let chunk = chunk.unwrap();
+            full.push_str(chunk);
+        }
     } else {
         reader
             .read(unsafe { full.as_mut_vec().as_mut_slice() })
