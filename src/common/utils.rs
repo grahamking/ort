@@ -17,7 +17,7 @@ use crate::libc;
 /// `buf` must be big enough to hold the largest possible number of digits in
 /// your number + 2 ('\n' and '\0').
 /// Returns the length of the converted string, including null bute.
-pub fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
+pub(crate) fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     if num == 0 {
         buf[0] = b'0';
         buf[1] = 0;
@@ -42,7 +42,7 @@ pub fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     i + 1
 }
 
-pub fn num_to_string(mut num: usize) -> String {
+pub(crate) fn num_to_string(mut num: usize) -> String {
     if num == 0 {
         return "0".to_string();
     }
@@ -64,14 +64,13 @@ pub fn num_to_string(mut num: usize) -> String {
     unsafe { String::from_utf8_unchecked(buf[..i].into()) }
 }
 
-/* Not currently used
-pub fn print_string(prefix: &CStr, s: &str) {
+#[allow(unused)]
+pub(crate) fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(s.to_string()).unwrap();
     unsafe { libc::printf(c"%s%s\n".as_ptr(), prefix.as_ptr(), msg.as_ptr()) };
 }
-*/
 
-pub fn slug(s: &str) -> String {
+pub(crate) fn slug(s: &str) -> String {
     s.chars()
         .map(|c| {
             if c.is_alphanumeric() {
@@ -84,7 +83,7 @@ pub fn slug(s: &str) -> String {
 }
 
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.
-pub fn last_filename() -> String {
+pub(crate) fn last_filename() -> String {
     let id = tmux_pane_id();
     // 4 because we never expect more than two chars, but to_ascii adds CR and nul byte.
     let mut buf: [u8; 4] = [0, 0, 0, 0];
@@ -112,7 +111,7 @@ pub fn tmux_pane_id() -> usize {
 
 /// Read the value of an environment variable
 // Can't use std::env, we're no_std
-pub fn get_env(cs: &CStr) -> String {
+pub(crate) fn get_env(cs: &CStr) -> String {
     let value_ptr = unsafe { libc::getenv(cs.as_ptr()) };
     if value_ptr.is_null() {
         return String::new();
@@ -122,7 +121,7 @@ pub fn get_env(cs: &CStr) -> String {
 }
 
 /// Create this directory if necessary. Does not create ancestors.
-pub fn ensure_dir_exists(dir: &str) {
+pub(crate) fn ensure_dir_exists(dir: &str) {
     let cs = CString::new(dir).unwrap();
     if !path_exists(cs.as_ref()) {
         unsafe { libc::mkdir(cs.as_ptr(), 0o755) };
@@ -130,12 +129,12 @@ pub fn ensure_dir_exists(dir: &str) {
 }
 
 /// Does this file path exists, and is accessible by the user?
-pub fn path_exists(path: &CStr) -> bool {
+pub(crate) fn path_exists(path: &CStr) -> bool {
     unsafe { libc::access(path.as_ptr(), libc::F_OK) == 0 }
 }
 
 /// Read a file into memory
-pub fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
+pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let cs = CString::new(filename).unwrap();
     let fd = unsafe { libc::open(cs.as_ptr(), libc::O_RDONLY) };
     if fd < 0 {

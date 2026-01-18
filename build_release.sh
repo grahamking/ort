@@ -4,9 +4,6 @@
 # Build std from source to avoid unwinding infrastructure. Save over 60 KiB and a dynamic link to libgcc_s.
 cargo build --release -Zbuild-std="core,alloc"
 
-# After we publish
-# cargo +nightly-2026-01-07 install --locked -Zbuild-std="core,alloc" ort-openrouter-cli
-
 # Saves about 3 KiB
 if command -v llvm-strip >/dev/null 2>&1; then
     llvm-strip --strip-sections --strip-all target/release/ort

@@ -15,7 +15,7 @@ use crate::{ErrorKind, OrtResult, Read, common::buf_read, libc, ort_error};
 ///
 /// This normally returns the chunks as provided by upstream, except if that
 /// would split a mutli-byte char in which case we return N chunks at once.
-pub fn read_to_string<R: Read>(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R> {
+pub fn read<R: Read>(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R> {
     ChunkedIterator::new(r)
 }
 

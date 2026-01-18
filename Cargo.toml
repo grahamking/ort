@@ -12,6 +12,7 @@ readme = "README.md"
 
 [features]
 # Will print to stderr "+530\n" and "-530\n" when memory is allocated and freed
+# --release mode only because in debug mode we use Rust's allocator
 print-allocations = []
 
 [[bin]]

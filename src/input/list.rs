@@ -7,12 +7,15 @@
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    CancelToken, Context as _, ErrorKind, OrtResult, Read, Write, chunked, common::buf_read,
-    common::config, common::resolver, http, input::args, ort_from_err,
+    CancelToken, ErrorKind, OrtResult, Read, Write, chunked,
+    common::{buf_read, config, resolver},
+    http,
+    input::args,
+    ort_from_err,
 };
 
 pub fn run(
@@ -22,35 +25,15 @@ pub fn run(
     opts: args::ListOpts,
     mut w: impl Write,
 ) -> OrtResult<()> {
-    let models = list_models(api_key, settings.dns).context("list_models")?;
-
-    if opts.is_json {
-        // The full JSON. User should use `jq` or similar to pretty it.
-        w.write_all(models.as_bytes())
-            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e))?;
-        w.flush()
-            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush models JSON", e))?;
-    } else {
-        // Extract and print model ids alphabetically
-        let mut slugs: Vec<&str> = models.split(r#""id":""#).skip(1).map(until_quote).collect();
-        slugs.sort();
-        for s in slugs {
-            let _ = w.write(s.as_bytes());
-            let _ = w.write(b"\n");
-        }
-    }
-    Ok(())
-}
-
-/// Returns raw JSON
-fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
-    let addrs: Vec<_> = if dns.is_empty() {
+    let addrs: Vec<_> = if settings.dns.is_empty() {
         let ips = unsafe { resolver::resolve(c"openrouter.ai".as_ptr())? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
             .collect()
     } else {
-        dns.into_iter()
+        settings
+            .dns
+            .into_iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                 SocketAddr::new(IpAddr::V4(ip_addr), 443)
@@ -61,29 +44,101 @@ fn list_models(api_key: &str, dns: Vec<String>) -> OrtResult<String> {
         .map_err(|e| ort_from_err(ErrorKind::HttpConnectError, "list_models connect", e))?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
-    let mut full = String::with_capacity(512 * 1024);
-    if is_chunked {
-        let mut chunked = chunked::read_to_string(reader);
-        while let Some(chunk) = chunked.next_chunk() {
-            let chunk = chunk.unwrap();
-            full.push_str(chunk);
+
+    if opts.is_json {
+        // The full JSON. User should use `jq` or similar to pretty it.
+        if is_chunked {
+            // normal case
+            let mut chunked = chunked::read(reader);
+            while let Some(chunk) = chunked.next_chunk() {
+                let chunk = chunk.unwrap();
+                w.write_all(chunk.as_bytes()).map_err(|e| {
+                    ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e)
+                })?;
+            }
+        } else {
+            // I don't think this happens right now
+            let mut buf: [u8; 4096] = [0; 4096];
+            loop {
+                let bytes_read = reader.read(&mut buf).map_err(|e| {
+                    ort_from_err(ErrorKind::ChunkedDataReadError, "read models body", e)
+                })?;
+                if bytes_read == 0 {
+                    break;
+                }
+                w.write_all(&buf[..bytes_read]).map_err(|e| {
+                    ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e)
+                })?;
+            }
         }
+        w.flush()
+            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush models JSON", e))?;
     } else {
-        reader
-            .read(unsafe { full.as_mut_vec().as_mut_slice() })
-            .map_err(|e| ort_from_err(ErrorKind::ChunkedDataReadError, "read models body", e))?;
-    };
-    Ok(full)
+        // 339 models as of Jan 18th 2026
+        let mut slugs = Vec::with_capacity(400);
+        if is_chunked {
+            // normal case, it's always chunked right now
+            let mut partial = String::new();
+            let mut chunked = chunked::read(reader);
+            while let Some(chunk) = chunked.next_chunk() {
+                let chunk = chunk?;
+                for (pos, section) in chunk.split(r#""id":""#).enumerate() {
+                    let maybe_next_id = if pos == 0 && !partial.is_empty() {
+                        // We have a partial from previous iteration
+                        partial.push_str(section);
+                        until_quote(&partial)
+                    } else if pos == 0 {
+                        // `split` will return the part _before_ the first ID,
+                        // which doesn't have any slugs in it.
+                        continue;
+                    } else {
+                        // normal case, work directly on a ref into the chunk,
+                        // no alloc or copy
+                        until_quote(section)
+                    };
+                    match maybe_next_id {
+                        Some(slug) => {
+                            // The chunk ref is only valid for one iteration, so copy
+                            slugs.push(slug.to_string());
+                            partial.clear();
+                        }
+                        None => {
+                            // The chunk split a model name, save it for next chunk
+                            partial.push_str(section);
+                        }
+                    }
+                }
+            }
+        } else {
+            // This case never happens (always chunked) so don't optimize
+            let mut models = String::with_capacity(512 * 1024);
+            reader
+                .read(unsafe { models.as_mut_vec().as_mut_slice() })
+                .map_err(|e| {
+                    ort_from_err(ErrorKind::ChunkedDataReadError, "read models body", e)
+                })?;
+            for slug in models.split(r#""id":""#).skip(1).filter_map(until_quote) {
+                slugs.push(slug.to_string());
+            }
+        };
+        // Print model ids alphabetically
+        slugs.sort();
+        for s in slugs {
+            let _ = w.write(s.as_bytes());
+            let _ = w.write(b"\n");
+        }
+    }
+    Ok(())
 }
 
 /// The prefix of this string until the first double quote.
 /// Slugs never contain a doube quote.
-fn until_quote(s: &str) -> &str {
+fn until_quote(s: &str) -> Option<&str> {
     let mut qp = 0;
     let len = s.len();
     let b = s.as_bytes();
-    while b[qp] != b'"' && qp < len {
+    while qp < len && b[qp] != b'"' {
         qp += 1;
     }
-    &s[..qp]
+    if qp == len { None } else { Some(&s[..qp]) }
 }
