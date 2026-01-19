@@ -4,13 +4,14 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
 use core::str::FromStr;
 
 extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+
+use crate::{ErrorKind, OrtError, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
@@ -146,24 +147,17 @@ impl Priority {
 }
 
 impl FromStr for Priority {
-    type Err = fmt::Error;
+    type Err = OrtError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "price" => Ok(Priority::Price),
             "latency" => Ok(Priority::Latency),
             "throughput" => Ok(Priority::Throughput),
-            _ => Err(fmt::Error), // Handle unknown strings
-        }
-    }
-}
-
-impl fmt::Display for Priority {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Priority::Price => write!(f, "price"),
-            Priority::Latency => write!(f, "latency"),
-            Priority::Throughput => write!(f, "throughput"),
+            _ => Err(ort_error(
+                ErrorKind::FormatError,
+                "Priority: Invalid string value",
+            )), // Handle unknown strings
         }
     }
 }
@@ -202,18 +196,6 @@ impl ReasoningEffort {
             ReasoningEffort::Medium => "medium",
             ReasoningEffort::High => "high",
             ReasoningEffort::XHigh => "xhigh",
-        }
-    }
-}
-
-impl fmt::Display for ReasoningEffort {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ReasoningEffort::None => write!(f, "none"),
-            ReasoningEffort::Low => write!(f, "low"),
-            ReasoningEffort::Medium => write!(f, "medium"),
-            ReasoningEffort::High => write!(f, "high"),
-            ReasoningEffort::XHigh => write!(f, "xhigh"),
         }
     }
 }
@@ -279,16 +261,6 @@ impl FromStr for Role {
             "user" => Ok(Role::User),
             "assistant" => Ok(Role::Assistant),
             _ => Err("Invalid role"),
-        }
-    }
-}
-
-impl fmt::Display for Role {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Role::System => write!(f, "system"),
-            Role::User => write!(f, "user"),
-            Role::Assistant => write!(f, "assistant"),
         }
     }
 }

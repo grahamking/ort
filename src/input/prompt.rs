@@ -201,7 +201,11 @@ pub fn run_multi(
     const MAX_MODELS: usize = 256;
 
     let num_models = opts.models.len();
-    let _ = write!(w, "Calling {num_models} models...\r");
+    let mut msg = String::with_capacity(32);
+    msg.push_str("Calling ");
+    msg.push_str(&utils::num_to_string(num_models));
+    msg.push_str(" models...\r");
+    let _ = w.write(msg.as_bytes());
     let _ = w.flush();
 
     // Start all the queries
@@ -253,9 +257,8 @@ pub fn run_multi(
         }
         match consumer_done.get_next() {
             Some(model_output) => {
-                write!(w, "{}\n\n", model_output).map_err(|e| {
-                    ort_from_err(ErrorKind::SocketWriteFailed, "write multi model output", e)
-                })?;
+                let _ = w.write(model_output.as_bytes());
+                let _ = w.write("\n\n".as_bytes());
                 let _ = w.flush();
             }
             None => {
@@ -352,7 +355,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             // But the rest of this function assumes we do.
         }
         Err(err) => {
-            params.queue.add(Response::Error(err.to_string()));
+            params.queue.add(Response::Error(err.as_string()));
             return ptr::null_mut();
         }
     }
@@ -589,7 +592,9 @@ extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_
     };
     let _ = w_core.write(b"\n");
     if !params.is_quiet {
-        let _ = write!(w_core, "\nStats: {stats}\n");
+        let _ = w_core.write("\nStats: ".as_bytes());
+        let _ = w_core.write(stats.as_string().as_bytes());
+        let _ = w_core.write_char('\n');
     }
 
     ptr::null_mut()

@@ -4,7 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
 use core::net::SocketAddr;
 
 extern crate alloc;
@@ -121,6 +120,16 @@ pub struct HttpError {
 }
 
 impl HttpError {
+    pub(crate) fn as_string(&self) -> String {
+        let mut msg = String::with_capacity(15 + self.status_line.len() + self.body.len());
+        msg.push_str("\nHTTP ERROR: ");
+        msg.push_str(&self.status_line);
+        msg.push_str(", ");
+        msg.push_str(&self.body);
+        msg.push('\0');
+        msg
+    }
+
     fn new(status_line: String, body: String) -> Self {
         HttpError { status_line, body }
     }
@@ -133,17 +142,9 @@ impl HttpError {
     }
 }
 
-impl core::error::Error for HttpError {}
-
-impl fmt::Display for HttpError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}, {})", self.status_line, self.body)
-    }
-}
-
 impl From<HttpError> for OrtError {
     fn from(err: HttpError) -> OrtError {
-        let c_s = CString::new("\nHTTP ERROR: ".to_string() + &err.to_string()).unwrap();
+        let c_s = unsafe { CString::from_vec_with_nul_unchecked(err.as_string().into_bytes()) };
         unsafe {
             libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
         }

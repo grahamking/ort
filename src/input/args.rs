@@ -6,8 +6,6 @@
 //!
 //! All the command line argument parsing
 
-use core::fmt;
-
 extern crate alloc;
 use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
@@ -253,14 +251,9 @@ impl ArgParseError {
 impl From<ArgParseError> for OrtError {
     fn from(err: ArgParseError) -> OrtError {
         let _ = err;
-        ort_error(ErrorKind::InvalidArguments, "")
+        match err.s {
+            Cow::Borrowed(static_str) => ort_error(ErrorKind::InvalidArguments, static_str),
+            Cow::Owned(_owned_str) => ort_error(ErrorKind::InvalidArguments, ""),
+        }
     }
 }
-
-impl fmt::Display for ArgParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Argument parsing error: {}", self.s)
-    }
-}
-
-impl core::error::Error for ArgParseError {}

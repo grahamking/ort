@@ -64,6 +64,58 @@ pub(crate) fn num_to_string(mut num: usize) -> String {
     unsafe { String::from_utf8_unchecked(buf[..i].into()) }
 }
 
+/// Convert a float to it's string representation with given number of
+/// significant_digits after the decimal.
+pub(crate) fn float_to_string(mut f: f64, significant_digits: usize) -> String {
+    if f.is_nan() {
+        return "NaN".into();
+    }
+    if f.is_infinite() {
+        return if f < 0.0 { "-inf".into() } else { "inf".into() };
+    }
+
+    let mut result = String::new();
+
+    if f < 0.0 {
+        result.push('-');
+        f = -f;
+    }
+
+    // Handle integer part
+    let mut integer_part = f as u64;
+    let mut fraction_part = f - (integer_part as f64);
+
+    // Naive integer to string conversion
+    if integer_part == 0 {
+        result.push('0');
+    } else {
+        let mut buffer = [0u8; 20]; // Max u64 is ~1.8e19
+        let mut idx = 0;
+        while integer_part > 0 {
+            buffer[idx] = (integer_part % 10) as u8 + b'0';
+            integer_part /= 10;
+            idx += 1;
+        }
+        while idx > 0 {
+            idx -= 1;
+            result.push(buffer[idx] as char);
+        }
+    }
+
+    if significant_digits > 0 {
+        result.push('.');
+
+        for _ in 0..significant_digits {
+            fraction_part *= 10.0;
+            let digit = fraction_part as u8; // Truncate
+            result.push((digit + b'0') as char);
+            fraction_part -= digit as f64;
+        }
+    }
+
+    result
+}
+
 #[allow(unused)]
 pub(crate) fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(s.to_string()).unwrap();
@@ -161,4 +213,41 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
 
     let out = String::from_utf8_lossy(&content);
     Ok(out.into_owned().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::float_to_string;
+
+    #[test]
+    fn nan_and_infinity() {
+        assert_eq!(float_to_string(f64::NAN, 3), "NaN");
+        assert_eq!(float_to_string(f64::INFINITY, 3), "inf");
+        assert_eq!(float_to_string(f64::NEG_INFINITY, 3), "-inf");
+    }
+
+    #[test]
+    fn sign_and_integer_part() {
+        assert_eq!(float_to_string(-2.5, 1), "-2.5");
+        assert_eq!(float_to_string(0.0, 0), "0");
+        assert_eq!(float_to_string(-0.0, 2), "0.00"); // f < 0.0 is false for -0.0
+        assert_eq!(float_to_string(12345.0, 0), "12345");
+    }
+
+    #[test]
+    fn fractional_digits_truncate_not_round() {
+        // 1.875 is exactly representable; with 2 digits -> "1.87" (truncation)
+        assert_eq!(float_to_string(1.875, 2), "1.87");
+    }
+
+    #[test]
+    fn fractional_leading_zeros() {
+        // 1/64 = 0.015625 is exactly representable
+        assert_eq!(float_to_string(0.015625, 3), "0.015");
+    }
+
+    #[test]
+    fn no_decimal_point_when_zero_digits() {
+        assert_eq!(float_to_string(3.75, 0), "3");
+    }
 }

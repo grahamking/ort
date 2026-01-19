@@ -5,10 +5,7 @@
 //! Copyright (c) 2025 Graham King
 //!
 
-use core::fmt::Arguments;
-
 extern crate alloc;
-use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use crate::{ErrorKind, OrtResult, ort_error, ort_from_err};
@@ -61,10 +58,6 @@ pub trait Write {
         }
 
         Ok(())
-    }
-
-    fn write_fmt(&mut self, args: Arguments<'_>) -> OrtResult<()> {
-        self.write_all(args.to_string().as_bytes())
     }
 
     fn write_str(&mut self, s: &str) -> OrtResult<usize> {

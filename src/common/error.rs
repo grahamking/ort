@@ -170,8 +170,6 @@ impl OrtError {
     pub fn debug_print(&self) {}
 }
 
-impl core::error::Error for OrtError {}
-
 impl fmt::Display for OrtError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}: {}", self.kind, self.context)

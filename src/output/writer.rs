@@ -244,7 +244,7 @@ impl CollectedWriter {
         }
 
         let out =
-            "--- ".to_string() + &got_stats.unwrap().to_string() + " ---\n" + &contents.join("");
+            "--- ".to_string() + &got_stats.unwrap().as_string() + " ---\n" + &contents.join("");
         Ok(out)
     }
 }

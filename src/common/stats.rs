@@ -4,7 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
 use core::time::Duration;
 
 extern crate alloc;
@@ -27,20 +26,25 @@ impl Stats {
     pub fn provider(&self) -> &str {
         &self.provider
     }
-}
 
-impl fmt::Display for Stats {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} at {}. {:.4} cents. {} ({} TTFT, {}ms ITL)",
-            self.used_model,
-            self.provider,
-            self.cost_in_cents,
-            format_duration(self.elapsed_time),
-            format_duration(self.time_to_first_token.unwrap_or_default()),
-            self.inter_token_latency_ms,
-        )
+    pub(crate) fn as_string(&self) -> String {
+        // "{used_model} at {provider}. {cost_in_cents:.4} cents. {elapsed_time} ({time_to_first_token} TTFT, {inter_token_latency_ms}ms ITL)",
+        let mut s = String::with_capacity(256);
+        s.push_str(&self.used_model);
+        s.push_str(" at ");
+        s.push_str(&self.provider);
+        s.push_str(". ");
+        s.push_str(&utils::float_to_string(self.cost_in_cents, 4));
+        s.push_str(" cents. ");
+        s.push_str(&format_duration(self.elapsed_time));
+        s.push_str(" (");
+        s.push_str(&format_duration(
+            self.time_to_first_token.unwrap_or_default(),
+        ));
+        s.push_str(" TTFT, ");
+        s.push_str(&utils::num_to_string(self.inter_token_latency_ms as usize));
+        s.push_str("ms ITL)");
+        s
     }
 }
 
