@@ -188,35 +188,6 @@ pub fn ort_error(kind: ErrorKind, context: &'static str) -> OrtError {
     OrtError { kind, context }
 }
 
-// In release mode we only have a more general error
-#[cfg(not(debug_assertions))]
-pub fn ort_from_err<E: core::fmt::Display>(
-    kind: ErrorKind,
-    context: &'static str,
-    _err: E,
-) -> OrtError {
-    ort_error(kind, context)
-}
-
-// In debug mode we print the error. All the generics makes for a larger binary.
-#[cfg(debug_assertions)]
-pub fn ort_from_err<E: core::error::Error>(
-    kind: ErrorKind,
-    context: &'static str,
-    err: E,
-) -> OrtError {
-    use crate::libc;
-    use alloc::ffi::CString;
-    use alloc::string::ToString;
-
-    let c_s = CString::new("\nERROR: ".to_string() + &err.to_string()).unwrap();
-    unsafe {
-        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-    }
-
-    ort_error(kind, context)
-}
-
 impl OrtError {
     pub fn as_string(&self) -> String {
         let k = self.kind.as_string();

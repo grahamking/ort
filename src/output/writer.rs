@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write,
-    common::config, common::file, common::queue, common::stats, common::utils, ort_from_err,
+    common::config, common::file, common::queue, common::stats, common::utils,
 };
 use crate::{libc, ort_error};
 
@@ -267,7 +267,7 @@ impl LastWriter {
         last_path.push('/');
         last_path.push_str(&last_filename);
         let c_path = CString::new(last_path)
-            .map_err(|e| ort_from_err(ErrorKind::FileCreateFailed, "CString::new last path", e))?;
+            .map_err(|_| ort_error(ErrorKind::FileCreateFailed, "Null byte in last path"))?;
         let last_file = unsafe { file::File::create(c_path.as_ptr()).context("create last file")? };
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })

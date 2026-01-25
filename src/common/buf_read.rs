@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{ErrorKind, OrtResult, Read, ort_error, ort_from_err};
+use crate::{ErrorKind, OrtResult, Read, ort_error};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -98,7 +98,7 @@ impl<R: Read> OrtBufReader<R> {
 
             // Interpret as UTF-8 and append to the caller's String
             let s = core::str::from_utf8(chunk)
-                .map_err(|e| ort_from_err(ErrorKind::FormatError, "utf8 decode", e))?;
+                .map_err(|_| ort_error(ErrorKind::FormatError, "utf8 decode"))?;
             buf.push_str(s);
 
             total += chunk.len();

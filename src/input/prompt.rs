@@ -35,7 +35,7 @@ use crate::libc;
 use crate::ort_error;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
 use crate::{CancelToken, http, thread as ort_thread};
-use crate::{ErrorKind, LastData, ort_from_err};
+use crate::{ErrorKind, LastData};
 use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
 
@@ -658,7 +658,7 @@ extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
 /// Uses the minimal amount of disk access to go as fast as possible.
 fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
     let c_dir = CString::new(dir)
-        .map_err(|e| ort_from_err(ErrorKind::FileReadFailed, "CString::new most_recent dir", e))?;
+        .map_err(|_| ort_error(ErrorKind::FileReadFailed, "Null byte in most_recent dir"))?;
     let dir_files = dir::DirFiles::new(c_dir.as_c_str())?;
 
     let mut most_recent_file: Option<(String, time::Instant)> = None;
@@ -667,11 +667,10 @@ fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
             continue;
         }
         let path = dir.to_string() + "/" + &name;
-        let c_name = CString::new(path.clone()).map_err(|e| {
-            ort_from_err(
+        let c_name = CString::new(path.clone()).map_err(|_| {
+            ort_error(
                 ErrorKind::FileReadFailed,
-                "CString::new candidate filename",
-                e,
+                "Null byte in most_recent_file name",
             )
         })?;
         let modified_time = file::last_modified(c_name.as_c_str())?;

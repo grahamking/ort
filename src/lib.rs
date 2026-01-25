@@ -18,7 +18,7 @@ pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,
 };
-pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_error, ort_from_err};
+pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_error};
 pub use common::thread;
 pub use common::utils;
 pub use common::{io::Read, io::Write};
