@@ -4,9 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::fmt;
-
 extern crate alloc;
+use alloc::string::String;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -201,7 +200,7 @@ pub fn ort_from_err<E: core::fmt::Display>(
 
 // In debug mode we print the error. All the generics makes for a larger binary.
 #[cfg(debug_assertions)]
-pub fn ort_from_err<E: core::fmt::Display>(
+pub fn ort_from_err<E: core::error::Error>(
     kind: ErrorKind,
     context: &'static str,
     err: E,
@@ -219,19 +218,20 @@ pub fn ort_from_err<E: core::fmt::Display>(
 }
 
 impl OrtError {
-    /*
-    pub fn as_string() -> String {
-
-        write!(f, "{:?}: {}", self.kind, self.context)
+    pub fn as_string(&self) -> String {
+        let k = self.kind.as_string();
+        let mut out = String::with_capacity(k.len() + 2 + self.context.len());
+        out.push_str(k);
+        out.push_str(": ");
+        out.push_str(self.context);
+        out
     }
-    */
 
     #[cfg(debug_assertions)]
     pub fn debug_print(&self) {
         use crate::libc;
         use alloc::ffi::CString;
-        use alloc::string::ToString;
-        let s = self.to_string();
+        let s = self.as_string();
         let c_s = CString::new(s).unwrap();
         unsafe {
             libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
@@ -240,20 +240,6 @@ impl OrtError {
 
     #[cfg(not(debug_assertions))]
     pub fn debug_print(&self) {}
-}
-
-impl fmt::Display for OrtError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {}", self.kind.as_string(), self.context)
-    }
-}
-
-impl From<core::fmt::Error> for OrtError {
-    fn from(err: core::fmt::Error) -> OrtError {
-        // fmt::Error has no payload; treat as format error.
-        let _ = err;
-        ort_error(ErrorKind::FormatError, "")
-    }
 }
 
 pub trait Context<T, E> {

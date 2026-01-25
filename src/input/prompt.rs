@@ -88,7 +88,7 @@ pub fn run<W: Write + Send>(
                 tids.push(tid);
             }
             Err(err) => {
-                let s = CString::new(err.to_string()).unwrap();
+                let s = CString::new(err.as_string()).unwrap();
                 libc::printf(
                     c"Spawning single_runner_thread failed: %s".as_ptr(),
                     s.as_ptr(),
@@ -112,7 +112,7 @@ pub fn run<W: Write + Send>(
                     tids.push(tid);
                 }
                 Err(err) => {
-                    let s = CString::new(err.to_string()).unwrap();
+                    let s = CString::new(err.as_string()).unwrap();
                     libc::printf(
                         c"Spawning last_writer_thread failed: %s".as_ptr(),
                         s.as_ptr(),
@@ -241,7 +241,7 @@ pub fn run_multi(
                     tids.push(tid);
                 }
                 Err(err) => {
-                    let s = CString::new(err.to_string()).unwrap();
+                    let s = CString::new(err.as_string()).unwrap();
                     libc::printf(
                         c"Spawning multi_collect_thread failed: %s".as_ptr(),
                         s.as_ptr(),
@@ -316,7 +316,7 @@ pub fn start_prompt_thread(
 
     unsafe {
         if let Err(err) = ort_thread::spawn(prompt_thread, Box::into_raw(params) as *mut c_void) {
-            let s = CString::new(err.to_string()).unwrap();
+            let s = CString::new(err.as_string()).unwrap();
             libc::printf(c"Spawning prompt_thread failed: %s".as_ptr(), s.as_ptr());
         }
     }
@@ -329,7 +329,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let body = match build_body(params.model_idx, &params.opts, &params.messages) {
         Ok(b) => b,
         Err(err) => {
-            let s = CString::new(err.to_string()).unwrap();
+            let s = CString::new(err.as_string()).unwrap();
             unsafe { libc::printf(c"FATAL: build_body: %s".as_ptr(), s.as_ptr()) };
             return ptr::null_mut();
         }
@@ -339,7 +339,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         let ips = match unsafe { resolver::resolve(c"openrouter.ai".as_ptr()) } {
             Ok(ips) => ips,
             Err(err) => {
-                let s = CString::new(err.to_string()).unwrap();
+                let s = CString::new(err.as_string()).unwrap();
                 unsafe { libc::printf(c"FATAL: resolving openrouter.ai: %s".as_ptr(), s.as_ptr()) };
                 return ptr::null_mut();
             }
@@ -360,7 +360,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let mut reader = match http::chat_completions(&params.api_key, addrs, &body) {
         Ok(r) => r,
         Err(err) => {
-            let s = CString::new(err.to_string()).unwrap();
+            let s = CString::new(err.as_string()).unwrap();
             unsafe { libc::printf(c"FATAL: running chat_completions: %s".as_ptr(), s.as_ptr()) };
             return ptr::null_mut();
         }
@@ -405,7 +405,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             }
             Err(err) => {
                 params.queue.add(Response::Error(
-                    "Stream read error: ".to_string() + &err.to_string(),
+                    "Stream read error: ".to_string() + &err.as_string(),
                 ));
                 break;
             }
@@ -544,7 +544,7 @@ extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
             params.full_output_queue.add(full_output);
         }
         Err(err) => {
-            let err_str = err.to_string();
+            let err_str = err.as_string();
             if err_str.contains("429 Too Many Requests") {
                 params
                     .full_output_queue
@@ -578,7 +578,7 @@ extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_
         let stats = match fw.run(params.consumer_stdout) {
             Ok(stats) => stats,
             Err(err) => {
-                let s = CString::new(err.to_string()).unwrap();
+                let s = CString::new(err.as_string()).unwrap();
                 unsafe {
                     libc::printf(
                         c"single_runner_thread FileWriter run: %s".as_ptr(),
@@ -598,7 +598,7 @@ extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_
         let stats = match cw.run(params.consumer_stdout) {
             Ok(stats) => stats,
             Err(err) => {
-                let s = CString::new(err.to_string()).unwrap();
+                let s = CString::new(err.as_string()).unwrap();
                 unsafe {
                     libc::printf(
                         c"single_runner_thread ConsoleWriter run: %s".as_ptr(),
@@ -632,7 +632,7 @@ extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
     let mut last_writer = match LastWriter::new(params.opts, params.messages) {
         Ok(lw) => lw,
         Err(err) => {
-            let s = CString::new(err.to_string()).unwrap();
+            let s = CString::new(err.as_string()).unwrap();
             unsafe {
                 libc::printf(
                     c"last_writer_thread LastWriter::new: %s".as_ptr(),
@@ -643,7 +643,7 @@ extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
         }
     };
     if let Err(err) = last_writer.run(params.consumer_last) {
-        let s = CString::new(err.to_string()).unwrap();
+        let s = CString::new(err.as_string()).unwrap();
         unsafe {
             libc::printf(
                 c"last_writer_thread last_writer.run: %s".as_ptr(),

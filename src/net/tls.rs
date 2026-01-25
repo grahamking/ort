@@ -15,9 +15,7 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{
-    ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, libc, ort_error, ort_from_err,
-};
+use crate::{Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, libc, ort_error};
 
 mod aead;
 mod ecdh;
@@ -239,8 +237,7 @@ fn client_hello_msg(sni_host: &str, client_private_key: &[u8]) -> OrtResult<Vec<
 
 /// Read ServerHello (plaintext Handshake record)
 fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
-    let (typ, payload) = read_record_plain(io)
-        .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_plain", e))?;
+    let (typ, payload) = read_record_plain(io).context("read_record_plain in read_server_hello")?;
     if typ != REC_TYPE_HANDSHAKE {
         return Err(ort_error(ErrorKind::TlsExpectedHandshakeRecord, ""));
     }
@@ -248,13 +245,8 @@ fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
 
     // There can be multiple handshake messages; we need the ServerHello bytes specifically
     let mut rd = &sh_buf[..];
-    let (sh_typ, sh_body, sh_full) = read_handshake_message(&mut rd).map_err(|e| {
-        ort_from_err(
-            ErrorKind::TlsHandshakeHeaderTooShort,
-            "read_handshake_message",
-            e,
-        )
-    })?;
+    let (sh_typ, sh_body, sh_full) =
+        read_handshake_message(&mut rd).context("read_handshake_message")?;
     if sh_typ != HS_SERVER_HELLO {
         return Err(ort_error(ErrorKind::TlsExpectedServerHello, ""));
     }
@@ -349,8 +341,7 @@ impl<T: Read + Write> TlsStream<T> {
         client_private_key: &[u8; 32],
     ) -> OrtResult<()> {
         let ch_msg = client_hello_msg(sni_host, client_private_key)?;
-        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg)
-            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write ClientHello", e))?;
+        write_record_plain(io, REC_TYPE_HANDSHAKE, &ch_msg).context("write ClientHello")?;
         transcript.extend_from_slice(&ch_msg);
         Ok(())
     }
@@ -363,8 +354,8 @@ impl<T: Read + Write> TlsStream<T> {
 
     fn receive_dummy_change_cipher_spec<R: Read>(io: &mut R) -> OrtResult<()> {
         // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
-        let (typ, _) = read_record_plain(io)
-            .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_plain", e))?;
+        let (typ, _) =
+            read_record_plain(io).context("read_record_plain for dummy change cipher")?;
         if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
             return Err(ort_error(ErrorKind::TlsExpectedChangeCipherSpec, ""));
         }
@@ -382,8 +373,7 @@ impl<T: Read + Write> TlsStream<T> {
             &handshake.aead_dec_hs,
             &handshake.server_handshake_iv,
             seq_dec_hs,
-        )
-        .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_cipher", e))?;
+        )?;
         if typ != REC_TYPE_APPDATA {
             return Err(ort_error(ErrorKind::TlsExpectedEncryptedRecords, ""));
         }
@@ -426,14 +416,7 @@ impl<T: Read + Write> TlsStream<T> {
         transcript: &[u8],
     ) -> OrtResult<HandshakeState> {
         // Parse minimal ServerHello to get cipher & key_share
-        let (cipher, server_public_key_bytes) =
-            parse_server_hello_for_keys(sh_body).map_err(|e| {
-                ort_from_err(
-                    ErrorKind::TlsServerHelloTooShort,
-                    "parse_server_hello_for_keys",
-                    e,
-                )
-            })?;
+        let (cipher, server_public_key_bytes) = parse_server_hello_for_keys(sh_body)?;
         debug_print("Server public key", &server_public_key_bytes);
         if cipher != CIPHER_TLS_AES_128_GCM_SHA256 {
             return Err(ort_error(
@@ -575,7 +558,7 @@ impl<T: Read + Write> TlsStream<T> {
             &handshake.client_handshake_iv,
             seq_enc_hs,
         )
-        .map_err(|e| ort_from_err(ErrorKind::TlsRecordTooShort, "read_record_cipher", e))?;
+        .context("write_record_cipher write_all failed")?;
 
         Ok(())
     }

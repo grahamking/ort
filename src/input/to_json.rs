@@ -325,7 +325,7 @@ mod tests {
 
         let mut got = String::with_capacity(64);
         if let Err(err) = l.to_json_writer(unsafe { got.as_mut_vec() }) {
-            panic!("{err}");
+            panic!("{}", err.as_string());
         }
 
         let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
@@ -353,7 +353,7 @@ mod tests {
         let got = match build_body(0, &opts, &messages) {
             Ok(got) => got,
             Err(err) => {
-                panic!("{err}");
+                panic!("{}", err.as_string());
             }
         };
 

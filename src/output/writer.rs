@@ -12,7 +12,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write,
+    Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write,
     common::config, common::file, common::queue, common::stats, common::utils, ort_from_err,
 };
 use crate::{libc, ort_error};
@@ -114,16 +114,19 @@ impl<W: Write + Send> ConsoleWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(err) => {
+                Response::Error(err_string) => {
                     let _ = self.writer.write(CURSOR_ON);
                     let _ = self.writer.flush();
-                    if err.to_string().contains(ERR_RATE_LIMITED) {
+                    if err_string.contains(ERR_RATE_LIMITED) {
                         return Err(ort_error(ErrorKind::RateLimited, ""));
                     } else {
-                        return Err(ort_from_err(
+                        let c_s = CString::new("\nERROR: ".to_string() + &err_string).unwrap();
+                        unsafe {
+                            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                        }
+                        return Err(ort_error(
                             ErrorKind::ResponseStreamError,
-                            "OpenRouter said no",
-                            err,
+                            "OpenRouter returned an error",
                         ));
                     }
                 }
@@ -181,14 +184,17 @@ impl<W: Write + Send> FileWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(err) => {
-                    if err.to_string().contains(ERR_RATE_LIMITED) {
+                Response::Error(err_string) => {
+                    if err_string.contains(ERR_RATE_LIMITED) {
                         return Err(ort_error(ErrorKind::RateLimited, ""));
                     } else {
-                        return Err(ort_from_err(
+                        let c_s = CString::new("\nERROR: ".to_string() + &err_string).unwrap();
+                        unsafe {
+                            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                        }
+                        return Err(ort_error(
                             ErrorKind::ResponseStreamError,
-                            "OpenRouter said no",
-                            err,
+                            "OpenRouter returned an error",
                         ));
                     }
                 }
@@ -262,10 +268,7 @@ impl LastWriter {
         last_path.push_str(&last_filename);
         let c_path = CString::new(last_path)
             .map_err(|e| ort_from_err(ErrorKind::FileCreateFailed, "CString::new last path", e))?;
-        let last_file = unsafe {
-            file::File::create(c_path.as_ptr())
-                .map_err(|e| ort_from_err(ErrorKind::FileCreateFailed, "create last file", e))?
-        };
+        let last_file = unsafe { file::File::create(c_path.as_ptr()).context("create last file")? };
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })
     }

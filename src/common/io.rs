@@ -8,7 +8,7 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-use crate::{ErrorKind, OrtResult, ort_error, ort_from_err};
+use crate::{ErrorKind, OrtResult, ort_error};
 
 const MAX_LEN_UTF8: usize = 4;
 
@@ -17,21 +17,11 @@ pub trait Read {
 
     fn read_exact(&mut self, mut buf: &mut [u8]) -> OrtResult<()> {
         while !buf.is_empty() {
-            match self.read(buf) {
-                Ok(0) => break,
-
-                Ok(n) => {
-                    buf = &mut buf[n..];
-                }
-
-                Err(e) => {
-                    return Err(ort_from_err(
-                        ErrorKind::UnexpectedEof,
-                        "read error during read_exact",
-                        e,
-                    ));
-                }
+            let n = self.read(buf)?;
+            if n == 0 {
+                break;
             }
+            buf = &mut buf[n..];
         }
 
         if !buf.is_empty() {

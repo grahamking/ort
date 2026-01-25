@@ -12,8 +12,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read, ort_error,
-    ort_from_err,
+    Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
+    ort_error,
 };
 use crate::{libc, utils};
 
@@ -64,9 +64,8 @@ pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream
     req.push_str("\r\n\r\n");
 
     tls.write_all(req.as_bytes())
-        .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "write list_models request", e))?;
-    tls.flush()
-        .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush list_models request", e))?;
+        .context("write list_models request")?;
+    tls.flush().context("flush list_models request")?;
 
     Ok(tls)
 }
@@ -93,22 +92,10 @@ pub fn chat_completions(
     req.push_str(unsafe { str::from_utf8_unchecked(&len_buf[..str_len - 2]) });
     req.push_str("\r\n\r\n");
 
-    tls.write_all(req.as_bytes()).map_err(|e| {
-        ort_from_err(
-            ErrorKind::SocketWriteFailed,
-            "write chat_completions header",
-            e,
-        )
-    })?;
-    tls.write_all(body).map_err(|e| {
-        ort_from_err(
-            ErrorKind::SocketWriteFailed,
-            "write chat_completions body",
-            e,
-        )
-    })?;
-    tls.flush()
-        .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush chat_completions", e))?;
+    tls.write_all(req.as_bytes())
+        .context("write chat_completions header")?;
+    tls.write_all(body).context("write chat_completions body")?;
+    tls.flush().context("flush chat_completions")?;
 
     Ok(buf_read::OrtBufReader::new(tls))
 }
@@ -166,7 +153,7 @@ pub fn skip_header<T: Read + Write>(
         Ok(_) => buffer.clone(),
         Err(err) => {
             return Err(HttpError::status(
-                "Internal TLS error: ".to_string() + &err.to_string(),
+                "Internal TLS error: ".to_string() + &err.as_string(),
             ));
         }
     };
@@ -177,7 +164,7 @@ pub fn skip_header<T: Read + Write>(
     buffer.clear();
     loop {
         reader.read_line(&mut buffer).map_err(|err| {
-            HttpError::status("Reading response header: ".to_string() + &err.to_string())
+            HttpError::status("Reading response header: ".to_string() + &err.as_string())
         })?;
         let header = buffer.trim();
         if header.is_empty() {

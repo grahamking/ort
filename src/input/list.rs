@@ -11,11 +11,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    CancelToken, ErrorKind, OrtResult, Read, Write, chunked,
+    CancelToken, Context, OrtResult, Read, Write, chunked,
     common::{buf_read, config, resolver},
     http,
     input::args,
-    ort_from_err,
 };
 
 pub fn run(
@@ -40,8 +39,7 @@ pub fn run(
             })
             .collect()
     };
-    let reader = http::list_models(api_key, addrs)
-        .map_err(|e| ort_from_err(ErrorKind::HttpConnectError, "list_models connect", e))?;
+    let reader = http::list_models(api_key, addrs).context("list_models connect")?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
 
@@ -52,27 +50,21 @@ pub fn run(
             let mut chunked = chunked::read(reader);
             while let Some(chunk) = chunked.next_chunk() {
                 let chunk = chunk?;
-                w.write_all(chunk.as_bytes()).map_err(|e| {
-                    ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e)
-                })?;
+                w.write_all(chunk.as_bytes()).context("write models JSON")?;
             }
         } else {
             // I don't think this happens right now
             let mut buf: [u8; 4096] = [0; 4096];
             loop {
-                let bytes_read = reader.read(&mut buf).map_err(|e| {
-                    ort_from_err(ErrorKind::ChunkedDataReadError, "read models body", e)
-                })?;
+                let bytes_read = reader.read(&mut buf).context("read models body")?;
                 if bytes_read == 0 {
                     break;
                 }
-                w.write_all(&buf[..bytes_read]).map_err(|e| {
-                    ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e)
-                })?;
+                w.write_all(&buf[..bytes_read])
+                    .context("write models JSON")?;
             }
         }
-        w.flush()
-            .map_err(|e| ort_from_err(ErrorKind::SocketWriteFailed, "flush models JSON", e))?;
+        w.flush().context("flush models JSON")?;
     } else {
         // 339 models as of Jan 18th 2026
         let mut slugs = Vec::with_capacity(400);
@@ -114,9 +106,7 @@ pub fn run(
             let mut models = String::with_capacity(512 * 1024);
             reader
                 .read(unsafe { models.as_mut_vec().as_mut_slice() })
-                .map_err(|e| {
-                    ort_from_err(ErrorKind::ChunkedDataReadError, "read models body", e)
-                })?;
+                .context("read models body")?;
             for slug in models.split(r#""id":""#).skip(1).filter_map(until_quote) {
                 slugs.push(slug.to_string());
             }

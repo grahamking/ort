@@ -59,7 +59,7 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
     match cli::main(args, is_terminal, StdoutWriter {}) {
         Ok(exit_code) => exit_code as c_int,
         Err(err) => {
-            let err_msg = CString::new(err.to_string()).unwrap();
+            let err_msg = CString::new(err.as_string()).unwrap();
             unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
             1
         }
@@ -83,7 +83,7 @@ fn main() -> std::process::ExitCode {
     match cli::main(args, is_terminal, StdoutWriter {}) {
         Ok(exit_code) => (exit_code as u8).into(),
         Err(err) => {
-            let err_msg = CString::new(err.to_string()).unwrap();
+            let err_msg = CString::new(err.as_string()).unwrap();
             unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
             1.into()
         }

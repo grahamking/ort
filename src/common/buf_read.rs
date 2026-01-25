@@ -53,10 +53,7 @@ impl<R: Read> OrtBufReader<R> {
     #[inline]
     fn fill_buf(&mut self) -> OrtResult<()> {
         self.pos = 0;
-        let n = self
-            .inner
-            .read(&mut self.buf)
-            .map_err(|e| ort_from_err(ErrorKind::Other, "buffered read error", e))?;
+        let n = self.inner.read(&mut self.buf)?;
         self.cap = n;
         Ok(())
     }
@@ -137,10 +134,7 @@ impl<R: Read> OrtBufReader<R> {
 
             // For large remaining reads, bypass the internal buffer
             if len - offset >= BUF_SIZE {
-                let n = self
-                    .inner
-                    .read(&mut buf[offset..])
-                    .map_err(|e| ort_from_err(ErrorKind::Other, "buffered read_exact", e))?;
+                let n = self.inner.read(&mut buf[offset..])?;
                 if n == 0 {
                     return Err(ort_error(
                         ErrorKind::UnexpectedEof,
