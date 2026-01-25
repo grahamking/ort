@@ -9,7 +9,7 @@ use core::fmt;
 extern crate alloc;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum ErrorKind {
     // Configuration & arguments
     //
@@ -112,9 +112,74 @@ pub enum ErrorKind {
     Other,
 }
 
+impl ErrorKind {
+    pub fn as_string(&self) -> &'static str {
+        match self {
+            ErrorKind::MissingApiKey => "MissingApiKey",
+            ErrorKind::InvalidArguments => "InvalidArguments",
+            ErrorKind::ConfigParseFailed => "ConfigParseFailed",
+            ErrorKind::ConfigReadFailed => "ConfigReadFailed",
+            ErrorKind::MissingHomeDir => "MissingHomeDir",
+            ErrorKind::HistoryMissing => "HistoryMissing",
+            ErrorKind::HistoryParseFailed => "HistoryParseFailed",
+            ErrorKind::HistoryReadFailed => "HistoryReadFailed",
+            ErrorKind::HistoryLookupFailed => "HistoryLookupFailed",
+            ErrorKind::InvalidMessageSchema => "InvalidMessageSchema",
+            ErrorKind::StdoutWriteFailed => "StdoutWriteFailed",
+            ErrorKind::QueueDesync => "QueueDesync",
+            ErrorKind::MissingUsageStats => "MissingUsageStats",
+            ErrorKind::ResponseStreamError => "ResponseStreamError",
+            ErrorKind::LastWriterError => "LastWriterError",
+            ErrorKind::FileCreateFailed => "FileCreateFailed",
+            ErrorKind::FileReadFailed => "FileReadFailed",
+            ErrorKind::FileWriteFailed => "FileWriteFailed",
+            ErrorKind::FileStatFailed => "FileStatFailed",
+            ErrorKind::DirOpenFailed => "DirOpenFailed",
+            ErrorKind::ThreadStackAllocFailed => "ThreadStackAllocFailed",
+            ErrorKind::ThreadSpawnFailed => "ThreadSpawnFailed",
+            ErrorKind::DnsResolveFailed => "DnsResolveFailed",
+            ErrorKind::SocketCreateFailed => "SocketCreateFailed",
+            ErrorKind::SocketConnectFailed => "SocketConnectFailed",
+            ErrorKind::SocketReadFailed => "SocketReadFailed",
+            ErrorKind::SocketWriteFailed => "SocketWriteFailed",
+            ErrorKind::UnexpectedEof => "UnexpectedEof",
+            ErrorKind::ChunkedEofInSize => "ChunkedEofInSize",
+            ErrorKind::ChunkedSizeReadError => "ChunkedSizeReadError",
+            ErrorKind::ChunkedInvalidSize => "ChunkedInvalidSize",
+            ErrorKind::ChunkedDataReadError => "ChunkedDataReadError",
+            ErrorKind::HttpStatusError => "HttpStatusError",
+            ErrorKind::HttpConnectError => "HttpConnectError",
+            ErrorKind::TlsExpectedHandshakeRecord => "TlsExpectedHandshakeRecord",
+            ErrorKind::TlsExpectedServerHello => "TlsExpectedServerHello",
+            ErrorKind::TlsExpectedChangeCipherSpec => "TlsExpectedChangeCipherSpec",
+            ErrorKind::TlsExpectedEncryptedRecords => "TlsExpectedEncryptedRecords",
+            ErrorKind::TlsBadHandshakeFragment => "TlsBadHandshakeFragment",
+            ErrorKind::TlsFinishedVerifyFailed => "TlsFinishedVerifyFailed",
+            ErrorKind::TlsUnsupportedCipher => "TlsUnsupportedCipher",
+            ErrorKind::TlsAlertReceived => "TlsAlertReceived",
+            ErrorKind::TlsRecordTooShort => "TlsRecordTooShort",
+            ErrorKind::TlsHandshakeHeaderTooShort => "TlsHandshakeHeaderTooShort",
+            ErrorKind::TlsHandshakeBodyTooShort => "TlsHandshakeBodyTooShort",
+            ErrorKind::TlsServerHelloTooShort => "TlsServerHelloTooShort",
+            ErrorKind::TlsServerHelloSessionIdInvalid => "TlsServerHelloSessionIdInvalid",
+            ErrorKind::TlsServerHelloExtTooShort => "TlsServerHelloExtTooShort",
+            ErrorKind::TlsExtensionHeaderTooShort => "TlsExtensionHeaderTooShort",
+            ErrorKind::TlsExtensionLengthInvalid => "TlsExtensionLengthInvalid",
+            ErrorKind::TlsKeyShareServerHelloInvalid => "TlsKeyShareServerHelloInvalid",
+            ErrorKind::TlsServerGroupUnsupported => "TlsServerGroupUnsupported",
+            ErrorKind::TlsKeyShareLengthInvalid => "TlsKeyShareLengthInvalid",
+            ErrorKind::TlsServerNotTls13 => "TlsServerNotTls13",
+            ErrorKind::TlsMissingServerKey => "TlsMissingServerKey",
+            ErrorKind::FormatError => "FormatError",
+            ErrorKind::RateLimited => "RateLimited",
+            ErrorKind::Other => "Other",
+        }
+    }
+}
+
 pub type OrtResult<T> = Result<T, OrtError>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct OrtError {
     pub kind: ErrorKind,
     pub context: &'static str,
@@ -154,6 +219,13 @@ pub fn ort_from_err<E: core::fmt::Display>(
 }
 
 impl OrtError {
+    /*
+    pub fn as_string() -> String {
+
+        write!(f, "{:?}: {}", self.kind, self.context)
+    }
+    */
+
     #[cfg(debug_assertions)]
     pub fn debug_print(&self) {
         use crate::libc;
@@ -172,7 +244,7 @@ impl OrtError {
 
 impl fmt::Display for OrtError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}: {}", self.kind, self.context)
+        write!(f, "{}: {}", self.kind.as_string(), self.context)
     }
 }
 

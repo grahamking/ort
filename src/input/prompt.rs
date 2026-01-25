@@ -326,10 +326,24 @@ pub fn start_prompt_thread(
 // extern "C" so that we can call it from `pthread_create`
 extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let params = unsafe { Box::from_raw(arg as *mut PromptThreadParams) };
-    let body = build_body(params.model_idx, &params.opts, &params.messages).unwrap(); // TODO unwrap
+    let body = match build_body(params.model_idx, &params.opts, &params.messages) {
+        Ok(b) => b,
+        Err(err) => {
+            let s = CString::new(err.to_string()).unwrap();
+            unsafe { libc::printf(c"FATAL: build_body: %s".as_ptr(), s.as_ptr()) };
+            return ptr::null_mut();
+        }
+    };
     let start = time::Instant::now();
     let addrs: Vec<_> = if params.dns.is_empty() {
-        let ips = unsafe { resolver::resolve(c"openrouter.ai".as_ptr()).unwrap() };
+        let ips = match unsafe { resolver::resolve(c"openrouter.ai".as_ptr()) } {
+            Ok(ips) => ips,
+            Err(err) => {
+                let s = CString::new(err.to_string()).unwrap();
+                unsafe { libc::printf(c"FATAL: resolving openrouter.ai: %s".as_ptr(), s.as_ptr()) };
+                return ptr::null_mut();
+            }
+        };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
             .collect()
@@ -343,7 +357,14 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             })
             .collect()
     };
-    let mut reader = http::chat_completions(&params.api_key, addrs, &body).unwrap(); // TODO unwrap
+    let mut reader = match http::chat_completions(&params.api_key, addrs, &body) {
+        Ok(r) => r,
+        Err(err) => {
+            let s = CString::new(err.to_string()).unwrap();
+            unsafe { libc::printf(c"FATAL: running chat_completions: %s".as_ptr(), s.as_ptr()) };
+            return ptr::null_mut();
+        }
+    };
 
     match http::skip_header(&mut reader) {
         Ok(true) => {

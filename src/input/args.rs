@@ -76,7 +76,7 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
                 let val = args[i].clone();
                 match val.as_str() {
                     // Safety: The 'parse' can handle exactly the three strings we match on
-                    "price" | "throughput" | "latency" => priority = Some(val.parse().unwrap()),
+                    "price" | "throughput" | "latency" => priority = val.parse().ok(),
                     _ => {
                         return Err(ArgParseError::new_str(
                             "Invalid -p value: must be one of price|throughput|latency",

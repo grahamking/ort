@@ -35,8 +35,8 @@ fn test_hello() {
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-    let ret = cli::main(args, false, &mut out).unwrap();
-    assert_eq!(ret, 0);
+    let ret = cli::main(args, false, &mut out);
+    assert!(matches!(ret, Ok(0)));
 
     let contents = String::from_utf8_lossy(&out);
     if contents.is_empty() {
@@ -62,8 +62,8 @@ fn test_list() {
     let mut out = Vec::new();
 
     let args = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
-    let ret = cli::main(args, false, &mut out).unwrap();
-    assert_eq!(ret, 0);
+    let ret = cli::main(args, false, &mut out);
+    assert!(matches!(ret, Ok(0)));
 
     let contents = String::from_utf8_lossy(&out);
     let mut count = 0;

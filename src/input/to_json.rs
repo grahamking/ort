@@ -324,7 +324,9 @@ mod tests {
         let l = LastData { opts, messages };
 
         let mut got = String::with_capacity(64);
-        l.to_json_writer(unsafe { got.as_mut_vec() }).unwrap();
+        if let Err(err) = l.to_json_writer(unsafe { got.as_mut_vec() }) {
+            panic!("{err}");
+        }
 
         let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 
@@ -348,7 +350,12 @@ mod tests {
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let got = build_body(0, &opts, &messages).unwrap();
+        let got = match build_body(0, &opts, &messages) {
+            Ok(got) => got,
+            Err(err) => {
+                panic!("{err}");
+            }
+        };
 
         let expected = r#"{"stream": true, "usage": {"include": true}, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 

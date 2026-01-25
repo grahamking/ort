@@ -51,7 +51,7 @@ pub fn run(
             // normal case
             let mut chunked = chunked::read(reader);
             while let Some(chunk) = chunked.next_chunk() {
-                let chunk = chunk.unwrap();
+                let chunk = chunk?;
                 w.write_all(chunk.as_bytes()).map_err(|e| {
                     ort_from_err(ErrorKind::SocketWriteFailed, "write models JSON", e)
                 })?;
