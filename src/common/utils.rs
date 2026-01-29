@@ -137,8 +137,8 @@ pub(crate) fn slug(s: &str) -> String {
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.
 pub(crate) fn last_filename() -> String {
     let id = tmux_pane_id();
-    // 4 because we never expect more than two chars, but to_ascii adds CR and nul byte.
-    let mut buf: [u8; 4] = [0, 0, 0, 0];
+    // 5 because we never expect more than three chars, but to_ascii adds CR and nul byte.
+    let mut buf: [u8; 5] = [0; 5];
     let buf_len = to_ascii(id, &mut buf[..]);
 
     let mut out = String::with_capacity(16);
