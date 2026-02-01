@@ -200,10 +200,10 @@ impl OrtError {
 
     #[cfg(debug_assertions)]
     pub fn debug_print(&self) {
-        use crate::libc;
+        use crate::{libc, utils::zclean};
         use alloc::ffi::CString;
-        let s = self.as_string();
-        let c_s = CString::new(s).unwrap();
+        let mut s = self.as_string();
+        let c_s = CString::new(zclean(&mut s)).unwrap();
         unsafe {
             libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
         }

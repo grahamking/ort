@@ -11,6 +11,7 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::utils::zclean;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, ThinkEvent, Write,
     common::config, common::file, common::queue, common::stats, common::utils,
@@ -114,21 +115,21 @@ impl<W: Write + Send> ConsoleWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(err_string) => {
+                Response::Error(mut err_string) => {
                     let _ = self.writer.write(CURSOR_ON);
                     let _ = self.writer.flush();
                     if err_string.contains(ERR_RATE_LIMITED) {
                         return Err(ort_error(ErrorKind::RateLimited, ""));
-                    } else {
-                        let c_s = CString::new("\nERROR: ".to_string() + &err_string).unwrap();
-                        unsafe {
-                            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                        }
-                        return Err(ort_error(
-                            ErrorKind::ResponseStreamError,
-                            "OpenRouter returned an error",
-                        ));
                     }
+                    let c_s =
+                        CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
+                    unsafe {
+                        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                    }
+                    return Err(ort_error(
+                        ErrorKind::ResponseStreamError,
+                        "OpenRouter returned an error",
+                    ));
                 }
                 Response::None => {
                     panic!("Response::None means we read the wrong Queue position");
@@ -184,19 +185,19 @@ impl<W: Write + Send> FileWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(err_string) => {
+                Response::Error(mut err_string) => {
                     if err_string.contains(ERR_RATE_LIMITED) {
                         return Err(ort_error(ErrorKind::RateLimited, ""));
-                    } else {
-                        let c_s = CString::new("\nERROR: ".to_string() + &err_string).unwrap();
-                        unsafe {
-                            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                        }
-                        return Err(ort_error(
-                            ErrorKind::ResponseStreamError,
-                            "OpenRouter returned an error",
-                        ));
                     }
+                    let c_s =
+                        CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
+                    unsafe {
+                        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                    }
+                    return Err(ort_error(
+                        ErrorKind::ResponseStreamError,
+                        "OpenRouter returned an error",
+                    ));
                 }
                 Response::None => {
                     return Err(ort_error(

@@ -118,8 +118,19 @@ pub(crate) fn float_to_string(mut f: f64, significant_digits: usize) -> String {
 
 #[allow(unused)]
 pub(crate) fn print_string(prefix: &CStr, s: &str) {
-    let msg = CString::new(s.to_string()).unwrap();
+    let msg = CString::new(zclean(&mut s.to_string())).unwrap();
     unsafe { libc::printf(c"%s%s\n".as_ptr(), prefix.as_ptr(), msg.as_ptr()) };
+}
+
+/// Replace any null bytes with an underscore, making it C-safe
+/// Makes this construction safe from panic: `CString::new(zclean(s)).unwrap()`
+pub(crate) fn zclean(s: &mut str) -> &str {
+    for byte in unsafe { s.as_bytes_mut() } {
+        if *byte == 0 {
+            *byte = b'_';
+        }
+    }
+    s
 }
 
 pub(crate) fn slug(s: &str) -> String {
