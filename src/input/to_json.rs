@@ -316,6 +316,8 @@ mod tests {
             show_reasoning: Some(false),
             quiet: None,
             merge_config: true,
+            host: "openrouter.ai",
+            chat_completions_url: "/api/v1/chat/completions",
         };
         let messages = vec![
             Message::user("Hello".to_string()),
@@ -345,6 +347,8 @@ mod tests {
             show_reasoning: Some(false),
             quiet: None,
             merge_config: false,
+            host: "openrouter.ai",
+            chat_completions_url: "/api/v1/chat/completions",
         };
         let messages = vec![
             Message::user("Hello".to_string()),

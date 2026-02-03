@@ -344,7 +344,8 @@ impl Message {
         }
 
         Ok(Message::new(
-            role.expect("Missing Role"),
+            // NVIDIA doesn't always send it. sus.
+            role.unwrap_or(Role::Assistant),
             content,
             reasoning,
         ))
@@ -491,6 +492,9 @@ impl PromptOpts {
                 show_reasoning,
                 quiet,
                 merge_config,
+                // These two don't go in config file, are ignored
+                host: "",
+                chat_completions_url: "",
             });
         }
 
@@ -585,6 +589,9 @@ impl PromptOpts {
             show_reasoning,
             quiet,
             merge_config,
+            // These two don't go in config file, are ignored
+            host: "",
+            chat_completions_url: "",
         })
     }
 }

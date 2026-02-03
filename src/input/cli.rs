@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025-2026 Graham King
 
 use core::ffi::{c_int, c_void};
 
@@ -14,9 +14,10 @@ use alloc::vec::Vec;
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
-use crate::common::buf_read;
 use crate::common::config;
+use crate::common::site::Site;
 use crate::common::utils;
+use crate::common::{buf_read, site};
 use crate::input::args;
 use crate::libc;
 use crate::list;
@@ -36,7 +37,7 @@ See https://github.com/grahamking/ort for full docs.
     unsafe { libc::write(STDERR_FILENO, usage.as_ptr() as *const c_void, usage.len()) };
 }
 
-fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
+fn parse_args(site: &Site, args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
         return Err(args::ArgParseError::show_help());
@@ -53,29 +54,41 @@ fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
         } else {
             None
         };
-        args::parse_prompt_args(&args, stdin)
+        args::parse_prompt_args(site, &args, stdin)
     }
 }
 
 pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
-    // Load ~/.config/ort.json
-    let cfg = config::load_config()?;
+    let site = match args[0].split('/').next_back().unwrap() {
+        "ort" => site::OPENROUTER,
+        "nrt" => site::NVIDIA,
+        x => {
+            utils::print_string(c"Binary name: ", x);
+            return Err(ort_error(
+                ErrorKind::InvalidBinaryName,
+                "Binary must be 'ort' or 'nrt'",
+            ));
+        }
+    };
+
+    // Load ~/.config/ort.json or nrt.json
+    let cfg = config::load_config(site.config_filename)?;
 
     // Fail fast if key missing
-    let mut api_key = utils::get_env(c"OPENROUTER_API_KEY");
+    let mut api_key = utils::get_env(site.api_key_env);
     if api_key.is_empty() {
-        api_key = match cfg.get_openrouter_key() {
+        api_key = match cfg.get_api_key() {
             Some(k) => k,
             None => {
                 return Err(ort_error(
                     ErrorKind::MissingApiKey,
-                    "OPENROUTER_API_KEY is not set.",
+                    "OPENROUTER_API_KEY or NVIDIA_API_KEY is not set.",
                 ));
             }
         }
     };
 
-    let cmd = match parse_args(args) {
+    let cmd = match parse_args(&site, args) {
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
             print_usage();

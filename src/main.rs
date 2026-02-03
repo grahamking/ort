@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025-2026 Graham King
 //!
 //! This main.rs contains two main:
 //! - A no_std release build

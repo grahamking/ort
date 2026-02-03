@@ -34,6 +34,7 @@ use crate::common::utils;
 use crate::libc;
 use crate::ort_error;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, LastWriter};
+use crate::utils::print_string;
 use crate::{CancelToken, http, thread as ort_thread};
 use crate::{ErrorKind, LastData};
 use crate::{Message, PromptOpts};
@@ -88,11 +89,7 @@ pub fn run<W: Write + Send>(
                 tids.push(tid);
             }
             Err(err) => {
-                let s = CString::new(err.as_string()).unwrap();
-                libc::printf(
-                    c"Spawning single_runner_thread failed: %s".as_ptr(),
-                    s.as_ptr(),
-                );
+                print_string(c"Spawning single_runner_thread failed: ", &err.as_string());
             }
         }
     }
@@ -112,11 +109,7 @@ pub fn run<W: Write + Send>(
                     tids.push(tid);
                 }
                 Err(err) => {
-                    let s = CString::new(err.as_string()).unwrap();
-                    libc::printf(
-                        c"Spawning last_writer_thread failed: %s".as_ptr(),
-                        s.as_ptr(),
-                    );
+                    print_string(c"Spawning last_writer_thread failed: ", &err.as_string());
                 }
             }
         }
@@ -241,11 +234,7 @@ pub fn run_multi(
                     tids.push(tid);
                 }
                 Err(err) => {
-                    let s = CString::new(err.as_string()).unwrap();
-                    libc::printf(
-                        c"Spawning multi_collect_thread failed: %s".as_ptr(),
-                        s.as_ptr(),
-                    );
+                    print_string(c"Spawning multi_collect_thread failed: ", &err.as_string());
                 }
             }
         }
@@ -316,8 +305,7 @@ pub fn start_prompt_thread(
 
     unsafe {
         if let Err(err) = ort_thread::spawn(prompt_thread, Box::into_raw(params) as *mut c_void) {
-            let s = CString::new(err.as_string()).unwrap();
-            libc::printf(c"Spawning prompt_thread failed: %s".as_ptr(), s.as_ptr());
+            print_string(c"Spawning prompt_thread failed: ", &err.as_string());
         }
     }
     queue_clone
@@ -329,18 +317,17 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let body = match build_body(params.model_idx, &params.opts, &params.messages) {
         Ok(b) => b,
         Err(err) => {
-            let s = CString::new(err.as_string()).unwrap();
-            unsafe { libc::printf(c"FATAL: build_body: %s".as_ptr(), s.as_ptr()) };
+            print_string(c"FATAL: build_body: ", &err.as_string());
             return ptr::null_mut();
         }
     };
     let start = time::Instant::now();
     let addrs: Vec<_> = if params.dns.is_empty() {
-        let ips = match unsafe { resolver::resolve(c"openrouter.ai".as_ptr()) } {
+        //let ips = match unsafe { resolver::resolve(c"openrouter.ai".as_ptr()) } {
+        let ips = match unsafe { resolver::resolve(c"integrate.api.nvidia.com".as_ptr()) } {
             Ok(ips) => ips,
             Err(err) => {
-                let s = CString::new(err.as_string()).unwrap();
-                unsafe { libc::printf(c"FATAL: resolving openrouter.ai: %s".as_ptr(), s.as_ptr()) };
+                print_string(c"FATAL: resolving openrouter.ai: ", &err.as_string());
                 return ptr::null_mut();
             }
         };
@@ -357,11 +344,16 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             })
             .collect()
     };
-    let mut reader = match http::chat_completions(&params.api_key, addrs, &body) {
+    let mut reader = match http::chat_completions(
+        &params.api_key,
+        params.opts.host,
+        params.opts.chat_completions_url,
+        addrs,
+        &body,
+    ) {
         Ok(r) => r,
         Err(err) => {
-            let s = CString::new(err.as_string()).unwrap();
-            unsafe { libc::printf(c"FATAL: running chat_completions: %s".as_ptr(), s.as_ptr()) };
+            print_string(c"FATAL running chat_completions: ", &err.as_string());
             return ptr::null_mut();
         }
     };
@@ -411,6 +403,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             }
         }
         let line = line_buf.trim();
+        //utils::print_string(c"LINE: ", &line_buf);
 
         if is_start {
             // Very first message from server, usually
@@ -578,13 +571,7 @@ extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_
         let stats = match fw.run(params.consumer_stdout) {
             Ok(stats) => stats,
             Err(err) => {
-                let s = CString::new(err.as_string()).unwrap();
-                unsafe {
-                    libc::printf(
-                        c"single_runner_thread FileWriter run: %s".as_ptr(),
-                        s.as_ptr(),
-                    )
-                };
+                print_string(c"single_runner_thread FileWriter,run: ", &err.as_string());
                 return ptr::null_mut();
             }
         };
@@ -598,13 +585,10 @@ extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_
         let stats = match cw.run(params.consumer_stdout) {
             Ok(stats) => stats,
             Err(err) => {
-                let s = CString::new(err.as_string()).unwrap();
-                unsafe {
-                    libc::printf(
-                        c"single_runner_thread ConsoleWriter run: %s".as_ptr(),
-                        s.as_ptr(),
-                    )
-                };
+                print_string(
+                    c"single_runner_thread ConsoleWriter.run: ",
+                    &err.as_string(),
+                );
                 return ptr::null_mut();
             }
         };
@@ -632,24 +616,12 @@ extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
     let mut last_writer = match LastWriter::new(params.opts, params.messages) {
         Ok(lw) => lw,
         Err(err) => {
-            let s = CString::new(err.as_string()).unwrap();
-            unsafe {
-                libc::printf(
-                    c"last_writer_thread LastWriter::new: %s".as_ptr(),
-                    s.as_ptr(),
-                )
-            };
+            print_string(c"last_writer_thread LastWriter::new: ", &err.as_string());
             return ptr::null_mut();
         }
     };
     if let Err(err) = last_writer.run(params.consumer_last) {
-        let s = CString::new(err.as_string()).unwrap();
-        unsafe {
-            libc::printf(
-                c"last_writer_thread last_writer.run: %s".as_ptr(),
-                s.as_ptr(),
-            )
-        };
+        print_string(c"last_writer_thread last_writer.run: ", &err.as_string());
     }
     ptr::null_mut()
 }

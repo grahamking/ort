@@ -17,9 +17,9 @@ use crate::{
 };
 use crate::{libc, utils};
 
-const HOST: &str = "openrouter.ai";
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
+const CONTENT_LENGTH_0: &str = "Content-Length: 0";
 
 const LIST_REQ_PREFIX: &str = concat!(
     "GET /api/v1/models HTTP/1.1\r\n",
@@ -36,10 +36,10 @@ const LIST_REQ_PREFIX: &str = concat!(
 );
 
 const CHAT_REQ_PREFIX: &str = concat!(
-    "POST /api/v1/chat/completions HTTP/1.1\r\n",
+    "POST {CHAT_COMPLETIONS_URL} HTTP/1.1\r\n",
     "Content-Type: application/json\r\n",
     "Accept: text/event-stream\r\n",
-    "Host: openrouter.ai\r\n",
+    "Host: {HOST}\r\n",
     "User-Agent: ",
     env!("CARGO_PKG_NAME"),
     "/",
@@ -53,6 +53,7 @@ const CHAT_REQ_PREFIX: &str = concat!(
 );
 
 pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream<TcpSocket>> {
+    const HOST: &str = "openrouter.ai";
     let tcp = connect(addrs)?;
     let mut tls = TlsStream::connect(tcp, HOST)?;
 
@@ -72,25 +73,33 @@ pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream
 
 pub fn chat_completions(
     api_key: &str,
+    host: &'static str,
+    chat_completions_url: &'static str,
     addrs: Vec<SocketAddr>,
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
 
-    let mut tls = TlsStream::connect(tcp, HOST)?;
+    let mut tls = TlsStream::connect(tcp, host)?;
 
     // 2) Write HTTP/1.1 request
     let body = json_body.as_bytes();
     let mut len_buf: [u8; 16] = [0; 16];
     let str_len = utils::to_ascii(body.len(), &mut len_buf[..]);
 
-    let mut req = String::with_capacity(CHAT_REQ_PREFIX.len() + 128);
-    req.push_str(CHAT_REQ_PREFIX);
+    let with_sub = CHAT_REQ_PREFIX
+        .replace("{CHAT_COMPLETIONS_URL}", chat_completions_url)
+        .replace("{HOST}", host);
+    let mut req = String::with_capacity(with_sub.len() + 128);
+    req.push_str(&with_sub);
     req.push_str(api_key);
     req.push_str("\r\nContent-Length: ");
     // Subtract two to strip the \n and \0 that to_ascii adds
     req.push_str(unsafe { str::from_utf8_unchecked(&len_buf[..str_len - 2]) });
     req.push_str("\r\n\r\n");
+
+    //utils::print_string(c"Request header:", &req);
+    //utils::print_string(c"Request bdy   :", json_body);
 
     tls.write_all(req.as_bytes())
         .context("write chat_completions header")?;
@@ -158,9 +167,11 @@ pub fn skip_header<T: Read + Write>(
         }
     };
     let status = status.trim();
+    //utils::print_string(c"HTTP response status: ", status);
 
     // Skip the rest of the headers
     let mut is_chunked = false;
+    let mut has_content = true;
     buffer.clear();
     loop {
         reader.read_line(&mut buffer).map_err(|err| {
@@ -174,6 +185,11 @@ pub fn skip_header<T: Read + Write>(
         if header == CHUNKED_HEADER {
             is_chunked = true;
         }
+        if header == CONTENT_LENGTH_0 {
+            has_content = false;
+        }
+        //utils::print_string(c"HTTP response header: ", header);
+
         buffer.clear();
     }
 
@@ -184,6 +200,9 @@ pub fn skip_header<T: Read + Write>(
             // so even an HTTP 400 has to respect that.
             let _ = reader.read_line(&mut buffer);
             buffer.clear();
+        }
+        if !has_content {
+            return Err(HttpError::status(status.to_string()));
         }
         match reader.read_line(&mut buffer) {
             Ok(_) => {

@@ -117,6 +117,16 @@ pub(crate) fn float_to_string(mut f: f64, significant_digits: usize) -> String {
 }
 
 #[allow(unused)]
+pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
+    let hex: alloc::string::String = v
+        .iter()
+        .map(|b| alloc::format!(" {:02x}", b))
+        .collect::<Vec<_>>()
+        .join("");
+    print_string(prefix, &hex);
+}
+
+#[allow(unused)]
 pub(crate) fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(zclean(&mut s.to_string())).unwrap();
     unsafe { libc::printf(c"%s%s\n".as_ptr(), prefix.as_ptr(), msg.as_ptr()) };

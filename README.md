@@ -34,6 +34,8 @@ Harking from a time when we trusted each other, it doesn't check TLS certificate
 
 In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
+For experimental [build.nvidia.com](https://build.nvidia.com/) support see at the very end of this README.
+
 ## Give it to me straight
 
 Usage:
@@ -238,4 +240,35 @@ If you mostly use models from the big-three labs I highly recommend trying OpenR
 Orginal version written by GPT-5 to my spec.
 
 MIT Licence.
+
+# Experimental build.nvidia.com support
+
+NVIDIA runs a model hub at [build.nvidia.com](https://build.nvidia.com) with some free quota.
+
+1. Create an account and get an API key at build.nvidia.com.
+1. Copy or symlink the `ort` binary to `nrt`. Yes, it keys off it's own name (argv[0]).
+1. Copy or create config file `~/.config/nrt.json`. It is identical to `ort.json` except the API key is called "nvidia", and if you cache the IP address is must be the IP of `integrate.api.nvidia.com` (AWS load balancer). That's optional, can delete the `"dns"` entry below.
+1. Run it: `nrt -m nvidia/nemotron-3-nano-30b-a3b -rr "Write a limerick about GPUs"`.
+
+Example `nrt.json`:
+```
+{
+    "keys": [
+        {"name": "nvidia", "value": "nvapi-<REST_HERE>"}
+    ],
+    "settings": {
+        "save_to_file": true,
+        "dns": ["75.2.113.119", "99.83.136.103"]
+    },
+    "prompt_opts": {
+        "model": "nvidia/nemotron-3-nano-30b-a3b",
+        "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
+        "quiet": false,
+        "show_reasoning": false,
+        "reasoning": {
+            "enabled": false,
+        }
+    }
+}
+```
 

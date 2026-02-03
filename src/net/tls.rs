@@ -23,7 +23,8 @@ mod hkdf;
 mod hmac;
 mod sha2;
 
-//const DEBUG_LOG: bool = false;
+#[allow(unused)]
+const DEBUG_LOG: bool = false;
 
 const REC_TYPE_CHANGE_CIPHER_SPEC: u8 = 20; // 0x14
 const REC_TYPE_ALERT: u8 = 21; // 0x15
@@ -283,23 +284,30 @@ impl<T: Read + Write> TlsStream<T> {
         let _ = unsafe { libc::getrandom(client_private_key.as_mut_ptr() as *mut c_void, 32, 0) };
         debug_print("Client private key", &client_private_key);
 
+        debug_print("MSG -> ClientHello", &[]);
         Self::send_client_hello(&mut io, sni_host, &mut transcript, &client_private_key)?;
 
+        debug_print("MSG <- ServerHello", &[]);
         let sh_body = Self::receive_server_hello(&mut io, &mut transcript)?;
 
         let handshake = Self::derive_handshake_keys(&client_private_key, &sh_body, &transcript)?;
 
+        debug_print("MSG <- ChangeCipherSpec (dummy)", &[]);
         Self::receive_dummy_change_cipher_spec(&mut io)?;
 
         let mut seq_dec_hs = 0u64;
         let mut seq_enc_hs = 0u64;
 
-        Self::receive_server_encrypted_flight(
-            &mut io,
-            &mut seq_dec_hs,
-            &handshake,
-            &mut transcript,
-        )?;
+        let mut is_finished: bool = false;
+        while !is_finished {
+            debug_print("MSG <- Server flight", &[]);
+            is_finished = Self::receive_server_encrypted_flight(
+                &mut io,
+                &mut seq_dec_hs,
+                &handshake,
+                &mut transcript,
+            )?;
+        }
 
         let ApplicationKeys {
             aead_app_enc,
@@ -319,8 +327,10 @@ impl<T: Read + Write> TlsStream<T> {
         // This is optional, to "confuse middleboxes" which expect TLS 1.2. Works without.
         //write_record_plain(&mut io, REC_TYPE_CHANGE_CIPHER_SPEC, &[0x01])?;
 
+        debug_print("MSG -> ClientFinished", &[]);
         Self::send_client_finished(&mut io, &handshake, &mut transcript, &mut seq_enc_hs)?;
 
+        debug_print("TLS connect done", &[]);
         Ok(TlsStream {
             io,
             aead_enc: aead_app_enc,
@@ -362,12 +372,14 @@ impl<T: Read + Write> TlsStream<T> {
         Ok(())
     }
 
+    /// Should be called multiple times until it returns true.
+    /// The TLS messages for this stage might come as separate packets, or all in one.
     fn receive_server_encrypted_flight<R: Read>(
         io: &mut R,
         seq_dec_hs: &mut u64,
         handshake: &HandshakeState,
         transcript: &mut Vec<u8>,
-    ) -> OrtResult<()> {
+    ) -> OrtResult<bool> {
         let (typ, ct, _inner_type) = read_record_cipher(
             io,
             &handshake.aead_dec_hs,
@@ -382,8 +394,6 @@ impl<T: Read + Write> TlsStream<T> {
         // May contain multiple handshake messages; parse & append to transcript.
         let mut p = &ct[..];
         while !p.is_empty() {
-            // On TLS 1.3: content_type is last byte; but ring decrypt gives only plaintext,
-            // here ct already stripped of content-type 0x16 by read_record_cipher().
             let (mtyp, body, full) = match read_handshake_message(&mut p) {
                 Ok(x) => x,
                 Err(_) => {
@@ -391,6 +401,7 @@ impl<T: Read + Write> TlsStream<T> {
                 }
             };
             transcript.extend_from_slice(full);
+            debug_print("handshake message (type is first byte)", full);
 
             if mtyp == HS_FINISHED {
                 // verify server Finished
@@ -403,11 +414,11 @@ impl<T: Read + Write> TlsStream<T> {
                     return Err(ort_error(ErrorKind::TlsFinishedVerifyFailed, ""));
                 }
                 // Done collecting server handshake.
-                break;
+                return Ok(true);
             }
             // Ignore other handshake types’ contents (no cert validation).
         }
-        Ok(())
+        Ok(false)
     }
 
     fn derive_handshake_keys(
@@ -584,6 +595,8 @@ impl<T: Read + Write> Write for TlsStream<T> {
 impl<T: Read + Write> Read for TlsStream<T> {
     fn read(&mut self, out: &mut [u8]) -> OrtResult<usize> {
         if self.rpos < self.rbuf.len() {
+            debug_print("TlsStream.read using buf", &[]);
+
             let n = cmp::min(out.len(), self.rbuf.len() - self.rpos);
             out[..n].copy_from_slice(&self.rbuf[self.rpos..self.rpos + n]);
             self.rpos += n;
@@ -678,6 +691,8 @@ fn read_record_plain<R: Read>(r: &mut R) -> OrtResult<(u8, Vec<u8>)> {
     let typ = hdr[0];
     let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
     let body = read_exact_n(r, len)?;
+    debug_print("read_record_plain hdr", &hdr);
+    debug_print("read_record_plain body", &body);
     //let _ = write_bytes_to_file(&[&hdr[..], &body].concat(), debug_filename);
     Ok((typ, body))
 }
@@ -733,12 +748,22 @@ fn read_record_cipher<R: Read>(
     debug_print("read_record_cipher hdr", &hdr);
     debug_print("read_record_cipher ct", &ciphertext);
 
+    //let size_expected = crate::utils::num_to_string(len);
+    //let size_read = crate::utils::num_to_string(ciphertext.len());
+    //crate::utils::print_string(c"size_expected ", &size_expected);
+    //crate::utils::print_string(c"size_read ", &size_read);
+
     // Decrypt ciphertext
 
     let nonce = nonce_xor(iv12, *seq);
     *seq = seq.wrapping_add(1);
 
-    let mut out = aead::aes_128_gcm_decrypt(key, &nonce, &hdr, &ciphertext).unwrap();
+    let mut out = match aead::aes_128_gcm_decrypt(key, &nonce, &hdr, &ciphertext) {
+        Ok(out) => out,
+        Err(s) => {
+            return Err(ort_error(ErrorKind::TlsAes128GcmDecryptFailed, s));
+        }
+    };
 
     debug_print("read_record_cipher plaintext hdr", &hdr);
     debug_print("read_record_cipher plaintext", &out);
@@ -844,27 +869,21 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
     Ok((cipher, sp))
 }
 
-fn debug_print(_name: &str, _value: &[u8]) {}
-
-/* Debug features, need STDLIB
-
+#[allow(unused)]
 fn debug_print(name: &str, value: &[u8]) {
-    if !DEBUG_LOG {
-        return;
+    #[cfg(debug_assertions)]
+    {
+        if !DEBUG_LOG {
+            return;
+        }
+        let c_str = CString::new(name).unwrap();
+        if !value.is_empty() {
+            crate::utils::print_hex(c_str.as_c_str(), value);
+        } else {
+            crate::utils::print_string(c_str.as_c_str(), "");
+        }
     }
-    eprintln!("\n{name} {}:", value.len());
-    print_hex(value);
 }
-
-fn print_hex(v: &[u8]) {
-    let hex: String = v
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<Vec<_>>()
-        .join("");
-    eprintln!("{hex}");
-}
-*/
 
 /*
 #[allow(dead_code)]

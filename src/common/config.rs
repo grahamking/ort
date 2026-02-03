@@ -11,15 +11,12 @@ use core::ffi::CStr;
 
 use crate::{ErrorKind, OrtResult, PromptOpts, common::utils, ort_error};
 
-const OPENROUTER_KEY: &str = "openrouter";
-const CONFIG_FILE: &str = "ort.json";
-
 const DEFAULT_SAVE_TO_FILE: bool = true;
 
-pub fn load_config() -> OrtResult<ConfigFile> {
+pub fn load_config(filename: &'static str) -> OrtResult<ConfigFile> {
     let mut config_dir = xdg_dir(c"XDG_CONFIG_HOME", ".config")?;
     config_dir.push('/');
-    config_dir.push_str(CONFIG_FILE);
+    config_dir.push_str(filename);
     let config_file = config_dir;
     match utils::filename_read_to_string(&config_file) {
         Ok(cfg_str) => {
@@ -38,10 +35,9 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-    pub fn get_openrouter_key(&self) -> Option<String> {
-        self.keys
-            .iter()
-            .find_map(|ak| (ak.name == OPENROUTER_KEY).then(|| ak.value.clone()))
+    /// Get the API key. There should only be one.
+    pub fn get_api_key(&self) -> Option<String> {
+        self.keys.first().as_ref().map(|k| k.value.clone())
     }
     pub fn _save_to_file(&self) -> bool {
         self.settings

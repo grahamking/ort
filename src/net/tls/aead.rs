@@ -130,7 +130,7 @@ pub fn aes_128_gcm_decrypt(
     };
 
     if !constant_time_eq(tag, &expected_tag) {
-        return Err("authentication failed");
+        return Err("authentication failed, invalid tag");
     }
 
     // Decrypt using CTR

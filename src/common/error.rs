@@ -20,6 +20,8 @@ pub enum ErrorKind {
     // Failed to read config file
     ConfigReadFailed,
     MissingHomeDir,
+    // Binary must be called "ort" or "nrt".
+    InvalidBinaryName,
 
     // Conversation/history
     HistoryMissing,
@@ -104,6 +106,7 @@ pub enum ErrorKind {
     TlsKeyShareLengthInvalid,
     TlsServerNotTls13,
     TlsMissingServerKey,
+    TlsAes128GcmDecryptFailed,
 
     // Misc
     FormatError,
@@ -119,6 +122,7 @@ impl ErrorKind {
             ErrorKind::ConfigParseFailed => "ConfigParseFailed",
             ErrorKind::ConfigReadFailed => "ConfigReadFailed",
             ErrorKind::MissingHomeDir => "MissingHomeDir",
+            ErrorKind::InvalidBinaryName => "InvalidBinaryName",
             ErrorKind::HistoryMissing => "HistoryMissing",
             ErrorKind::HistoryParseFailed => "HistoryParseFailed",
             ErrorKind::HistoryReadFailed => "HistoryReadFailed",
@@ -169,6 +173,7 @@ impl ErrorKind {
             ErrorKind::TlsKeyShareLengthInvalid => "TlsKeyShareLengthInvalid",
             ErrorKind::TlsServerNotTls13 => "TlsServerNotTls13",
             ErrorKind::TlsMissingServerKey => "TlsMissingServerKey",
+            ErrorKind::TlsAes128GcmDecryptFailed => "TlsAes128GcmDecryptFailed",
             ErrorKind::FormatError => "FormatError",
             ErrorKind::RateLimited => "RateLimited",
             ErrorKind::Other => "Other",

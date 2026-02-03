@@ -82,6 +82,10 @@ pub struct PromptOpts {
     pub quiet: Option<bool>,
     /// Whether to merge in the default settings from config file
     pub merge_config: bool,
+    /// Host of the site (usually "openrouter.ai")
+    pub host: &'static str,
+    /// URL of chat complations at that host.
+    pub chat_completions_url: &'static str,
 }
 
 impl Default for PromptOpts {
@@ -96,6 +100,8 @@ impl Default for PromptOpts {
             show_reasoning: Some(false),
             quiet: Some(false),
             merge_config: true,
+            host: "",
+            chat_completions_url: "",
         }
     }
 }
