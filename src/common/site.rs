@@ -12,6 +12,7 @@ pub const OPENROUTER: &Site = &Site {
     config_filename: "ort.json",
     host: "openrouter.ai",
     chat_completions_url: "/api/v1/chat/completions",
+    list_url: "/api/v1/models",
 };
 
 pub const NVIDIA: &Site = &Site {
@@ -20,6 +21,7 @@ pub const NVIDIA: &Site = &Site {
     config_filename: "nrt.json",
     host: "integrate.api.nvidia.com",
     chat_completions_url: "/v1/chat/completions",
+    list_url: "/v1/models",
 };
 
 pub struct Site {
@@ -28,4 +30,5 @@ pub struct Site {
     pub config_filename: &'static str,
     pub host: &'static str,
     pub chat_completions_url: &'static str,
+    pub list_url: &'static str,
 }

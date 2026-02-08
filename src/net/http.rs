@@ -22,9 +22,9 @@ const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 const CONTENT_LENGTH_0: &str = "Content-Length: 0";
 
 const LIST_REQ_PREFIX: &str = concat!(
-    "GET /api/v1/models HTTP/1.1\r\n",
+    "GET {LIST_URL} HTTP/1.1\r\n",
     "Accept: application/json\r\n",
-    "Host: openrouter.ai\r\n",
+    "Host: {HOST}\r\n",
     "User-Agent: ",
     env!("CARGO_PKG_NAME"),
     "/",
@@ -52,17 +52,26 @@ const CHAT_REQ_PREFIX: &str = concat!(
     "Authorization: Bearer "
 );
 
-pub fn list_models(api_key: &str, addrs: Vec<SocketAddr>) -> OrtResult<TlsStream<TcpSocket>> {
-    const HOST: &str = "openrouter.ai";
+pub fn list_models(
+    api_key: &str,
+    host: &'static str,
+    list_url: &'static str,
+    addrs: Vec<SocketAddr>,
+) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
-    let mut tls = TlsStream::connect(tcp, HOST)?;
+    let mut tls = TlsStream::connect(tcp, host)?;
 
-    let mut req = String::with_capacity(LIST_REQ_PREFIX.len() + 128);
-    req.push_str(LIST_REQ_PREFIX);
+    let with_sub = LIST_REQ_PREFIX
+        .replace("{LIST_URL}", list_url)
+        .replace("{HOST}", host);
+    let mut req = String::with_capacity(with_sub.len() + 128);
+    req.push_str(&with_sub);
     // The prefix finished with "Authorization: Bearer ". Append the API key
     // and the final double CRLF.
     req.push_str(api_key);
     req.push_str("\r\n\r\n");
+
+    //utils::print_string(c"Request header:", &req);
 
     tls.write_all(req.as_bytes())
         .context("write list_models request")?;

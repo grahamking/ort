@@ -334,11 +334,11 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     };
     let start = time::Instant::now();
     let addrs: Vec<_> = if params.dns.is_empty() {
-        //let ips = match unsafe { resolver::resolve(c"openrouter.ai".as_ptr()) } {
-        let ips = match unsafe { resolver::resolve(c"integrate.api.nvidia.com".as_ptr()) } {
+        let c_host = CString::new(params.site.host).unwrap();
+        let ips = match unsafe { resolver::resolve(c_host.as_ptr()) } {
             Ok(ips) => ips,
             Err(err) => {
-                print_string(c"FATAL: resolving openrouter.ai: ", &err.as_string());
+                print_string(c"FATAL: resolving host: ", &err.as_string());
                 return ptr::null_mut();
             }
         };
@@ -523,6 +523,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
                 }
             }
             Err(_err) => {
+                //utils::print_string(c"Malformed: ", &err);
                 // Ignore malformed server-sent diagnostics; keep streaming
             }
         }

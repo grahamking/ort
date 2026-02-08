@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025-2026 Graham King
 
 use core::str::FromStr;
 
@@ -77,8 +77,13 @@ impl ChatCompletionsResponse {
                     }
                 }
                 "usage" => {
-                    let j = p.value_slice()?;
-                    usage = Some(Usage::from_json(j)?);
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        usage = None;
+                    } else {
+                        let j = p.value_slice()?;
+                        usage = Some(Usage::from_json(j)?);
+                    }
                 }
                 _ => {
                     p.skip_value()?;
@@ -303,8 +308,13 @@ impl Message {
                     if role.is_some() {
                         return Err("duplicate field: role".into());
                     }
-                    let r = p.parse_simple_str()?;
-                    role = Some(Role::from_str(r)?);
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        role = None;
+                    } else {
+                        let r = p.parse_simple_str()?;
+                        role = Some(Role::from_str(r)?);
+                    }
                 }
                 "content" => {
                     if content.is_some() {
@@ -1543,6 +1553,14 @@ mod tests {
             assert_eq!(ccr.model.as_deref(), Some("deepseek/deepseek-chat-v3.1"));
             assert_eq!(ccr.choices.len(), 1);
         }
+    }
+
+    // Various null fields, including inside the message, and usage.
+    #[test]
+    fn test_nvidia_misc() {
+        let s = r#"{"id":"8f20d6699e194a0abed38c671384d32d","object":"chat.completion.chunk","created":1770582573,"model":"qwen/qwen3-next-80b-a3b-instruct","choices":[{"index":0,"delta":{"role":null,"content":"Ta","reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}"#;
+        let ccr = ChatCompletionsResponse::from_json(s).unwrap();
+        assert_eq!(ccr.choices[0].delta.content.as_deref(), Some("Ta"));
     }
 
     #[test]

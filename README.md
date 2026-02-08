@@ -241,7 +241,7 @@ Orginal version written by GPT-5 to my spec.
 
 MIT Licence.
 
-# Experimental build.nvidia.com support
+# build.nvidia.com support
 
 NVIDIA runs a model hub at [build.nvidia.com](https://build.nvidia.com) with some free quota.
 
@@ -271,4 +271,6 @@ Example `nrt.json`:
     }
 }
 ```
+
+List all available models: `nrt list`
 

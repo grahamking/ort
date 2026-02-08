@@ -151,6 +151,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
             cancel_token,
             cfg.settings.unwrap_or_default(),
             args,
+            site,
             w,
         ),
     };

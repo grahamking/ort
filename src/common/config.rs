@@ -51,7 +51,8 @@ impl ConfigFile {
 pub struct Settings {
     /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
     pub save_to_file: bool,
-    /// IP addresses of openrouter.ai. Saves time resolving them.
+    /// IP addresses of openrouter.ai or integrate.api.nvidia.com.
+    /// Saves time resolving them.
     pub dns: Vec<String>,
 }
 

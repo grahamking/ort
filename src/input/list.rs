@@ -7,9 +7,11 @@
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
+use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::common::site::Site;
 use crate::{
     CancelToken, Context, OrtResult, Read, Write, chunked,
     common::{buf_read, config, resolver},
@@ -22,10 +24,12 @@ pub fn run(
     _cancel_token: CancelToken, // TODO use CancelToken
     settings: config::Settings,
     opts: args::ListOpts,
+    site: &'static Site,
     mut w: impl Write,
 ) -> OrtResult<()> {
     let addrs: Vec<_> = if settings.dns.is_empty() {
-        let ips = unsafe { resolver::resolve(c"openrouter.ai".as_ptr())? };
+        let c_host = CString::new(site.host).unwrap();
+        let ips = unsafe { resolver::resolve(c_host.as_ptr())? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
             .collect()
@@ -39,7 +43,8 @@ pub fn run(
             })
             .collect()
     };
-    let reader = http::list_models(api_key, addrs).context("list_models connect")?;
+    let reader = http::list_models(api_key, site.host, site.list_url, addrs)
+        .context("list_models connect")?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
 
