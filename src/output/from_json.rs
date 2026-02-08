@@ -492,9 +492,6 @@ impl PromptOpts {
                 show_reasoning,
                 quiet,
                 merge_config,
-                // These two don't go in config file, are ignored
-                host: "",
-                chat_completions_url: "",
             });
         }
 
@@ -589,9 +586,6 @@ impl PromptOpts {
             show_reasoning,
             quiet,
             merge_config,
-            // These two don't go in config file, are ignored
-            host: "",
-            chat_completions_url: "",
         })
     }
 }

@@ -16,7 +16,7 @@ use crate::utils;
 pub struct Stats {
     pub used_model: String,
     pub provider: String,
-    pub cost_in_cents: f64, // Divide by 100 for $
+    pub cost_in_cents: Option<f64>, // Divide by 100 for $
     pub elapsed_time: Duration,
     pub time_to_first_token: Option<Duration>,
     pub inter_token_latency_ms: u128,
@@ -34,8 +34,10 @@ impl Stats {
         s.push_str(" at ");
         s.push_str(&self.provider);
         s.push_str(". ");
-        s.push_str(&utils::float_to_string(self.cost_in_cents, 4));
-        s.push_str(" cents. ");
+        if let Some(cost_in_cents) = self.cost_in_cents {
+            s.push_str(&utils::float_to_string(cost_in_cents, 4));
+            s.push_str(" cents. ");
+        }
         s.push_str(&format_duration(self.elapsed_time));
         s.push_str(" (");
         s.push_str(&format_duration(

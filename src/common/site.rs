@@ -6,14 +6,16 @@
 
 use core::ffi::CStr;
 
-pub const OPENROUTER: Site = Site {
+pub const OPENROUTER: &Site = &Site {
+    name: "OpenRouter",
     api_key_env: c"OPENROUTER_API_KEY",
     config_filename: "ort.json",
     host: "openrouter.ai",
     chat_completions_url: "/api/v1/chat/completions",
 };
 
-pub const NVIDIA: Site = Site {
+pub const NVIDIA: &Site = &Site {
+    name: "NVIDIA",
     api_key_env: c"NVIDIA_API_KEY",
     config_filename: "nrt.json",
     host: "integrate.api.nvidia.com",
@@ -21,6 +23,7 @@ pub const NVIDIA: Site = Site {
 };
 
 pub struct Site {
+    pub name: &'static str,
     pub api_key_env: &'static CStr,
     pub config_filename: &'static str,
     pub host: &'static str,

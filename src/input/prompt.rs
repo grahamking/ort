@@ -28,7 +28,8 @@ use crate::common::file;
 use crate::common::io::Write;
 use crate::common::queue;
 use crate::common::resolver;
-use crate::common::stats;
+use crate::common::site::Site;
+use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
 use crate::libc;
@@ -46,11 +47,13 @@ const RESPONSE_BUF_LEN: usize = 256;
 type ResponseQueue = queue::Queue<Response, RESPONSE_BUF_LEN>;
 type ResponseConsumer = queue::Consumer<Response, RESPONSE_BUF_LEN>;
 
+#[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
     api_key: &str,
     cancel_token: CancelToken,
     settings: config::Settings,
     opts: PromptOpts,
+    site: &'static Site,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: W,
@@ -65,6 +68,7 @@ pub fn run<W: Write + Send>(
         cancel_token,
         settings.dns,
         opts.clone(),
+        site,
         messages.clone(),
         0,
     );
@@ -129,6 +133,7 @@ pub fn run_continue(
     cancel_token: CancelToken,
     settings: config::Settings,
     mut opts: crate::PromptOpts,
+    site: &'static Site,
     is_pipe_output: bool,
     w: impl Write + Send,
 ) -> OrtResult<()> {
@@ -175,6 +180,7 @@ pub fn run_continue(
         cancel_token,
         settings,
         opts,
+        site,
         last.messages,
         is_pipe_output,
         w,
@@ -186,6 +192,7 @@ pub fn run_multi(
     cancel_token: CancelToken,
     settings: config::Settings,
     opts: PromptOpts,
+    site: &'static Site,
     messages: Vec<crate::Message>,
     mut w: impl Write + Send,
 ) -> OrtResult<()> {
@@ -209,7 +216,8 @@ pub fn run_multi(
         let messages_c = messages.clone();
 
         let model_name = opts_c.models.get(idx).unwrap().clone();
-        let queue_single = start_prompt_thread(api_key, cancel_token, dns, opts_c, messages_c, idx);
+        let queue_single =
+            start_prompt_thread(api_key, cancel_token, dns, opts_c, site, messages_c, idx);
         let consumer_collected = queue_single.consumer();
         query_consumers.push((model_name, consumer_collected));
     }
@@ -276,6 +284,7 @@ struct PromptThreadParams {
     messages: Vec<Message>,
     model_idx: usize,
     queue: Arc<ResponseQueue>,
+    site: &'static Site,
 }
 
 /// Start prompt in a new thread. Returns almost immediately with a queue.
@@ -286,6 +295,7 @@ pub fn start_prompt_thread(
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
+    site: &'static Site,
     messages: Vec<Message>,
     // When running multiple models, this thread should use this one
     model_idx: usize,
@@ -301,6 +311,7 @@ pub fn start_prompt_thread(
         messages,
         model_idx,
         queue,
+        site,
     });
 
     unsafe {
@@ -346,8 +357,8 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     };
     let mut reader = match http::chat_completions(
         &params.api_key,
-        params.opts.host,
-        params.opts.chat_completions_url,
+        params.site.host,
+        params.site.chat_completions_url,
         addrs,
         &body,
     ) {
@@ -373,7 +384,18 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         }
     }
 
-    let mut stats: stats::Stats = Default::default();
+    let mut stats: stats::Stats = Stats {
+        // Default the model to the passed one, in case provider stats don't include it
+        used_model: params
+            .opts
+            .models
+            .get(params.model_idx)
+            .cloned()
+            .expect("Missing model name"),
+        // Provider doesn't make sense for build.nvidia.com
+        provider: params.site.name.to_string(),
+        ..Default::default()
+    };
     let mut token_stream_start = None;
     let mut num_tokens = 0;
     let mut is_start = true;
@@ -495,7 +517,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
 
                 // Handle last message which contains the "usage" key
                 if let Some(usage) = v.usage {
-                    stats.cost_in_cents = usage.cost as f64 * 100.0; // convert to cents
+                    stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
                     stats.provider = v.provider.expect("Last message was missing provider");
                     stats.used_model = v.model.expect("Last message was missing mode");
                 }

@@ -15,7 +15,6 @@ use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
 use crate::common::config;
-use crate::common::site::Site;
 use crate::common::utils;
 use crate::common::{buf_read, site};
 use crate::input::args;
@@ -37,7 +36,7 @@ See https://github.com/grahamking/ort for full docs.
     unsafe { libc::write(STDERR_FILENO, usage.as_ptr() as *const c_void, usage.len()) };
 }
 
-fn parse_args(site: &Site, args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
+fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
         return Err(args::ArgParseError::show_help());
@@ -54,7 +53,7 @@ fn parse_args(site: &Site, args: Vec<String>) -> Result<args::Cmd, args::ArgPars
         } else {
             None
         };
-        args::parse_prompt_args(site, &args, stdin)
+        args::parse_prompt_args(&args, stdin)
     }
 }
 
@@ -88,7 +87,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
         }
     };
 
-    let cmd = match parse_args(&site, args) {
+    let cmd = match parse_args(args) {
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
             print_usage();
@@ -121,6 +120,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
                     cancel_token,
                     cfg.settings.unwrap_or_default(),
                     cli_opts,
+                    site,
                     messages,
                     !is_terminal,
                     w,
@@ -131,6 +131,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
                     cancel_token,
                     cfg.settings.unwrap_or_default(),
                     cli_opts,
+                    site,
                     messages,
                     w,
                 )
@@ -141,6 +142,7 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
             cancel_token,
             cfg.settings.unwrap_or_default(),
             cli_opts,
+            site,
             !is_terminal,
             w,
         ),

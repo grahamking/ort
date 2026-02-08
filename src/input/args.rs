@@ -17,7 +17,6 @@ use crate::Priority;
 use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
-use crate::common::site::Site;
 use crate::common::utils;
 use crate::{ErrorKind, ort_error};
 
@@ -31,11 +30,7 @@ pub enum Cmd {
     ContinueConversation(crate::PromptOpts),
 }
 
-pub fn parse_prompt_args(
-    site: &Site,
-    args: &[String],
-    stdin: Option<String>,
-) -> Result<Cmd, ArgParseError> {
+pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
     // or default.
     let mut prompt_parts: Vec<String> = Vec::new();
@@ -192,8 +187,6 @@ pub fn parse_prompt_args(
         show_reasoning,
         quiet,
         merge_config,
-        host: site.host,
-        chat_completions_url: site.chat_completions_url,
     };
     if !continue_conversation {
         Ok(Cmd::Prompt(prompt_opts))
