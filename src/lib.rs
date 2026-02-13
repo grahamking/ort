@@ -5,6 +5,7 @@
 //! Copyright (c) 2025 Graham King
 
 #![no_std]
+#![feature(test)]
 
 mod common;
 mod input;

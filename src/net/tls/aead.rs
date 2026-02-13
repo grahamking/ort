@@ -376,8 +376,14 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+
     extern crate alloc;
+    use core::ffi::c_void;
+
     use alloc::vec;
+
+    extern crate test;
+    use test::Bencher;
 
     use super::*;
 
@@ -619,5 +625,58 @@ mod tests {
 
         assert_eq!(result1, result2, "Encryption should be deterministic");
         assert_eq!(result1.len(), 32);
+    }
+
+    #[bench]
+    fn bench_key_expansion(b: &mut Bencher) {
+        // Setup (not timed)
+        let mut key = [0u8; 16];
+        let _ = unsafe { crate::libc::getrandom(key.as_mut_ptr() as *mut c_void, 16, 0) };
+
+        // Timed iteration
+        b.iter(|| {
+            let _ = key_expansion(&key);
+        });
+    }
+
+    #[bench]
+    fn bench_aes_encrypt_block(b: &mut Bencher) {
+        // Setup (not timed)
+        let mut key = [0u8; 16];
+        let _ = unsafe { crate::libc::getrandom(key.as_mut_ptr() as *mut c_void, 16, 0) };
+        let mut nonce = [0u8; 12];
+        let _ = unsafe { crate::libc::getrandom(nonce.as_mut_ptr() as *mut c_void, 12, 0) };
+        let round_keys = key_expansion(&key);
+        let j0 = {
+            let mut j = [0u8; 16];
+            j[..12].copy_from_slice(&nonce);
+            j[15] = 0x01;
+            j
+        };
+        let mut ctr = j0;
+        inc32(&mut ctr);
+
+        // Timed iteration
+        b.iter(|| {
+            let _keystream = aes_encrypt_block(&ctr, &round_keys);
+            inc32(&mut ctr);
+        });
+    }
+
+    #[bench]
+    fn bench_ghash(b: &mut Bencher) {
+        // Setup (not timed)
+        let mut ciphertext = [0u8; 150];
+        let _ = unsafe { crate::libc::getrandom(ciphertext.as_mut_ptr() as *mut c_void, 150, 0) };
+        let mut hdr = [0u8; 5];
+        let _ = unsafe { crate::libc::getrandom(hdr.as_mut_ptr() as *mut c_void, 5, 0) };
+        let mut h_bytes = [0u8; 16];
+        let _ = unsafe { crate::libc::getrandom(h_bytes.as_mut_ptr() as *mut c_void, 16, 0) };
+        let h = u128::from_be_bytes(h_bytes);
+
+        // Timed iteration
+        b.iter(|| {
+            ghash(h, &hdr, &ciphertext);
+        });
     }
 }
