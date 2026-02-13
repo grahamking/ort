@@ -59,15 +59,8 @@ fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
 
 pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
     let site = match args[0].split('/').next_back().unwrap() {
-        "ort" => site::OPENROUTER,
         "nrt" => site::NVIDIA,
-        x => {
-            utils::print_string(c"Binary name: ", x);
-            return Err(ort_error(
-                ErrorKind::InvalidBinaryName,
-                "Binary must be 'ort' or 'nrt'",
-            ));
-        }
+        _ => site::OPENROUTER,
     };
 
     // Load ~/.config/ort.json or nrt.json

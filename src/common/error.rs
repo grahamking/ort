@@ -20,8 +20,6 @@ pub enum ErrorKind {
     // Failed to read config file
     ConfigReadFailed,
     MissingHomeDir,
-    // Binary must be called "ort" or "nrt".
-    InvalidBinaryName,
 
     // Conversation/history
     HistoryMissing,
@@ -122,7 +120,6 @@ impl ErrorKind {
             ErrorKind::ConfigParseFailed => "ConfigParseFailed",
             ErrorKind::ConfigReadFailed => "ConfigReadFailed",
             ErrorKind::MissingHomeDir => "MissingHomeDir",
-            ErrorKind::InvalidBinaryName => "InvalidBinaryName",
             ErrorKind::HistoryMissing => "HistoryMissing",
             ErrorKind::HistoryParseFailed => "HistoryParseFailed",
             ErrorKind::HistoryReadFailed => "HistoryReadFailed",

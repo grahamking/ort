@@ -23,8 +23,8 @@ pub fn aes_128_gcm_encrypt(
         if key.len() != 16 {
             return Err("AES-128 key must be 16 bytes");
         }
-        if nonce.len() != 12 && nonce.len() != 7 {
-            return Err("Supported nonce lengths are 12 bytes (recommended) or 7 bytes");
+        if nonce.len() != 12 {
+            return Err("Nonce must be 12 bytes");
         };
     }
 
@@ -35,17 +35,15 @@ pub fn aes_128_gcm_encrypt(
     let h = {
         let zero_block = [0u8; 16];
         let enc = aes_encrypt_block(&zero_block, &round_keys);
-        bytes_to_u128(&enc)
+        u128::from_be_bytes(enc)
     };
 
     // Build initial counter J0
-    let j0 = if nonce.len() == 12 {
+    let j0 = {
         let mut j = [0u8; 16];
         j[..12].copy_from_slice(nonce);
         j[15] = 0x01;
         j
-    } else {
-        u128_to_bytes(ghash(h, nonce, &[]))
     };
 
     // Encrypt using counter starting at J0+1
@@ -68,10 +66,10 @@ pub fn aes_128_gcm_encrypt(
         let ghash = ghash(h, aad, &ciphertext);
         let s = {
             let s_block = aes_encrypt_block(&j0, &round_keys);
-            bytes_to_u128(&s_block)
+            u128::from_be_bytes(s_block)
         };
         let tag_u128 = ghash ^ s;
-        u128_to_bytes(tag_u128)
+        tag_u128.to_be_bytes()
     };
 
     ciphertext.extend_from_slice(&tag);
@@ -91,8 +89,8 @@ pub fn aes_128_gcm_decrypt(
         if key.len() != 16 {
             return Err("AES-128 key must be 16 bytes");
         }
-        if nonce.len() != 12 && nonce.len() != 7 {
-            return Err("Supported nonce lengths are 12 bytes (recommended) or 7 bytes");
+        if nonce.len() != 12 {
+            return Err("Nonce must be 12 bytes");
         };
         if ciphertext.len() <= 16 {
             return Err("Ciphertext must include at least authentication tag");
@@ -106,16 +104,14 @@ pub fn aes_128_gcm_decrypt(
     let h = {
         let zero_block = [0u8; 16];
         let enc = aes_encrypt_block(&zero_block, &round_keys);
-        bytes_to_u128(&enc)
+        u128::from_be_bytes(enc)
     };
 
-    let j0 = if nonce.len() == 12 {
+    let j0 = {
         let mut j = [0u8; 16];
         j[..12].copy_from_slice(nonce);
         j[15] = 0x01;
         j
-    } else {
-        u128_to_bytes(ghash(h, nonce, &[]))
     };
 
     // Verify tag first
@@ -123,10 +119,10 @@ pub fn aes_128_gcm_decrypt(
         let ghash_val = ghash(h, aad, ct);
         let s = {
             let s_block = aes_encrypt_block(&j0, &round_keys);
-            bytes_to_u128(&s_block)
+            u128::from_be_bytes(s_block)
         };
         let tag_u128 = ghash_val ^ s;
-        u128_to_bytes(tag_u128)
+        tag_u128.to_be_bytes()
     };
 
     if !constant_time_eq(tag, &expected_tag) {
@@ -313,14 +309,6 @@ fn inc32(counter: &mut [u8; 16]) {
     counter[12..16].copy_from_slice(&bytes);
 }
 
-fn bytes_to_u128(b: &[u8; 16]) -> u128 {
-    u128::from_be_bytes(*b)
-}
-
-fn u128_to_bytes(x: u128) -> [u8; 16] {
-    x.to_be_bytes()
-}
-
 fn ghash(h: u128, aad: &[u8], ciphertext: &[u8]) -> u128 {
     let mut y: u128 = 0;
 
@@ -328,7 +316,7 @@ fn ghash(h: u128, aad: &[u8], ciphertext: &[u8]) -> u128 {
     for block in aad.chunks(16) {
         let mut b = [0u8; 16];
         b[..block.len()].copy_from_slice(block);
-        let x = bytes_to_u128(&b);
+        let x = u128::from_be_bytes(b);
         y ^= x;
         y = gf_mul(y, h);
     }
@@ -337,7 +325,7 @@ fn ghash(h: u128, aad: &[u8], ciphertext: &[u8]) -> u128 {
     for block in ciphertext.chunks(16) {
         let mut b = [0u8; 16];
         b[..block.len()].copy_from_slice(block);
-        let x = bytes_to_u128(&b);
+        let x = u128::from_be_bytes(b);
         y ^= x;
         y = gf_mul(y, h);
     }
@@ -348,7 +336,7 @@ fn ghash(h: u128, aad: &[u8], ciphertext: &[u8]) -> u128 {
     let mut len_block = [0u8; 16];
     len_block[..8].copy_from_slice(&(aad_bits as u64).to_be_bytes());
     len_block[8..].copy_from_slice(&(ct_bits as u64).to_be_bytes());
-    let x = bytes_to_u128(&len_block);
+    let x = u128::from_be_bytes(len_block);
     y ^= x;
     y = gf_mul(y, h);
 
@@ -549,18 +537,8 @@ mod tests {
         assert_eq!(&result[..11], &expected_ciphertext_start[..]);
     }
 
-    /// Test Case 4: 256-bit plaintext (32 bytes)
-    #[test]
-    fn test_aes_128_gcm_256_bit_plaintext() {
-        let key = hex_to_bytes("31bdadd96698c204aa9ce1448ea94ae1");
-        let nonce = hex_to_bytes("5a8aa485c316e9");
-        let plaintext = hex_to_bytes("2db5168e932556e8089a0622981d017d");
-
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
-
-        // Result should be plaintext length + 16 byte tag
-        assert_eq!(result.len(), 32);
-    }
+    // Test Case 4: 256-bit plaintext (32 bytes)
+    // Omitted. Uses nonce len 7. Not supported.
 
     /// Test Case 5: Different IV length (96 bits is standard)
     #[test]
