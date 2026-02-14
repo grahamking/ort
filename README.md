@@ -10,7 +10,7 @@ cargo +nightly-2026-01-07 install --locked -Zbuild-std=core,alloc ort-openrouter
 
 The binary is called `ort`.
 
-Linux only.
+Linux / x86_64 only. Uses Linux specific syscalls and x86_64 specific instrinsics.
 
 # Honest CLI for openrouter.ai
 
