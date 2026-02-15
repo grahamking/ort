@@ -49,7 +49,12 @@ pub fn sign(key: &[u8], data: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
+
+    use core::ffi::c_void;
+
     use crate::net::tls::tests::string_to_bytes;
+    use test::{Bencher, black_box};
 
     #[test]
     fn test_hmac_sha256_short() {
@@ -69,5 +74,26 @@ mod tests {
         let expected =
             string_to_bytes("602a9c4d44feea742c6775c21d686ccd899ee4c8363d7c03535b949c16a6b6d8");
         assert_eq!(output, expected);
+    }
+
+    /// Benchmark HMAC with a short message.
+    #[bench]
+    fn bench_hmac_short(b: &mut Bencher) {
+        let key = b"secret";
+        let data = b"The quick brown fox jumps over the lazy dog";
+        b.iter(|| {
+            black_box(super::sign(key, data));
+        });
+    }
+
+    /// Benchmark HMAC with a longer message.
+    #[bench]
+    fn bench_hmac_long(b: &mut Bencher) {
+        let key = b"secret";
+        let mut data = [0u8; 450];
+        let _ = unsafe { crate::libc::getrandom(data.as_mut_ptr() as *mut c_void, 450, 0) };
+        b.iter(|| {
+            black_box(super::sign(key, &data));
+        });
     }
 }
