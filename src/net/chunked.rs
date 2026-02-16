@@ -15,11 +15,13 @@ use crate::{ErrorKind, OrtResult, Read, common::buf_read, libc, ort_error};
 ///
 /// This normally returns the chunks as provided by upstream, except if that
 /// would split a mutli-byte char in which case we return N chunks at once.
-pub fn read<R: Read>(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R> {
+pub fn read<R: Read, const MAX_CHUNK_SIZE: usize>(
+    r: buf_read::OrtBufReader<R>,
+) -> ChunkedIterator<R, MAX_CHUNK_SIZE> {
     ChunkedIterator::new(r)
 }
 
-pub struct ChunkedIterator<R: Read> {
+pub struct ChunkedIterator<R: Read, const MAX_CHUNK_SIZE: usize> {
     r: buf_read::OrtBufReader<R>,
     size_buf: String,
     data_buf: Vec<u8>,
@@ -27,12 +29,15 @@ pub struct ChunkedIterator<R: Read> {
 
 /// Lending Iterator. This doesn't implement Iterator because that doesn't allow the Item
 /// to borrow from the iterator (so Item couldn't be &str).
-impl<R: Read> ChunkedIterator<R> {
-    fn new(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R> {
+///
+/// max_chunk_size: Estimated size of the biggest chunk we will receive.
+/// Ideally a power of 2. It's OK if this is wrong, we will realloc.
+impl<R: Read, const MAX_CHUNK_SIZE: usize> ChunkedIterator<R, MAX_CHUNK_SIZE> {
+    fn new(r: buf_read::OrtBufReader<R>) -> ChunkedIterator<R, MAX_CHUNK_SIZE> {
         ChunkedIterator {
             r,
             size_buf: String::with_capacity(16),
-            data_buf: Vec::with_capacity(4096),
+            data_buf: Vec::with_capacity(MAX_CHUNK_SIZE),
         }
     }
 
@@ -99,9 +104,6 @@ impl<R: Read> ChunkedIterator<R> {
             }
             break;
         }
-        Some(Ok(unsafe {
-            //String::from_utf8_unchecked(self.data_buf.clone())
-            str::from_utf8_unchecked(&self.data_buf)
-        }))
+        Some(Ok(unsafe { str::from_utf8_unchecked(&self.data_buf) }))
     }
 }

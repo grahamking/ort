@@ -28,10 +28,8 @@ use alloc::{
 #[cfg(not(debug_assertions))]
 use core::ffi::{CStr, c_char, c_int};
 
-#[cfg(not(debug_assertions))]
 use ort_openrouter_cli::LibcAlloc;
 
-#[cfg(not(debug_assertions))]
 #[global_allocator]
 static GLOBAL: LibcAlloc = LibcAlloc;
 

@@ -17,14 +17,15 @@ pub struct LibcAlloc;
 // a bnuch of alloc_zeroed and realloc.
 //
 // Build with feature "print-allocations" to see memory being allocated:
-// `cd cli && cargo build --features="print-allocations"`
-// `./target/debug/ort list 2> allocs.txt`
+// cargo build --features="print-allocations"
+// cargo build --release --features="print-allocations" -Zbuild-std="core,alloc"
 //
 // There's a Python script at the end of this file to summarize the output.
 //
-// Normal usage seems to peak under 64 Kib of active memory.
-// `ort list` is the exception, it has one large (~512 KiB) allocation which is a string
-// holding the full list output.
+// Normal / prompt usage seems to peak under 64 Kib of active memory.
+//
+// `ort list` peaks around 180 Kib because it has one large (~128 KiB)
+// allocation which is a string holding the names of all models, so we can sort them.
 unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         #[cfg(feature = "print-allocations")]
@@ -65,11 +66,11 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
         #[cfg(feature = "print-allocations")]
         {
             let mut buf = [0u8; 16];
-            buf[0] = b'-';
+            buf[0] = b'\\';
             let len = to_ascii(layout.size(), &mut buf[1..]);
             unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
 
-            buf[0] = b'+';
+            buf[0] = b'/';
             let len = to_ascii(new_size, &mut buf[1..]);
             unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
@@ -103,6 +104,8 @@ def main() -> None:
                 delta = int(line)
             except ValueError as exc:
                 raise SystemExit(f"Invalid line in allocs.txt: {line!r}") from exc
+            # realloc indicators
+            line = line.replace('/', '+').replace('\\', '-')
 
             if delta > 0:
                 max_plus = delta if max_plus is None else max(max_plus, delta)

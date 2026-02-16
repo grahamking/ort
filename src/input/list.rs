@@ -52,7 +52,8 @@ pub fn run(
         // The full JSON. User should use `jq` or similar to pretty it.
         if is_chunked {
             // normal case
-            let mut chunked = chunked::read(reader);
+            const MAX_CHUNK_SIZE: usize = 128 * 1024;
+            let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
             while let Some(chunk) = chunked.next_chunk() {
                 let chunk = chunk?;
                 w.write_all(chunk.as_bytes()).context("write models JSON")?;
@@ -71,12 +72,13 @@ pub fn run(
         }
         w.flush().context("flush models JSON")?;
     } else {
-        // 339 models as of Jan 18th 2026
+        // 342 models as of Feb 16th 2026
         let mut slugs = Vec::with_capacity(400);
         if is_chunked {
             // normal case, it's always chunked right now
             let mut partial = String::new();
-            let mut chunked = chunked::read(reader);
+            const MAX_CHUNK_SIZE: usize = 128 * 1024;
+            let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
             while let Some(chunk) = chunked.next_chunk() {
                 let chunk = chunk?;
                 for (pos, section) in chunk.split(r#""id":""#).enumerate() {
