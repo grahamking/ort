@@ -12,6 +12,8 @@ The binary is called `ort`.
 
 Linux / x86_64 only. Uses Linux specific syscalls and x86_64 specific instrinsics.
 
+If you consider your online activity very high risk (don't use Open Router then!) please review [SECURITY.md](SECURITY.md).
+
 # Honest CLI for openrouter.ai
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
@@ -113,18 +115,6 @@ Here are the settings that are not available on the command line:
 
 - `save_to_file`: Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
 - `dns`: The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Allows up to 16 addresses, although fewer is probably better.
-
-## Security
-
-`ort` does not validate TLS certificates. This makes the binary smaller and the connection start faster. It also makes it vunlerable to man-in-the-middle attacks. You can verify easily enough by browsing to openrouter.ai to see if your browser shows an alert. If it doesn't you're likely fine. It would be _possible_ to identify an `ort` request vs a browser request, by fingerprinting the TLS `ClientHello`, but it is extremely unlikely at this stage.
-
-The biggest risk is a man-in-the-middle gaining your OpenRouter API key. I have a $5 daily limit on mine, which I recommend. Your prompts are already likely saved by the provider, so hopefully you weren't expecting those to be secret anyway.
-
-A man-in-the-middle attack could be perpetrated by the owner of the wi-fi router (so use a VPN when not at home!), your ISP, or a major network provider between your ISP and openrouter.
-
-To summarize, we gain a smaller binary and faster requests, in exchange for a very small risk of losing up to $5 a day, that you can mitigate simply by browsing to openrouter.ai. Security engineers hate this one weird trick.
-
-`ort` has it's own TLS 1.3 stack, including all crypto operations: AES-128 GCM, HMAC, HKDF, ECDH/X25519, SHA-256. GPT-5 wrote the bulk of these implementations, one at a time. I wrote the tests first. They have not been reviewed by anyone else.
 
 ## Reasoning model configuration
 
