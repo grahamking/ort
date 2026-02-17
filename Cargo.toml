@@ -15,6 +15,9 @@ readme = "README.md"
 # --release mode only because in debug mode we use Rust's allocator
 print-allocations = []
 
+# Allocate memory entirely from a large static array.
+arena-alloc = []
+
 [[bin]]
 name = "ort"
 path = "src/main.rs"
