@@ -98,7 +98,7 @@ pub fn run(
                     match maybe_next_id {
                         Some(slug) => {
                             // The chunk ref is only valid for one iteration, so copy
-                            slugs.push(slug.to_string());
+                            slugs.push(slug.to_string() + "\n");
                             partial.clear();
                         }
                         None => {
@@ -115,14 +115,13 @@ pub fn run(
                 .read(unsafe { models.as_mut_vec().as_mut_slice() })
                 .context("read models body")?;
             for slug in models.split(r#""id":""#).skip(1).filter_map(until_quote) {
-                slugs.push(slug.to_string());
+                slugs.push(slug.to_string() + "\n");
             }
         };
         // Print model ids alphabetically
         slugs.sort();
         for s in slugs {
             let _ = w.write(s.as_bytes());
-            let _ = w.write(b"\n");
         }
     }
     Ok(())
