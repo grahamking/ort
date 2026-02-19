@@ -19,6 +19,9 @@ use crate::{
     input::args,
 };
 
+// As of Feb 18 2026 output takes just over 8k
+const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
+
 pub fn run(
     api_key: &str,
     _cancel_token: CancelToken, // TODO use CancelToken
@@ -74,6 +77,7 @@ pub fn run(
     } else {
         // 342 models as of Feb 16th 2026
         let mut slugs = Vec::with_capacity(400);
+        let mut total_slug_len = 0;
         if is_chunked {
             // normal case, it's always chunked right now
             let mut partial = String::new();
@@ -98,7 +102,9 @@ pub fn run(
                     match maybe_next_id {
                         Some(slug) => {
                             // The chunk ref is only valid for one iteration, so copy
-                            slugs.push(slug.to_string() + "\n");
+                            let slug_line = slug.to_string() + "\n";
+                            total_slug_len += slug_line.len();
+                            slugs.push(slug_line);
                             partial.clear();
                         }
                         None => {
@@ -115,14 +121,31 @@ pub fn run(
                 .read(unsafe { models.as_mut_vec().as_mut_slice() })
                 .context("read models body")?;
             for slug in models.split(r#""id":""#).skip(1).filter_map(until_quote) {
-                slugs.push(slug.to_string() + "\n");
+                let slug_line = slug.to_string() + "\n";
+                total_slug_len += slug_line.len();
+                slugs.push(slug_line);
             }
         };
+
         // Print model ids alphabetically
+
         slugs.sort();
-        for s in slugs {
-            let _ = w.write(s.as_bytes());
+
+        if total_slug_len > MAX_TOTAL_SLUG_LEN {
+            panic!("Too many models in list. Increase MAX_TOTAL_SLUG_LEN in code.");
         }
+        let mut out: [u8; _] = [0u8; MAX_TOTAL_SLUG_LEN];
+        let mut ptr_out = out.as_mut_ptr();
+        for s in slugs {
+            let b = s.as_bytes();
+            unsafe {
+                core::ptr::copy_nonoverlapping(b.as_ptr(), ptr_out, b.len());
+                ptr_out = ptr_out.add(b.len());
+            }
+        }
+        let out_len = unsafe { ptr_out.offset_from(out.as_ptr()) as usize };
+
+        let _ = w.write(&out[..out_len]); // one syscall
     }
     Ok(())
 }
