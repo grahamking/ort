@@ -173,7 +173,7 @@ pub(crate) fn last_filename() -> String {
 }
 
 pub fn tmux_pane_id() -> usize {
-    let mut v = get_env(c"TMUX_PANE");
+    let mut v = get_env(c"TMUX_PANE").to_string_lossy().into_owned();
     if v.is_empty() {
         return 0;
     }
@@ -184,13 +184,14 @@ pub fn tmux_pane_id() -> usize {
 
 /// Read the value of an environment variable
 // Can't use std::env, we're no_std
-pub(crate) fn get_env(cs: &CStr) -> String {
+pub(crate) fn get_env(cs: &CStr) -> &'static CStr {
+    // Get a pointer to the var in our process env (above _start)
     let value_ptr = unsafe { libc::getenv(cs.as_ptr()) };
     if value_ptr.is_null() {
-        return String::new();
+        return c"";
     }
-    let c_str = unsafe { CStr::from_ptr(value_ptr) };
-    c_str.to_string_lossy().into_owned()
+    // Re-interpret those bytes as a Rust CStr
+    unsafe { CStr::from_ptr(value_ptr) }
 }
 
 /// Create this directory if necessary. Does not create ancestors.

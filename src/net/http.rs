@@ -163,7 +163,8 @@ impl From<HttpError> for OrtError {
 pub fn skip_header<T: Read + Write>(
     reader: &mut buf_read::OrtBufReader<TlsStream<T>>,
 ) -> Result<bool, HttpError> {
-    let mut buffer = String::with_capacity(16);
+    // Feb 18th 2026 headers are 175 bytes
+    let mut buffer = String::with_capacity(192);
     let status = match reader.read_line(&mut buffer) {
         Ok(0) => {
             return Err(HttpError::status("Missing initial status line".to_string()));

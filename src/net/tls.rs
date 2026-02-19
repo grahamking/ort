@@ -277,7 +277,8 @@ struct ApplicationKeys {
 impl<T: Read + Write> TlsStream<T> {
     pub fn connect(mut io: T, sni_host: &str) -> OrtResult<Self> {
         // transcript = full Handshake message encodings (headers + bodies)
-        let mut transcript = Vec::with_capacity(1024);
+        // Feb 18 2026 full transcript is 5674 bytes
+        let mut transcript = Vec::with_capacity(8192);
 
         // A private key is simply random bytes. /dev/urandom is cryptographically secure.
         let mut client_private_key = [0u8; 32];

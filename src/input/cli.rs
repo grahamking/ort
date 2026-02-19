@@ -47,7 +47,7 @@ fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
     } else {
         let is_pipe_input = unsafe { libc::isatty(STDIN_FILENO) == 0 };
         let stdin = if is_pipe_input {
-            let mut buffer = String::new();
+            let mut buffer = String::with_capacity(8 * 1024);
             buf_read::fd_read_to_string(STDIN_FILENO, &mut buffer);
             Some(buffer)
         } else {
@@ -67,7 +67,9 @@ pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtRe
     let cfg = config::load_config(site.config_filename)?;
 
     // Fail fast if key missing
-    let mut api_key = utils::get_env(site.api_key_env);
+    let mut api_key = utils::get_env(site.api_key_env)
+        .to_string_lossy()
+        .into_owned();
     if api_key.is_empty() {
         api_key = match cfg.get_api_key() {
             Some(k) => k,
