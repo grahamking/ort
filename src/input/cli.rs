@@ -9,7 +9,6 @@ use core::ffi::{c_int, c_void};
 extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec;
-use alloc::vec::Vec;
 
 use crate::OrtResult;
 use crate::PromptOpts;
@@ -36,14 +35,14 @@ See https://github.com/grahamking/ort for full docs.
     unsafe { libc::write(STDERR_FILENO, usage.as_ptr() as *const c_void, usage.len()) };
 }
 
-fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
+fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
         return Err(args::ArgParseError::show_help());
     }
 
     if args[1].as_str() == "list" {
-        args::parse_list_args(&args)
+        args::parse_list_args(args)
     } else {
         let is_pipe_input = unsafe { libc::isatty(STDIN_FILENO) == 0 };
         let stdin = if is_pipe_input {
@@ -53,11 +52,11 @@ fn parse_args(args: Vec<String>) -> Result<args::Cmd, args::ArgParseError> {
         } else {
             None
         };
-        args::parse_prompt_args(&args, stdin)
+        args::parse_prompt_args(args, stdin)
     }
 }
 
-pub fn main(args: Vec<String>, is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
+pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
     let site = match args[0].split('/').next_back().unwrap() {
         "nrt" => site::NVIDIA,
         _ => site::OPENROUTER,

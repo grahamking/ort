@@ -28,14 +28,14 @@ fn test_invalid_model_name() {
 
 #[test]
 fn test_hello() {
-    const MODEL: &str = "openai/gpt-oss-20b:free";
+    const MODEL: &str = "openai/gpt-oss-20b";
     let mut out = Vec::new();
 
-    let args = ["ort", "-m", MODEL, "-r", "low", "Hello"]
+    let args: Vec<String> = ["ort", "-m", MODEL, "-r", "low", "Hello"]
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-    let ret = cli::main(args, false, &mut out);
+    let ret = cli::main(&args, false, &mut out);
     assert!(matches!(ret, Ok(0)));
 
     let contents = String::from_utf8_lossy(&out);
@@ -61,8 +61,8 @@ fn test_hello() {
 fn test_list() {
     let mut out = Vec::new();
 
-    let args = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
-    let ret = cli::main(args, false, &mut out);
+    let args: Vec<String> = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
+    let ret = cli::main(&args, false, &mut out);
     assert!(matches!(ret, Ok(0)));
 
     let contents = String::from_utf8_lossy(&out);
