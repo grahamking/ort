@@ -21,10 +21,15 @@ const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 const CONTENT_LENGTH_0: &str = "Content-Length: 0";
 
-const LIST_REQ_PREFIX: &str = concat!(
-    "GET {LIST_URL} HTTP/1.1\r\n",
+//const POST: &[u8] = "POST ".as_bytes();
+const GET: &[u8] = "GET ".as_bytes();
+const HTTP_1_1: &[u8] = " HTTP/1.1\r\n".as_bytes();
+const HOST_HEADER: &[u8] = "Host: ".as_bytes();
+const CRLF: &[u8] = "\r\n".as_bytes();
+
+// The constant part of the list request headers
+const LIST_REQ_MIDDLE: &[u8] = concat!(
     "Accept: application/json\r\n",
-    "Host: {HOST}\r\n",
     "User-Agent: ",
     env!("CARGO_PKG_NAME"),
     "/",
@@ -33,13 +38,72 @@ const LIST_REQ_PREFIX: &str = concat!(
     "HTTP-Referer: https://github.com/grahamking/ort\r\n",
     "X-Title: ort\r\n",
     "Authorization: Bearer "
-);
+)
+.as_bytes();
+
+pub fn list_models(
+    api_key: &str,
+    host: &'static str,
+    list_url: &'static str,
+    addrs: Vec<SocketAddr>,
+) -> OrtResult<TlsStream<TcpSocket>> {
+    let tcp = connect(addrs)?;
+    let mut tls = TlsStream::connect(tcp, host)?;
+
+    // Built request on the stack, zero alloc
+    // Req is about 276 bytes right now
+    let mut req = [0u8; 320];
+
+    // GET <list_url> HTTP/1.1\r\n
+    let mut start = 0;
+    let mut end = GET.len();
+    req[start..end].copy_from_slice(GET);
+    start = end;
+    end += list_url.len();
+    req[start..end].copy_from_slice(list_url.as_bytes());
+    start = end;
+    end += HTTP_1_1.len();
+    req[start..end].copy_from_slice(HTTP_1_1);
+
+    // Host: <host>\r\n
+    start = end;
+    end += HOST_HEADER.len();
+    req[start..end].copy_from_slice(HOST_HEADER);
+    start = end;
+    end += host.len();
+    req[start..end].copy_from_slice(host.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    // Rest of the HTTP headers
+    start = end;
+    end += LIST_REQ_MIDDLE.len();
+    req[start..end].copy_from_slice(LIST_REQ_MIDDLE);
+
+    // The constant part  finished with "Authorization: Bearer ".
+    // Append the API key and the final double CRLF.
+    start = end;
+    end += api_key.len();
+    req[start..end].copy_from_slice(api_key.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    tls.write_all(&req).context("write list_models request")?;
+    tls.flush().context("flush list_models request")?;
+
+    Ok(tls)
+}
 
 const CHAT_REQ_PREFIX: &str = concat!(
     "POST {CHAT_COMPLETIONS_URL} HTTP/1.1\r\n",
+    "Host: {HOST}\r\n",
     "Content-Type: application/json\r\n",
     "Accept: text/event-stream\r\n",
-    "Host: {HOST}\r\n",
     "User-Agent: ",
     env!("CARGO_PKG_NAME"),
     "/",
@@ -51,34 +115,6 @@ const CHAT_REQ_PREFIX: &str = concat!(
     "X-Title: ort\r\n",
     "Authorization: Bearer "
 );
-
-pub fn list_models(
-    api_key: &str,
-    host: &'static str,
-    list_url: &'static str,
-    addrs: Vec<SocketAddr>,
-) -> OrtResult<TlsStream<TcpSocket>> {
-    let tcp = connect(addrs)?;
-    let mut tls = TlsStream::connect(tcp, host)?;
-
-    let with_sub = LIST_REQ_PREFIX
-        .replace("{LIST_URL}", list_url)
-        .replace("{HOST}", host);
-    let mut req = String::with_capacity(with_sub.len() + 128);
-    req.push_str(&with_sub);
-    // The prefix finished with "Authorization: Bearer ". Append the API key
-    // and the final double CRLF.
-    req.push_str(api_key);
-    req.push_str("\r\n\r\n");
-
-    //utils::print_string(c"Request header:", &req);
-
-    tls.write_all(req.as_bytes())
-        .context("write list_models request")?;
-    tls.flush().context("flush list_models request")?;
-
-    Ok(tls)
-}
 
 pub fn chat_completions(
     api_key: &str,
