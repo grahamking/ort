@@ -21,10 +21,11 @@ const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 const CONTENT_LENGTH_0: &str = "Content-Length: 0";
 
-//const POST: &[u8] = "POST ".as_bytes();
+const POST: &[u8] = "POST ".as_bytes();
 const GET: &[u8] = "GET ".as_bytes();
 const HTTP_1_1: &[u8] = " HTTP/1.1\r\n".as_bytes();
 const HOST_HEADER: &[u8] = "Host: ".as_bytes();
+const CONTENT_LENGTH_HEADER: &[u8] = "Content-Length: ".as_bytes();
 const CRLF: &[u8] = "\r\n".as_bytes();
 
 // The constant part of the list request headers
@@ -51,8 +52,8 @@ pub fn list_models(
     let mut tls = TlsStream::connect(tcp, host)?;
 
     // Built request on the stack, zero alloc
-    // Req is about 276 bytes right now
-    let mut req = [0u8; 320];
+    // Req is about 276 bytes right now. 384 is 256 + 128.
+    let mut req = [0u8; 384];
 
     // GET <list_url> HTTP/1.1\r\n
     let mut start = 0;
@@ -81,7 +82,7 @@ pub fn list_models(
     end += LIST_REQ_MIDDLE.len();
     req[start..end].copy_from_slice(LIST_REQ_MIDDLE);
 
-    // The constant part  finished with "Authorization: Bearer ".
+    // The constant part finished with "Authorization: Bearer ".
     // Append the API key and the final double CRLF.
     start = end;
     end += api_key.len();
@@ -93,15 +94,14 @@ pub fn list_models(
     end += CRLF.len();
     req[start..end].copy_from_slice(CRLF);
 
-    tls.write_all(&req).context("write list_models request")?;
+    tls.write_all(&req[..end])
+        .context("write list_models request")?;
     tls.flush().context("flush list_models request")?;
 
     Ok(tls)
 }
 
-const CHAT_REQ_PREFIX: &str = concat!(
-    "POST {CHAT_COMPLETIONS_URL} HTTP/1.1\r\n",
-    "Host: {HOST}\r\n",
+const CHAT_REQ_MIDDLE: &[u8] = concat!(
     "Content-Type: application/json\r\n",
     "Accept: text/event-stream\r\n",
     "User-Agent: ",
@@ -114,7 +114,8 @@ const CHAT_REQ_PREFIX: &str = concat!(
     // Name to appear in openrouter.ai App rankings
     "X-Title: ort\r\n",
     "Authorization: Bearer "
-);
+)
+.as_bytes();
 
 pub fn chat_completions(
     api_key: &str,
@@ -124,29 +125,71 @@ pub fn chat_completions(
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
-
     let mut tls = TlsStream::connect(tcp, host)?;
 
-    // 2) Write HTTP/1.1 request
     let body = json_body.as_bytes();
-    let mut len_buf: [u8; 16] = [0; 16];
-    let str_len = utils::to_ascii(body.len(), &mut len_buf[..]);
 
-    let with_sub = CHAT_REQ_PREFIX
-        .replace("{CHAT_COMPLETIONS_URL}", chat_completions_url)
-        .replace("{HOST}", host);
-    let mut req = String::with_capacity(with_sub.len() + 128);
-    req.push_str(&with_sub);
-    req.push_str(api_key);
-    req.push_str("\r\nContent-Length: ");
+    // Built HTTP request header on the stack.
+    // With longest current model name headers len is 341.
+    let mut req = [0u8; 512];
+
+    // POST <chat_completions_url> HTTP/1.1\r\n
+    let mut start = 0;
+    let mut end = POST.len();
+    req[start..end].copy_from_slice(POST);
+    start = end;
+    end += chat_completions_url.len();
+    req[start..end].copy_from_slice(chat_completions_url.as_bytes());
+    start = end;
+    end += HTTP_1_1.len();
+    req[start..end].copy_from_slice(HTTP_1_1);
+
+    // Host: <host>\r\n
+    start = end;
+    end += HOST_HEADER.len();
+    req[start..end].copy_from_slice(HOST_HEADER);
+    start = end;
+    end += host.len();
+    req[start..end].copy_from_slice(host.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    // Content-Length: <body-len>\r\n
+    start = end;
+    end += CONTENT_LENGTH_HEADER.len();
+    req[start..end].copy_from_slice(CONTENT_LENGTH_HEADER);
+    let mut body_len_buf: [u8; 16] = [0; 16];
+    let buf_len = utils::to_ascii(body.len(), &mut body_len_buf[..]);
+    start = end;
     // Subtract two to strip the \n and \0 that to_ascii adds
-    req.push_str(unsafe { str::from_utf8_unchecked(&len_buf[..str_len - 2]) });
-    req.push_str("\r\n\r\n");
+    end += buf_len - 2;
+    req[start..end].copy_from_slice(&body_len_buf[..buf_len - 2]);
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
 
-    //utils::print_string(c"Request header:", &req);
-    //utils::print_string(c"Request bdy   :", json_body);
+    // Rest of the HTTP headers
+    start = end;
+    end += CHAT_REQ_MIDDLE.len();
+    req[start..end].copy_from_slice(CHAT_REQ_MIDDLE);
 
-    tls.write_all(req.as_bytes())
+    // The constant part finished with "Authorization: Bearer ".
+    // Append the API key and the final double CRLF.
+    start = end;
+    end += api_key.len();
+    req[start..end].copy_from_slice(api_key.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    //let end_str = utils::num_to_string(end);
+    //utils::print_string(c"REQ LEN ", &end_str);
+
+    tls.write_all(&req[..end])
         .context("write chat_completions header")?;
     tls.write_all(body).context("write chat_completions body")?;
     tls.flush().context("flush chat_completions")?;
