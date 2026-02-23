@@ -12,6 +12,9 @@ use core::alloc::Layout;
 #[cfg(not(feature = "arena-alloc"))]
 use core::ffi::c_void;
 
+#[cfg(feature = "panic-on-realloc")]
+static mut IS_FIRST_REALLOC: bool = true;
+
 #[cfg(feature = "arena-alloc")]
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -149,6 +152,17 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             //let len = to_ascii(layout.align(), &mut buf[1..]);
             //unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
+
+        #[cfg(feature = "panic-on-realloc")]
+        unsafe {
+            // The panic machinery uses realloc, so we must immediately disable this or we would
+            // panic during the panic, and get no useful stack trace.
+            if IS_FIRST_REALLOC {
+                IS_FIRST_REALLOC = false;
+                panic!("realloc {} -> {}", layout.size(), new_size);
+            }
+        }
+
         unsafe { libc::realloc(ptr as *mut c_void, new_size) as *mut u8 }
     }
 }

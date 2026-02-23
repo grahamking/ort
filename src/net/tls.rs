@@ -71,9 +71,9 @@ fn put_u24(buf: &mut Vec<u8>, v: usize) {
 fn hkdf_expand_label<const N: usize>(prk: &[u8], label: &str, data: &[u8]) -> [u8; N] {
     let mut info = Vec::with_capacity(2 + 1 + 6 + label.len() + 1 + data.len());
     put_u16(&mut info, N as u16);
-    let full_label = "tls13 ".to_string() + label;
-    info.push(full_label.len() as u8);
-    info.extend_from_slice(full_label.as_bytes());
+    info.push(("tls13 ".len() + label.len()) as u8);
+    info.extend_from_slice("tls13 ".as_bytes());
+    info.extend_from_slice(label.as_bytes());
     info.push(data.len() as u8);
     info.extend_from_slice(data);
 

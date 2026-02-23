@@ -15,6 +15,8 @@ use crate::{ErrorKind, OrtError, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
+
+// Keep in sync with src/lib.rs
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 
 // {

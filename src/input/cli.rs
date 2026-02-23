@@ -7,7 +7,7 @@
 use core::ffi::{c_int, c_void};
 
 extern crate alloc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec;
 
 use crate::OrtResult;
@@ -25,14 +25,16 @@ use crate::{ErrorKind, ort_error};
 const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
 
-pub fn print_usage() {
-    let usage = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
-Defaults: -m ".to_string() + crate::DEFAULT_MODEL +" ; -s omitted ; -p omitted\n\
+// Keep default mode in sync with lib.rs DEFAULT_MODEL
+const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
+Defaults: -m google/gemma-3n-e4b-it:free; -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
 See https://github.com/grahamking/ort for full docs.
 ";
-    unsafe { libc::write(STDERR_FILENO, usage.as_ptr() as *const c_void, usage.len()) };
+
+pub fn print_usage() {
+    unsafe { libc::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len()) };
 }
 
 fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {

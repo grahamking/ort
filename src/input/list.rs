@@ -80,7 +80,7 @@ pub fn run(
         let mut total_slug_len = 0;
         if is_chunked {
             // normal case, it's always chunked right now
-            let mut partial = String::new();
+            let mut partial = String::with_capacity(2048);
             const MAX_CHUNK_SIZE: usize = 128 * 1024;
             let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
             while let Some(chunk) = chunked.next_chunk() {
@@ -102,7 +102,9 @@ pub fn run(
                     match maybe_next_id {
                         Some(slug) => {
                             // The chunk ref is only valid for one iteration, so copy
-                            let slug_line = slug.to_string() + "\n";
+                            let mut slug_line = String::with_capacity(slug.len() + 1);
+                            slug_line.push_str(slug);
+                            slug_line.push('\n');
                             total_slug_len += slug_line.len();
                             slugs.push(slug_line);
                             partial.clear();

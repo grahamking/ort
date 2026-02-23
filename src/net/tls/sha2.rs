@@ -127,7 +127,8 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
 
     let full_blocks = b.len() / 64;
     if full_blocks != 0 {
-        let blocks = unsafe { core::slice::from_raw_parts(b.as_ptr() as *const [u8; 64], full_blocks) };
+        let blocks =
+            unsafe { core::slice::from_raw_parts(b.as_ptr() as *const [u8; 64], full_blocks) };
         unsafe { compress_blocks(&mut h, blocks) };
     }
     let remaining = &b[(full_blocks * 64)..];
