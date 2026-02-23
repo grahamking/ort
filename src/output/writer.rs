@@ -219,13 +219,13 @@ impl CollectedWriter {
         mut rx: queue::Consumer<Response, N>,
     ) -> OrtResult<String> {
         let mut got_stats = None;
-        let mut contents = Vec::with_capacity(1024);
+        let mut contents = String::with_capacity(4096);
         while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {}
                 Response::Think(_) => {}
                 Response::Content(content) => {
-                    contents.push(content);
+                    contents.push_str(&content);
                 }
                 Response::Stats(stats) => {
                     got_stats = Some(stats);
@@ -246,8 +246,12 @@ impl CollectedWriter {
             }
         }
 
-        let out =
-            "--- ".to_string() + &got_stats.unwrap().as_string() + " ---\n" + &contents.join("");
+        let stat_string = got_stats.unwrap().as_string();
+        let mut out = String::with_capacity(stat_string.len() + contents.len() + 9);
+        out.push_str("--- ");
+        out.push_str(&stat_string);
+        out.push_str(" ---\n");
+        out.push_str(&contents);
         Ok(out)
     }
 }
