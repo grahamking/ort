@@ -144,15 +144,15 @@ pub(crate) fn zclean(s: &mut str) -> &str {
 }
 
 pub(crate) fn slug(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c.to_lowercase().next().unwrap_or('-')
-            } else {
-                '-'
-            }
-        })
-        .collect()
+    let mut out = String::with_capacity(16);
+    out.extend(s.chars().map(|c| {
+        if c.is_alphanumeric() {
+            c.to_lowercase().next().unwrap_or('-')
+        } else {
+            '-'
+        }
+    }));
+    out
 }
 
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.

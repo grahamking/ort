@@ -407,7 +407,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let mut is_first_reasoning = true;
     let mut is_first_content = true;
 
-    let mut line_buf = String::with_capacity(128);
+    let mut line_buf = String::with_capacity(1024);
     loop {
         if params.cancel_token.is_cancelled() {
             break;

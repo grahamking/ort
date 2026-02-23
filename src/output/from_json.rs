@@ -1146,16 +1146,18 @@ impl<'a> Parser<'a> {
         }
 
         // Second pass: build with unescape
-        let mut out = String::with_capacity((i - start) + 16);
+        // The "256" should include the biggest single-chunk reasoning item, which
+        // depends on the inference server's caching.
+        let mut out = String::with_capacity((i - start) + 256);
         let mut seg_start = start;
         while i < len {
             let c = self.b[i];
             if c == b'\\' {
                 // push preceding segment
                 if i > seg_start {
-                    out.push_str(
-                        core::str::from_utf8(&self.b[seg_start..i]).map_err(|_| "utf8 error")?,
-                    );
+                    let prev =
+                        core::str::from_utf8(&self.b[seg_start..i]).map_err(|_| "utf8 error")?;
+                    out.push_str(prev);
                 }
                 i += 1;
                 if i >= len {

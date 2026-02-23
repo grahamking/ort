@@ -205,7 +205,7 @@ pub struct HttpError {
 
 impl HttpError {
     pub(crate) fn as_string(&self) -> String {
-        let mut msg = String::with_capacity(15 + self.status_line.len() + self.body.len());
+        let mut msg = String::with_capacity(16 + self.status_line.len() + self.body.len());
         msg.push_str("\nHTTP ERROR: ");
         msg.push_str(&self.status_line);
         msg.push_str(", ");
@@ -242,8 +242,7 @@ impl From<HttpError> for OrtError {
 pub fn skip_header<T: Read + Write>(
     reader: &mut buf_read::OrtBufReader<TlsStream<T>>,
 ) -> Result<bool, HttpError> {
-    // Feb 18th 2026 headers are 175 bytes
-    let mut buffer = String::with_capacity(192);
+    let mut buffer = String::with_capacity(512);
     let status = match reader.read_line(&mut buffer) {
         Ok(0) => {
             return Err(HttpError::status("Missing initial status line".to_string()));

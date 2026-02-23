@@ -8,7 +8,7 @@ use core::ffi::{c_int, c_void};
 
 extern crate alloc;
 use alloc::string::String;
-use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::OrtResult;
 use crate::PromptOpts;
@@ -104,12 +104,17 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
-            let user_message = crate::Message::user(cli_opts.prompt.take().unwrap());
-            let messages = if let Some(sys) = cli_opts.system.take() {
-                vec![crate::Message::system(sys), user_message]
-            } else {
-                vec![user_message]
+            // A Message is quite small, an enum and two Option<String>.
+            // Capacity 3 for:
+            // - System message (optiona)
+            // - User message (required)
+            // - and the assistant message that LastWriter appends, to save a realloc.
+            let mut messages = Vec::with_capacity(3);
+            if let Some(sys) = cli_opts.system.take() {
+                messages.push(crate::Message::system(sys));
             };
+            let user_message = crate::Message::user(cli_opts.prompt.take().unwrap());
+            messages.push(user_message);
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,

@@ -115,17 +115,13 @@ impl<W: Write + Send> ConsoleWriter<W> {
                 Response::Stats(stats) => {
                     stats_out = Some(stats);
                 }
-                Response::Error(mut err_string) => {
+                Response::Error(err_string) => {
                     let _ = self.writer.write(CURSOR_ON);
                     let _ = self.writer.flush();
                     if err_string.contains(ERR_RATE_LIMITED) {
                         return Err(ort_error(ErrorKind::RateLimited, ""));
                     }
-                    let c_s =
-                        CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                    unsafe {
-                        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                    }
+                    utils::print_string(c"\nERROR: ", &err_string);
                     return Err(ort_error(
                         ErrorKind::ResponseStreamError,
                         "OpenRouter returned an error",
@@ -281,13 +277,15 @@ impl LastWriter {
         &mut self,
         mut rx: queue::Consumer<Response, N>,
     ) -> OrtResult<stats::Stats> {
-        let mut contents = Vec::with_capacity(1024);
+        // This will contain the entire model response. Start with a size that includes most
+        // answers, but allow realloc. Maybe we should stream to disk?
+        let mut contents = String::with_capacity(4096);
         while let Some(data) = rx.get_next() {
             match data {
                 Response::Start => {}
                 Response::Think(_) => {}
                 Response::Content(content) => {
-                    contents.push(content);
+                    contents.push_str(&content);
                 }
                 Response::Stats(stats) => {
                     self.data.opts.provider = Some(utils::slug(stats.provider()));
@@ -307,7 +305,7 @@ impl LastWriter {
             }
         }
 
-        let message = Message::assistant(contents.join(""));
+        let message = Message::assistant(contents);
         self.data.messages.push(message);
 
         self.data.to_json_writer(&mut self.w)?;
