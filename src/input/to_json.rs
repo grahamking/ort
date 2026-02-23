@@ -12,7 +12,7 @@ use crate::{ErrorKind, LastData, Message, OrtResult, PromptOpts, Write, ort_erro
 /// Build the POST body
 /// The system and user prompts must already by in messages.
 pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
-    let capacity: u32 = messages.iter().map(|m| m.size()).sum::<u32>() + 100;
+    let capacity: u32 = 1024 + messages.iter().map(|m| m.size()).sum::<u32>();
     let mut string_buf = String::with_capacity(capacity as usize);
     let mut w = unsafe { string_buf.as_mut_vec() };
 
@@ -198,8 +198,7 @@ fn write_u32<W: Write>(w: &mut W, mut n: u32) -> OrtResult<usize> {
         buf[i] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    let s = core::str::from_utf8(&buf[i..]).unwrap();
-    w.write_str(s)
+    w.write(&buf[i..])
 }
 
 impl Message {
@@ -268,11 +267,11 @@ fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
         };
 
         if start < i {
-            w.write_str(core::str::from_utf8(&bytes[start..i]).unwrap())?;
+            w.write(&bytes[start..i])?;
         }
 
         if let Some(e) = esc {
-            w.write_str(core::str::from_utf8(e).unwrap())?;
+            w.write(e)?;
         } else {
             // Generic control char: \u00XX
             let mut buf = [0u8; 6];
@@ -282,14 +281,14 @@ fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
             buf[3] = b'0';
             buf[4] = HEX[((b >> 4) & 0xF) as usize];
             buf[5] = HEX[(b & 0xF) as usize];
-            w.write_str(core::str::from_utf8(&buf).unwrap())?;
+            w.write(&buf)?;
         }
 
         start = i + 1;
     }
 
     if start < bytes.len() {
-        w.write_str(core::str::from_utf8(&bytes[start..]).unwrap())?;
+        w.write(&bytes[start..])?;
     }
     w.write_char('"')?;
     Ok(())

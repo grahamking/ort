@@ -137,15 +137,20 @@ pub fn run_continue(
     is_pipe_output: bool,
     w: impl Write + Send,
 ) -> OrtResult<()> {
-    let cache_dir = config::cache_dir()?;
-    let mut last = cache_dir.clone();
-    last.push('/');
-    last.push_str(&utils::last_filename());
-    let cs = CString::new(last.clone()).expect("Null bytes in config cache dir");
+    let mut last_path = [0u8; 128];
+    let cache_dir_end = config::cache_dir(&mut last_path)?;
+    last_path[cache_dir_end] = b'/';
+    let last_filename = utils::last_filename();
+    let start = cache_dir_end + 1;
+    let end = start + last_filename.len();
+    last_path[start..end].copy_from_slice(last_filename.as_bytes());
+
+    let cs = CString::new(&last_path[..end]).expect("Null bytes in config cache dir");
     let last_file = if utils::path_exists(cs.as_ref()) {
-        last
+        unsafe { String::from_utf8_unchecked(last_path[..end].into()) }
     } else {
-        most_recent(&cache_dir, "last-").context("most_recent")?
+        let cache_dir = unsafe { str::from_utf8_unchecked(&last_path[..cache_dir_end]) };
+        most_recent(cache_dir, "last-").context("most_recent")?
     };
 
     let mut last = match utils::filename_read_to_string(&last_file) {

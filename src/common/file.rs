@@ -20,9 +20,10 @@ pub struct File {
 impl File {
     /// # Safety
     /// Calls libc::open64 with the given pointer. Is actually safe.
-    pub unsafe fn create(path: *const c_char) -> OrtResult<Self> {
+    /// Path must end with a null byte.
+    pub unsafe fn create(path: &[u8]) -> OrtResult<Self> {
         let flags = libc::O_CLOEXEC | libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
-        let fd = unsafe { libc::open64(path, flags, 0o660 as c_int) };
+        let fd = unsafe { libc::open64(path.as_ptr() as *const c_char, flags, 0o660 as c_int) };
         if fd == -1 {
             return Err(ort_error(ErrorKind::FileCreateFailed, "open64 failed"));
         }

@@ -104,12 +104,12 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
-            let mut messages = if let Some(sys) = cli_opts.system.take() {
-                vec![crate::Message::system(sys)]
+            let user_message = crate::Message::user(cli_opts.prompt.take().unwrap());
+            let messages = if let Some(sys) = cli_opts.system.take() {
+                vec![crate::Message::system(sys), user_message]
             } else {
-                vec![]
+                vec![user_message]
             };
-            messages.push(crate::Message::user(cli_opts.prompt.take().unwrap()));
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,

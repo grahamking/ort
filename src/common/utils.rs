@@ -157,29 +157,32 @@ pub(crate) fn slug(s: &str) -> String {
 
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.
 pub(crate) fn last_filename() -> String {
-    let id = tmux_pane_id();
-    // 5 because we never expect more than three chars, but to_ascii adds CR and nul byte.
-    let mut buf: [u8; 5] = [0; 5];
-    let buf_len = to_ascii(id, &mut buf[..]);
+    // We don't expect pane IDs to go beyong 999
+    let mut buf: [u8; 3] = [0; 3];
+    let buf_len = tmux_pane_id(&mut buf);
 
     let mut out = String::with_capacity(16);
     out.push_str("last-");
     // safety: to_ascii only returns chars '0'-'9'.
-    // buf_len-2 to trim the carriage return and null byte
-    out.push_str(unsafe { str::from_utf8_unchecked(&buf[..buf_len - 2]) });
+    out.push_str(unsafe { str::from_utf8_unchecked(&buf[..buf_len]) });
     out.push_str(".json");
 
     out
 }
 
-pub fn tmux_pane_id() -> usize {
-    let mut v = get_env(c"TMUX_PANE").to_string_lossy().into_owned();
+// Write the ID of this tmux pane as a string into the given buf.
+// Writes 0 if there is no TMUX_PANE env var defined.
+// Returns the length in bytes of the written ID.
+pub fn tmux_pane_id(buf: &mut [u8]) -> usize {
+    let v = get_env(c"TMUX_PANE");
     if v.is_empty() {
-        return 0;
+        buf[0] = b'0';
+        return 1;
     }
     // removing leading '%'. Values are e.g. '%4'
-    let _ = v.drain(0..1);
-    v.parse::<usize>().ok().unwrap_or(0)
+    let id_len = v.count_bytes() - 1;
+    buf[..id_len].copy_from_slice(&v.to_bytes()[1..]);
+    id_len
 }
 
 /// Read the value of an environment variable

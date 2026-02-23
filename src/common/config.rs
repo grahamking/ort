@@ -85,9 +85,8 @@ impl ApiKey {
     }
 }
 
-pub fn cache_dir() -> OrtResult<String> {
-    let mut cache_dir = [0u8; 64];
-    let mut end = xdg_dir(c"XDG_CACHE_HOME", ".cache", &mut cache_dir)?;
+pub fn cache_dir(cache_dir: &mut [u8]) -> OrtResult<usize> {
+    let mut end = xdg_dir(c"XDG_CACHE_HOME", ".cache", cache_dir)?;
     cache_dir[end] = b'/';
     end += 1;
     let start = end;
@@ -96,7 +95,7 @@ pub fn cache_dir() -> OrtResult<String> {
 
     let cache_string = String::from_utf8_lossy(&cache_dir[..end]).into_owned();
     utils::ensure_dir_exists(&cache_string);
-    Ok(cache_string)
+    Ok(end)
 }
 
 /// A standard XDG directory based on environment variable, or default.

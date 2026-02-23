@@ -263,13 +263,16 @@ pub struct LastWriter {
 
 impl LastWriter {
     pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
+        let mut last_path = [0u8; 128];
+        let idx = config::cache_dir(&mut last_path)?;
+        last_path[idx] = b'/';
         let last_filename = utils::last_filename();
-        let mut last_path = config::cache_dir()?;
-        last_path.push('/');
-        last_path.push_str(&last_filename);
-        let c_path = CString::new(last_path)
-            .map_err(|_| ort_error(ErrorKind::FileCreateFailed, "Null byte in last path"))?;
-        let last_file = unsafe { file::File::create(c_path.as_ptr()).context("create last file")? };
+        let start = idx + 1;
+        let end = start + last_filename.len();
+        last_path[start..end].copy_from_slice(last_filename.as_bytes());
+        // end + 1 to add a null byte on the end
+        let last_file =
+            unsafe { file::File::create(&last_path[..end + 1]).context("create last file")? };
         let data = LastData { opts, messages };
         Ok(LastWriter { data, w: last_file })
     }
