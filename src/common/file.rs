@@ -42,7 +42,7 @@ impl Read for File {
     }
 }
 
-impl Write for &mut File {
+impl Write for File {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
         let bytes_written =
             unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };

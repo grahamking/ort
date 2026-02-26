@@ -7,7 +7,7 @@
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{ErrorKind, LastData, Message, OrtResult, PromptOpts, Write, ort_error};
+use crate::{ErrorKind, Message, OrtResult, PromptOpts, Write, ort_error};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -72,60 +72,60 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     Ok(string_buf)
 }
 
-impl LastData {
-    pub fn to_json_writer<W: Write>(&self, writer: W) -> OrtResult<()> {
-        let mut w = writer;
+impl PromptOpts {
+    pub fn to_json_writer<W: Write>(&self, writer: &mut W) -> OrtResult<()> {
+        let w = writer;
 
-        w.write_str("{\"opts\":{")?;
+        w.write_char('{')?;
         let mut first = true;
 
-        if let Some(ref v) = self.opts.prompt {
+        if let Some(ref v) = self.prompt {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
             w.write_str("\"prompt\":")?;
-            write_json_str(&mut w, v)?;
+            write_json_str(w, v)?;
         }
         // TODO: consider multi-model
-        if let Some(v) = self.opts.models.first() {
+        if let Some(v) = self.models.first() {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
             w.write_str("\"model\":")?;
-            write_json_str(&mut w, v)?;
+            write_json_str(w, v)?;
         }
-        if let Some(ref v) = self.opts.provider {
+        if let Some(ref v) = self.provider {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
             w.write_str("\"provider\":")?;
-            write_json_str(&mut w, v)?;
+            write_json_str(w, v)?;
         }
-        if let Some(ref v) = self.opts.system {
+        if let Some(ref v) = self.system {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
             w.write_str("\"system\":")?;
-            write_json_str(&mut w, v)?;
+            write_json_str(w, v)?;
         }
-        if let Some(ref p) = self.opts.priority {
+        if let Some(ref p) = self.priority {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
             w.write_str("\"priority\":")?;
-            write_json_str_simple(&mut w, p.as_str())?;
+            write_json_str_simple(w, p.as_str())?;
         }
-        if let Some(ref rc) = self.opts.reasoning {
+        if let Some(ref rc) = self.reasoning {
             if !first {
                 w.write_char(',')?;
             } else {
@@ -134,43 +134,40 @@ impl LastData {
             w.write_str("\"reasoning\":{")?;
             // always include enabled
             w.write_str("\"enabled\":")?;
-            write_bool(&mut w, rc.enabled)?;
+            write_bool(w, rc.enabled)?;
             if let Some(ref eff) = rc.effort {
                 w.write_str(",\"effort\":")?;
-                write_json_str_simple(&mut w, eff.as_str())?;
+                write_json_str_simple(w, eff.as_str())?;
             }
             if let Some(tokens) = rc.tokens {
                 w.write_str(",\"tokens\":")?;
-                write_u32(&mut w, tokens)?;
+                write_u32(w, tokens)?;
             }
             w.write_char('}')?;
         }
-        if let Some(show) = self.opts.show_reasoning {
+        if let Some(show) = self.show_reasoning {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
             w.write_str("\"show_reasoning\":")?;
-            write_bool(&mut w, show)?;
+            write_bool(w, show)?;
         }
-        if let Some(quiet) = self.opts.quiet {
+        if let Some(quiet) = self.quiet {
             if !first {
                 w.write_char(',')?;
             } else {
                 //first = false;
             }
             w.write_str("\"quiet\":")?;
-            write_bool(&mut w, quiet)?;
+            write_bool(w, quiet)?;
         }
 
         // merge_config
         w.write_char(',')?;
         w.write_str("\"merge_config\":")?;
-        write_bool(&mut w, self.opts.merge_config)?;
-
-        w.write_str("},\"messages\":")?;
-        Message::write_json_array(&self.messages, &mut w)?;
+        write_bool(w, self.merge_config)?;
 
         w.write_char('}')?;
         Ok(())
@@ -239,7 +236,7 @@ pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
 }
 
 /// No escapes or special characters, just write the bytes
-fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
+pub(crate) fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     w.write_char('"')?;
     w.write_str(s)?;
     w.write_char('"')?;
@@ -249,7 +246,13 @@ fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
 // Writes a JSON string (with surrounding quotes) with proper escaping, no allocations.
 fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     w.write_char('"')?;
-    let bytes = s.as_bytes();
+    write_encoded_bytes(w, s.as_bytes())?;
+    w.write_char('"')?;
+
+    Ok(())
+}
+
+pub fn write_encoded_bytes<W: Write>(w: &mut W, bytes: &[u8]) -> OrtResult<()> {
     let mut start = 0;
 
     for i in 0..bytes.len() {
@@ -290,7 +293,6 @@ fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     if start < bytes.len() {
         w.write(&bytes[start..])?;
     }
-    w.write_char('"')?;
     Ok(())
 }
 
@@ -302,35 +304,6 @@ mod tests {
 
     use super::*;
     use crate::ReasoningConfig;
-
-    #[test]
-    fn test_last_data() {
-        let opts = PromptOpts {
-            prompt: None,
-            models: vec!["google/gemma-3n-e4b-it:free".to_string()],
-            provider: Some("google-ai-studio".to_string()),
-            system: Some("System prompt here".to_string()),
-            priority: None,
-            reasoning: Some(ReasoningConfig::off()),
-            show_reasoning: Some(false),
-            quiet: None,
-            merge_config: true,
-        };
-        let messages = vec![
-            Message::user("Hello".to_string()),
-            Message::assistant("Hello there!".to_string()),
-        ];
-        let l = LastData { opts, messages };
-
-        let mut got = String::with_capacity(64);
-        if let Err(err) = l.to_json_writer(unsafe { got.as_mut_vec() }) {
-            panic!("{}", err.as_string());
-        }
-
-        let expected = r#"{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"System prompt here","reasoning":{"enabled":false},"show_reasoning":false,"merge_config":true},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
-
-        assert_eq!(got, expected);
-    }
 
     #[test]
     fn test_build_body() {

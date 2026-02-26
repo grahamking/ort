@@ -6,15 +6,20 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::ort_error;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, Write, common::config,
     common::file, common::queue, common::stats, common::utils,
 };
+use crate::{Role, ort_error};
 
+/// How many bytes of content tokens to buffer before streaming to disk.
+/// This limits max memory.
+const TOKEN_MEM_BUFFER: usize = 1024;
+
+/// LastWriter saves to disk the model response and enough information so that we can
+/// continue the conversation with `ort -c "next prompt"` later.
 pub struct LastWriter {
     w: file::File,
     data: LastData,
@@ -36,19 +41,52 @@ impl LastWriter {
         Ok(LastWriter { data, w: last_file })
     }
 
+    /// Received queue messages and stream response to disk.
     pub fn run<const N: usize>(
         &mut self,
         mut rx: queue::Consumer<Response, N>,
     ) -> OrtResult<stats::Stats> {
-        // This will contain the entire model response. Start with a size that includes most
-        // answers, but allow realloc. Maybe we should stream to disk?
-        let mut contents = String::with_capacity(4096);
+        //let mut contents = String::with_capacity(TOKEN_MEM_BUFFER + 64);
+        let mut buffer = [0u8; TOKEN_MEM_BUFFER + 64];
+        let mut buf_idx = 0;
         while let Some(data) = rx.get_next() {
             match data {
-                Response::Start => {}
+                Response::Start => {
+                    // Includes opening '{' for whole object
+                    self.w.write_str("{\"messages\":")?;
+
+                    // Write the initial messages (system, user)
+                    self.w.write_char('[')?;
+                    for (i, msg) in self.data.messages.iter().enumerate() {
+                        if i != 0 {
+                            self.w.write_char(',')?;
+                        }
+                        crate::input::to_json::write_json(msg, &mut self.w)?;
+                    }
+
+                    // Setup streaming for the response message
+                    self.w.write_char(',')?;
+                    self.w.write_str("{\"role\":")?;
+                    crate::input::to_json::write_json_str_simple(
+                        &mut self.w,
+                        Role::Assistant.as_str(),
+                    )?;
+                    self.w.write_str(",\"content\":\"")?;
+                }
                 Response::Think(_) => {}
                 Response::Content(content) => {
-                    contents.push_str(&content);
+                    let b = content.as_bytes();
+                    let end = buf_idx + b.len();
+                    buffer[buf_idx..end].copy_from_slice(b);
+                    buf_idx = end;
+
+                    if buffer.len() >= TOKEN_MEM_BUFFER {
+                        crate::input::to_json::write_encoded_bytes(
+                            &mut self.w,
+                            &buffer[..buf_idx],
+                        )?;
+                        buf_idx = 0;
+                    }
                 }
                 Response::Stats(stats) => {
                     self.data.opts.provider = Some(utils::slug(stats.provider()));
@@ -68,11 +106,17 @@ impl LastWriter {
             }
         }
 
-        let message = Message::assistant(contents);
-        self.data.messages.push(message);
+        // Write final contents
+        crate::input::to_json::write_encoded_bytes(&mut self.w, &buffer[..buf_idx])?;
 
-        self.data.to_json_writer(&mut self.w)?;
-        let _ = (&mut self.w).flush();
+        // close the contents message and messages array
+        self.w.write_str("\"}]")?;
+
+        self.w.write_str(",\"opts\":")?;
+        self.data.opts.to_json_writer(&mut self.w)?;
+
+        self.w.write_char('}')?; // End of whole object
+        let _ = self.w.flush();
 
         Ok(stats::Stats::default()) // Stats is not used
     }
@@ -86,7 +130,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{LastData, ThinkEvent, common::queue};
+    use crate::{LastData, ThinkEvent, common::queue, utils::num_to_string};
 
     #[test]
     fn test_run_success() {
@@ -105,7 +149,7 @@ mod tests {
         let data = LastData { opts, messages };
         let mut writer = LastWriter { w: file, data };
 
-        let q = queue::Queue::<Response, 16>::new();
+        let q = queue::Queue::<Response, 512>::new();
         let rx = q.consumer();
 
         q.add(Response::Start);
@@ -114,8 +158,12 @@ mod tests {
             "thinking...".to_string(),
         )));
         q.add(Response::Think(ThinkEvent::Stop));
-        q.add(Response::Content("Hello".to_string()));
-        q.add(Response::Content(" world".to_string()));
+        for i in 1..100 {
+            q.add(Response::Content("Hello".to_string()));
+            q.add(Response::Content(" world ".to_string()));
+            q.add(Response::Content(num_to_string(i)));
+            q.add(Response::Content(". ".to_string()));
+        }
         q.add(Response::Stats(stats::Stats {
             provider: "OpenRouter AI".to_string(),
             ..Default::default()
@@ -135,6 +183,10 @@ mod tests {
         assert_eq!(data.messages.len(), 3);
         assert_eq!(data.messages[0].content.as_deref(), Some("system prompt"));
         assert_eq!(data.messages[1].content.as_deref(), Some("user prompt"));
-        assert_eq!(data.messages[2].content.as_deref(), Some("Hello world"));
+        let Some(content) = &data.messages[2].content else {
+            panic!("Assistant message is empty");
+        };
+        assert!(content.starts_with("Hello world 1. "));
+        assert!(content.ends_with("Hello world 99. "));
     }
 }
