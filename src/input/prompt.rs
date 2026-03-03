@@ -456,6 +456,14 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         // Each data: line is a JSON chunk in OpenAI streaming format
         match ChatCompletionsResponse::from_json(data) {
             Ok(mut v) => {
+                // Handle last message which contains the "usage" key
+                // Do this before getting choices because it's empty on last message.
+                if let Some(usage) = v.usage {
+                    stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
+                    stats.provider = v.provider.expect("Last message was missing provider");
+                    stats.used_model = v.model.expect("Last message was missing model");
+                }
+
                 // Standard OpenAI stream delta shape
                 let Some(delta) = v.choices.pop().map(|c| c.delta) else {
                     continue;
@@ -471,9 +479,8 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
                     .as_ref()
                     .map(|x| !x.is_empty())
                     .unwrap_or(false);
-                let has_usage = v.usage.is_some();
 
-                if !(has_reasoning || has_content || has_usage) {
+                if !(has_reasoning || has_content) {
                     continue;
                 }
 
@@ -520,17 +527,9 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
                     let r_event = Response::Content(content.to_string());
                     params.queue.add(r_event);
                 }
-
-                // Handle last message which contains the "usage" key
-                if let Some(usage) = v.usage {
-                    stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
-                    stats.provider = v.provider.expect("Last message was missing provider");
-                    stats.used_model = v.model.expect("Last message was missing mode");
-                }
             }
-            Err(_err) => {
-                //utils::print_string(c"Malformed: ", &err);
-                // Ignore malformed server-sent diagnostics; keep streaming
+            Err(err) => {
+                utils::print_string(c"Malformed: ", &err);
             }
         }
     }

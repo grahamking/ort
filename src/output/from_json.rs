@@ -60,19 +60,23 @@ impl ChatCompletionsResponse {
                         return Err("duplicate field: choices".into());
                     }
                     if !p.try_consume(b'[') {
-                        return Err("keys: Expected array".into());
+                        return Err("choices: Expected array".into());
                     }
-                    loop {
-                        let j = p.value_slice()?;
-                        let choice = Choice::from_json(j)?;
-                        choices.push(choice);
-                        p.skip_ws();
-                        if p.try_consume(b',') {
-                            continue;
-                        }
-                        p.skip_ws();
-                        if p.try_consume(b']') {
-                            break;
+                    p.skip_ws();
+                    // If the array isn't empty..
+                    if !p.try_consume(b']') {
+                        loop {
+                            let j = p.value_slice()?;
+                            let choice = Choice::from_json(j)?;
+                            choices.push(choice);
+                            p.skip_ws();
+                            if p.try_consume(b',') {
+                                continue;
+                            }
+                            p.skip_ws();
+                            if p.try_consume(b']') {
+                                break;
+                            }
                         }
                     }
                 }
@@ -1305,7 +1309,11 @@ impl<'a> Parser<'a> {
                 }
             }
             b'-' | b'0'..=b'9' => self.scan_number_end(),
-            _ => Err("unexpected token"),
+            _t => {
+                //let t_str = crate::utils::num_to_string(t as usize);
+                //crate::utils::print_string(c"unexpected token: ", &t_str);
+                Err("unexpected token")
+            }
         }
     }
 
