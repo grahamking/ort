@@ -168,8 +168,7 @@ unsafe extern "C" {
     pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
     pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
 
-    pub fn open64(path: *const c_char, oflag: c_int, ...) -> c_int;
-    pub fn open(path: *const c_char, mode: c_int) -> c_int;
+    pub fn open(path: *const c_char, flags: c_int, mode: c_int) -> c_int;
     pub fn access(path: *const c_char, mode: c_int) -> c_int;
     pub fn close(fd: c_int) -> c_int;
     pub fn stat(path: *const c_char, buf: *mut stat) -> c_int;
