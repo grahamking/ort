@@ -1,0 +1,151 @@
+Performance ideas for the prompt path of ort, ordered by expected gain.
+
+Context from the current code and binary:
+- `target/release/ort` is still dynamically linked to `libc.so.6` and has an `INTERP` segment for `/lib64/ld-linux-x86-64.so.2`.
+- The single-model prompt path currently starts 2-3 pthreads, each with a 1 MiB stack plus a 64 KiB guard page.
+- TLS application-data decrypt currently recomputes AES key schedule and GHASH state for every record, and allocates fresh `Vec`s per record.
+- The code tries to enable TCP Fast Open, but it sets `TCP_FASTOPEN`, which is the listener-side option, not the client-side fast-open path.
+- A supplied `strace -f -c ./target/release/ort --version` run showed 35 syscalls and about 221 us total startup time, dominated by loader/libc setup (`mmap`, `mprotect`, `openat`, `pread64`, `fstat`).
+- That confirms loader-skipping is real, but also confirms it is not a top-5 optimization for end-to-end `prompt` latency unless you are explicitly chasing sub-millisecond startup.
+
+1. Implement TLS 1.3 session resumption and persist tickets across runs.
+- This is the biggest warm-path latency win because the CLI always makes a fresh connection today.
+- Right now post-handshake TLS handshake messages are dropped, including session tickets, so every run pays the full X25519 + HKDF + server-flight cost.
+- Cache tickets in the existing config/cache area, keyed by host and maybe IP, and fall back cleanly to a full handshake if the ticket is rejected.
+- Even without 0-RTT, plain resumption cuts handshake CPU and usually one RTT worth of work on the server side.
+
+2. Add 0-RTT early data for the POST body if the server accepts it.
+- Given your stated constraints, replay risk is not a blocker.
+- For a CLI that performs exactly one request, 0-RTT is the highest-leverage way to reduce time to first byte on warm connections because the request can leave in the first flight.
+- If OpenRouter does not accept early data, keep the resumption machinery anyway and just fall back to resumed 1-RTT.
+
+3. Fix client-side TCP Fast Open and use the real Linux client path.
+- `src/net/socket.rs` sets `TCP_FASTOPEN`, which Linux documents as the listener-side option.
+- For a client you want `TCP_FASTOPEN_CONNECT` or `sendmsg(MSG_FASTOPEN)`, and if you are willing to be aggressive, possibly `TCP_FASTOPEN_NO_COOKIE`.
+- Persist any learned TFO cookie so reconnects can use it immediately.
+- This is the fastest way to open the TCP socket earlier without changing features.
+
+4. Collapse the HTTP request into one TLS application record and one send path.
+- `src/net/http.rs` writes the HTTP header and JSON body as two separate TLS writes, so that becomes two TLS records and extra encryption/syscall work.
+- Build the POST headers and body into one contiguous plaintext buffer, then encrypt and write once.
+- This also gives the server the full request earlier and reduces local AES-GCM work.
+
+5. Cache AES-GCM expanded keys and GHASH state per traffic key.
+- `src/net/tls/aead.rs` calls `key_expansion(key)` and recomputes `H = AES_K(0)` on every encrypt and every decrypt.
+- In the prompt path the read side is the hot side, so this repeats on every streamed TLS record.
+- Store the expanded round keys and precomputed GHASH input in `TlsStream` for both application directions and the handshake direction.
+- This directly speeds the steady-state stream without increasing code complexity much.
+
+6. Remove per-record TLS heap allocation and extra copies.
+- `src/net/tls.rs` allocates a fresh `Vec` for the 5-byte record header, another for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
+- `nonce_xor` also allocates with `concat()` for every record, which is pure overhead on the hot path.
+- Replace this with fixed scratch buffers inside `TlsStream`, read the header into `[u8; 5]`, decrypt directly into a reusable plaintext buffer, and build the nonce in a `[u8; 12]` stack array.
+- This should cut allocator pressure, copies, and branchy small-object work.
+
+7. Make the single-model prompt path single-threaded.
+- For the normal prompt path, threads are not buying much overlap but they do add startup cost, stack mappings, queue traffic, and string cloning.
+- Today `run()` starts a prompt thread, a writer thread, and usually a last-writer thread, then joins them all.
+- One synchronous loop can connect, read, decrypt, parse SSE, write stdout, and append the last-file data inline.
+- If you still want overlap, keep at most one helper thread for the disk writer, not three.
+
+8. Do not replace threads with `epoll` for the prompt path; replace them with a straight-line blocking loop.
+- `epoll` or a fully async state machine is unlikely to beat one blocking socket plus stdout plus one optional file.
+- For a single request, `epoll` adds state-machine overhead and code size without eliminating the main costs.
+- The best thread optimization here is fewer threads, not a more complex scheduler.
+
+9. Replace the queue-based `Response` fanout with direct writes or a zero-copy buffer.
+- The current queue stores `Response: Clone`, and every content token becomes a `String` that is cloned for each consumer.
+- If you keep threads, use a single-producer/single-consumer ring for prompt mode, or store byte ranges into a shared arena rather than cloning `String`.
+- If you remove threads, this entire cost disappears.
+
+10. Parse SSE and JSON directly from bytes instead of building `String`s and mini ASTs.
+- The prompt path only really needs `delta.content`, `delta.reasoning`, and the final `usage.cost/provider/model`.
+- Right now the code reads line-by-line into a `String`, parses a full `ChatCompletionsResponse`, allocates strings, then allocates more strings for `Response::Content` and `ThinkEvent::Content`.
+- A specialized byte parser for `data:` lines can write content straight to stdout and to the last-writer buffer without intermediate objects.
+- This is one of the bigger response-side wins after the TLS fixes.
+
+11. Decode chunked transfer encoding in the HTTP layer instead of treating chunk-size lines as garbage text.
+- The current code notices `Transfer-Encoding: chunked` but then relies on the line parser to skip non-`data:` lines.
+- That works by accident but forces useless line parsing work on every chunk-size line.
+- A small chunked decoder feeding the SSE parser byte slices will be faster and simpler than the current workaround.
+
+12. Replace the generic X25519 with an x86_64-specialized implementation.
+- The current code uses a portable 16-limb `i64/i128` implementation.
+- On modern Linux x86_64 CPUs, a 5x51 or 4x64 implementation using BMI2/ADX or tight inline assembly should be materially faster for cold handshakes.
+- This matters less once resumption is done, but it is still the main remaining cold-handshake CPU cost.
+
+13. Remove the dynamic loader and libc dependency instead of only tuning Rust link flags.
+- The release binary is still dynamically linked and therefore still pays `ld-linux` startup and PLT/relocation overhead.
+- If you want to skip the loader, do it by going to a custom `_start` plus direct syscalls and in-process env/argv parsing.
+- Do not just flip on static glibc; that will likely make the binary much larger, which conflicts with your size constraint.
+- The syscall path also lets you remove libc wrappers around `open`, `read`, `write`, `socket`, `connect`, `clock_gettime`, `getrandom`, `futex`, and thread startup.
+
+14. Prefer direct syscalls and `writev`/`sendmsg` over hand-written assembler for libc replacement.
+- Replacing a libc call with inline assembly that still performs the same syscall will not buy much.
+- The real win is cutting the dynamic dependency and fusing operations, for example with `writev`/`sendmsg` for request/output batching.
+- So if you spend time in the libc area, spend it on syscall ownership and call fusion, not on assembly wrappers for identical syscalls.
+
+15. Start connect/TLS before finishing request construction if you keep any concurrency.
+- Right now the request body is built inside `prompt_thread`, before DNS/connect/TLS.
+- If you keep a threaded design, split it into "start resolve/connect/handshake immediately" and "build body in parallel", then join when it is time to send.
+- This is a smaller win than the record-path fixes, but it is a free way to overlap CPU with network latency.
+
+16. Improve connect strategy for multiple IPs.
+- `connect(addrs)` is serial and returns on the first successful address, with no ranking by historical RTT.
+- Cache the last-good IP and RTT, sort cached addresses by that RTT, or race a small number of nonblocking connects and use the first to finish.
+- This is especially helpful once DNS is cached because the next bottleneck becomes "which IP did we choose".
+
+17. Speed config loading with a sidecar binary cache, not by abandoning the human-readable file.
+- Config loading is not a dominant cost because the file is small, but it is still easy startup work.
+- Keep the JSON for editing, then write a compact binary cache with already-parsed booleans, DNS addresses in network-byte-order form, and fixed offsets for strings.
+- Validate the binary cache with mtime/inode and fall back to reparsing JSON only when needed.
+- This is faster than reparsing JSON each run and keeps features intact.
+
+18. If you do not want a sidecar cache, at least `mmap` and parse in place.
+- `filename_read_to_string` currently reads into a `Vec`, then runs `String::from_utf8_lossy`, then makes another owned copy.
+- `mmap` plus borrowed slices is smaller and faster than repeated buffered reads plus string copying for tiny config files.
+- The same trick can be used for the `last-*.json` file on `-c`.
+
+19. Fix `LastWriter` buffering; it currently flushes every content chunk by mistake.
+- In `src/output/last_writer.rs`, the condition is `if buffer.len() >= TOKEN_MEM_BUFFER`, but `buffer.len()` is always 1088.
+- That means the code effectively encodes and writes on every token chunk instead of batching until `buf_idx` reaches the threshold.
+- This wastes file-write bandwidth and CPU whenever `save_to_file` is enabled, which is the default.
+- The correct condition is `if buf_idx >= TOKEN_MEM_BUFFER`.
+
+20. Batch stdout writes and throttle the spinner.
+- `ConsoleWriter` writes and flushes on almost every reasoning chunk and every content chunk.
+- `flush()` is cheap here, but the underlying `write` syscalls and terminal rendering are not.
+- Buffer content for a very short interval, for example 8-32 ms or 512-2048 bytes, and rate-limit spinner updates to roughly 10-20 Hz.
+- This keeps streaming behavior but cuts a lot of tiny writes.
+
+21. Keep request construction simple; it is already pretty good.
+- The JSON builder is not where the big wins are.
+- The remaining improvement is to build directly into the final request buffer and avoid one more copy before encryption.
+- Do not spend much time micro-tuning `build_body` until the network, TLS, parser, and thread issues above are fixed.
+
+22. Shrink handshake allocations with stack buffers where practical.
+- `client_hello_body`, `client_hello_msg`, `hkdf_expand_label`, `send_client_finished`, and some handshake parsing still allocate several short-lived `Vec`s.
+- These are cold-path allocations, so they rank below the app-data path, but they are still worth cleaning up because you care about both speed and binary size.
+- Stack or scratch-buffer versions should be straightforward because the message sizes are known and small.
+
+23. Keep allocator work off the hot path instead of optimizing the allocator itself.
+- The arena allocator feature is useful, but the best outcome is that prompt streaming no longer allocates in steady state.
+- After the TLS record, SSE parser, queue, and writer changes, allocator choice should matter much less.
+- In other words, attack allocation count first, allocator speed second.
+
+24. Remove `-Cforce-frame-pointers=yes` unless you actively need it in release.
+- Frame pointers increase register pressure and often add a little code size and instruction count in hot loops.
+- Because this binary is so small, the absolute win will not be huge, but it is one of the few compiler-flag changes that can improve both speed and size.
+- Keep it only if your profiling workflow truly depends on it.
+
+25. Fix timing math before trusting the built-in stats for optimization decisions.
+- `Instant::sub` appears to add `rhs.nanos` instead of subtracting it, so some elapsed/TTFT numbers can be wrong.
+- Incorrect measurements will cause you to mis-rank changes, especially once you start chasing sub-millisecond startup wins.
+
+Summary of where I would spend time first:
+1. TLS resumption + 0-RTT.
+2. Real client-side TFO and one-record request send.
+3. Cache AES-GCM key schedule/GHASH state and remove per-record TLS allocations/copies.
+4. Collapse the single-model prompt path to one thread.
+5. Direct byte-oriented SSE/JSON parsing.
+6. Direct-syscall startup path that removes `ld-linux` and `libc.so.6`.
