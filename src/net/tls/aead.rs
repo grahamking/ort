@@ -335,8 +335,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 mod tests {
 
     extern crate alloc;
-    use core::ffi::c_void;
-
     use alloc::vec;
 
     extern crate test;
@@ -677,7 +675,7 @@ mod tests {
     fn bench_key_expansion(b: &mut Bencher) {
         // Setup (not timed)
         let mut key = [0u8; 16];
-        let _ = unsafe { crate::libc::getrandom(key.as_mut_ptr() as *mut c_void, 16, 0) };
+        crate::libc::getrandom(&mut key);
 
         // Timed iteration
         b.iter(|| {
@@ -689,13 +687,13 @@ mod tests {
     fn bench_aes_encrypt_block(b: &mut Bencher) {
         // Setup (not timed)
         let mut key = [0u8; 16];
-        let _ = unsafe { crate::libc::getrandom(key.as_mut_ptr() as *mut c_void, 16, 0) };
-        let mut nonce = [0u8; 12];
-        let _ = unsafe { crate::libc::getrandom(nonce.as_mut_ptr() as *mut c_void, 12, 0) };
+        crate::libc::getrandom(&mut key);
+        let mut nonce = [0u8; 16]; // 12 bytes but getrandom requires multiple of 8
+        crate::libc::getrandom(&mut nonce);
         let round_keys = key_expansion(&key);
         let j0 = {
             let mut j = [0u8; 16];
-            j[..12].copy_from_slice(&nonce);
+            j[..12].copy_from_slice(&nonce[..12]);
             j[15] = 0x01;
             j
         };
@@ -712,17 +710,17 @@ mod tests {
     #[bench]
     fn bench_ghash(b: &mut Bencher) {
         // Setup (not timed)
-        let mut ciphertext = [0u8; 450];
-        let _ = unsafe { crate::libc::getrandom(ciphertext.as_mut_ptr() as *mut c_void, 450, 0) };
-        let mut hdr = [0u8; 5];
-        let _ = unsafe { crate::libc::getrandom(hdr.as_mut_ptr() as *mut c_void, 5, 0) };
+        let mut ciphertext = [0u8; 448];
+        crate::libc::getrandom(&mut ciphertext);
+        let mut hdr = [0u8; 8];
+        crate::libc::getrandom(&mut hdr);
         let mut h_bytes = [0u8; 16];
-        let _ = unsafe { crate::libc::getrandom(h_bytes.as_mut_ptr() as *mut c_void, 16, 0) };
+        crate::libc::getrandom(&mut h_bytes);
         let h = u128::from_be_bytes(h_bytes);
 
         // Timed iteration
         b.iter(|| {
-            ghash(h, &hdr, &ciphertext);
+            ghash(h, &hdr[..5], &ciphertext);
         });
     }
 
@@ -730,19 +728,19 @@ mod tests {
     fn bench_decrypt(b: &mut Bencher) {
         // Setup (not timed)
         let mut key = [0u8; 16];
-        let _ = unsafe { crate::libc::getrandom(key.as_mut_ptr() as *mut c_void, 16, 0) };
-        let mut nonce = [0u8; 12];
-        let _ = unsafe { crate::libc::getrandom(nonce.as_mut_ptr() as *mut c_void, 12, 0) };
-        let mut hdr = [0u8; 5];
-        let _ = unsafe { crate::libc::getrandom(hdr.as_mut_ptr() as *mut c_void, 5, 0) };
+        crate::libc::getrandom(&mut key);
+        let mut nonce = [0u8; 16]; // 12 bytes but getrandom requires multiple of 8
+        crate::libc::getrandom(&mut nonce);
+        let mut hdr = [0u8; 8]; // 5 bytes, but getrandom requires min 8
+        crate::libc::getrandom(&mut hdr);
         // OpenAI chat completions responses are typically 400 - 500 bytes
-        let mut plaintext = [0u8; 450];
-        let _ = unsafe { crate::libc::getrandom(plaintext.as_mut_ptr() as *mut c_void, 450, 0) };
-        let ciphertext = aes_128_gcm_encrypt(&key, &nonce, &hdr, &plaintext).unwrap();
+        let mut plaintext = [0u8; 448];
+        crate::libc::getrandom(&mut plaintext);
+        let ciphertext = aes_128_gcm_encrypt(&key, &nonce[..12], &hdr[..5], &plaintext).unwrap();
 
         // Timed part
         b.iter(|| {
-            aes_128_gcm_decrypt(&key, &nonce, &hdr, &ciphertext).unwrap();
+            aes_128_gcm_decrypt(&key, &nonce[..12], &hdr[..5], &ciphertext).unwrap();
         });
     }
 }

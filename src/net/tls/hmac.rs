@@ -51,8 +51,6 @@ pub fn sign(key: &[u8], data: &[u8]) -> [u8; 32] {
 mod tests {
     extern crate test;
 
-    use core::ffi::c_void;
-
     use crate::net::tls::tests::string_to_bytes;
     use test::{Bencher, black_box};
 
@@ -90,8 +88,8 @@ mod tests {
     #[bench]
     fn bench_hmac_long(b: &mut Bencher) {
         let key = b"secret";
-        let mut data = [0u8; 450];
-        let _ = unsafe { crate::libc::getrandom(data.as_mut_ptr() as *mut c_void, 450, 0) };
+        let mut data = [0u8; 448];
+        crate::libc::getrandom(&mut data);
         b.iter(|| {
             black_box(super::sign(key, &data));
         });

@@ -8,7 +8,10 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::upper_case_acronyms)]
 
-use core::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ushort, c_void};
+use core::{
+    arch::asm,
+    ffi::{c_char, c_int, c_long, c_uchar, c_ushort, c_void},
+};
 
 type c_ulong = u64;
 pub type size_t = usize;
@@ -189,8 +192,6 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn freeaddrinfo(res: *mut addrinfo);
 
-    pub fn getrandom(buf: *mut c_void, buflen: usize, flags: c_uint) -> isize;
-
     pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
     pub fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int;
     pub fn setsockopt(
@@ -234,3 +235,35 @@ unsafe extern "C" {
     pub fn free(p: *mut c_void);
     pub fn abort() -> !;
 }
+
+// Fill buf with random numbers.
+// buf len must be a multiple of 8.
+pub fn getrandom(buf: &mut [u8]) {
+    debug_assert!(
+        buf.len().is_multiple_of(8),
+        "getrandom buffer len must be multiple of 8"
+    );
+    let mut r: u64;
+    let mut i = 0;
+    while i < buf.len() {
+        unsafe {
+            asm!("RDRAND rax", out("rax") r);
+            buf[i..i + 8].copy_from_slice(&r.to_be_bytes());
+        }
+        i += 8;
+    }
+}
+
+/*
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_getrandom() {
+        for _ in 0..10 {
+            let mut buf = [0u8; 16];
+            super::getrandom(&mut buf);
+            crate::common::utils::print_hex(c"", &buf);
+        }
+    }
+}
+*/

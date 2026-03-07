@@ -156,8 +156,6 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use core::ffi::c_void;
-
     extern crate test;
     use test::Bencher;
 
@@ -201,10 +199,10 @@ mod tests {
     }
 
     #[bench]
-    fn bench_sha256_450_bytes(b: &mut Bencher) {
+    fn bench_sha256_448_bytes(b: &mut Bencher) {
         // OpenAI chat completion responses are often a few hundred bytes.
-        let mut input = [0u8; 450];
-        let _ = unsafe { crate::libc::getrandom(input.as_mut_ptr() as *mut c_void, 450, 0) };
+        let mut input = [0u8; 448];
+        crate::libc::getrandom(&mut input);
 
         b.iter(|| {
             let _ = super::sha256(&input);

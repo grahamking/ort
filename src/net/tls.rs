@@ -6,7 +6,6 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
-use core::ffi::c_void;
 use core::{cmp, ffi::CStr};
 
 extern crate alloc;
@@ -118,12 +117,10 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
 
     // X25519
     let mut random = [0u8; 32];
-    let got_bytes = unsafe { libc::getrandom(random.as_mut_ptr() as *mut c_void, 32, 0) };
-    debug_assert_eq!(got_bytes, 32);
+    libc::getrandom(&mut random);
 
     let mut session_id = [0u8; 32];
-    let got_bytes = unsafe { libc::getrandom(session_id.as_mut_ptr() as *mut c_void, 32, 0) };
-    debug_assert_eq!(got_bytes, 32);
+    libc::getrandom(&mut session_id);
 
     // legacy_version
     ch_body.extend_from_slice(&0x0303u16.to_be_bytes());
@@ -282,7 +279,7 @@ impl<T: Read + Write> TlsStream<T> {
 
         // A private key is simply random bytes. /dev/urandom is cryptographically secure.
         let mut client_private_key = [0u8; 32];
-        let _ = unsafe { libc::getrandom(client_private_key.as_mut_ptr() as *mut c_void, 32, 0) };
+        libc::getrandom(&mut client_private_key);
         debug_print("Client private key", &client_private_key);
 
         debug_print("MSG -> ClientHello", &[]);
