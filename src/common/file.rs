@@ -23,7 +23,8 @@ impl File {
     /// Path must end with a null byte.
     pub unsafe fn create(path: &[u8]) -> OrtResult<Self> {
         let flags = libc::O_CLOEXEC | libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
-        let fd = unsafe { libc::open(path.as_ptr() as *const c_char, flags, 0o660 as c_int) };
+        let fd = libc::open(path.as_ptr() as *const c_char, flags, 0o660 as c_int)
+            .map_err(|e| ort_error(ErrorKind::FileCreateFailed, e))?;
         if fd == -1 {
             return Err(ort_error(ErrorKind::FileCreateFailed, "open64 failed"));
         }

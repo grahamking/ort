@@ -42,18 +42,36 @@ pub(crate) fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     i + 1
 }
 
-pub(crate) fn num_to_string(mut num: usize) -> String {
+pub(crate) fn num_to_string<T>(num: T) -> String
+where
+    T: TryInto<i128> + Copy,
+{
+    let Ok(mut num) = num.try_into() else {
+        panic!("num_to_string only supports values that fit in i128");
+    };
+
     if num == 0 {
         return "0".to_string();
     }
 
-    let mut buf: [u8; 20] = [0; 20];
-    let mut div = 1usize;
+    let negative = num < 0;
+    if negative {
+        num = -num;
+    }
+
+    let mut buf: [u8; 40] = [0; 40];
+    let mut div = 1i128;
+    let mut i = 0usize;
+
+    if negative {
+        buf[i] = b'-';
+        i += 1;
+    }
+
     while num / div >= 10 {
         div *= 10;
     }
 
-    let mut i = 0usize;
     while div != 0 {
         buf[i] = b'0' + (num / div) as u8;
         num %= div;
@@ -213,7 +231,7 @@ pub(crate) fn path_exists(path: &CStr) -> bool {
 /// Read a file into memory
 pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let cs = CString::new(filename).unwrap();
-    let fd = unsafe { libc::open(cs.as_ptr(), libc::O_RDONLY, 0) };
+    let fd = libc::open(cs.as_ptr(), libc::O_RDONLY, 0)?;
     if fd < 0 {
         return Err("NOT FOUND");
     }
@@ -226,7 +244,7 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
             unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len()) };
 
         if bytes_read < 0 {
-            let _ = unsafe { libc::close(fd) };
+            let _ = libc::close(fd);
             return Err("READ ERROR");
         }
         if bytes_read == 0 {
@@ -242,7 +260,14 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
 
 #[cfg(test)]
 mod tests {
-    use super::float_to_string;
+    use super::{float_to_string, num_to_string};
+
+    #[test]
+    fn num_to_string_handles_sign() {
+        assert_eq!(num_to_string(-42), "-42");
+        assert_eq!(num_to_string(42usize), "42");
+        assert_eq!(num_to_string(0), "0");
+    }
 
     #[test]
     fn nan_and_infinity() {

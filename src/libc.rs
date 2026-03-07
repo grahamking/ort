@@ -168,9 +168,7 @@ unsafe extern "C" {
     pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
     pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
 
-    pub fn open(path: *const c_char, flags: c_int, mode: c_int) -> c_int;
     pub fn access(path: *const c_char, mode: c_int) -> c_int;
-    pub fn close(fd: c_int) -> c_int;
     pub fn stat(path: *const c_char, buf: *mut stat) -> c_int;
 
     pub fn mkdir(path: *const c_char, mode: u32) -> c_int;
@@ -251,6 +249,42 @@ pub fn getrandom(buf: &mut [u8]) {
         }
         i += 8;
     }
+}
+
+const SYS_OPEN: u32 = 2;
+const SYS_CLOSE: u32 = 3;
+const EACCES: i32 = -13; // Permission denied
+
+pub fn open(path: *const c_char, flags: i32, mode: i32) -> Result<i32, &'static str> {
+    let mut result: i32;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_OPEN => result,
+            in("rdi") path,
+            in("esi") flags,
+            in("edx") mode,
+            options(nostack)
+        );
+    }
+    if result == EACCES {
+        Err("Permission denied")
+    } else if result < 0 {
+        Err("SYS_OPEN error")
+    } else {
+        Ok(result)
+    }
+}
+
+pub fn close(fd: i32) -> i32 {
+    let mut ret: i32;
+    unsafe {
+        asm!("syscall",
+             inout("eax") SYS_CLOSE => ret,
+             in("edi") fd,
+             options(nostack, nomem),
+        );
+    }
+    ret
 }
 
 /*
