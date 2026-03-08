@@ -34,7 +34,7 @@ See https://github.com/grahamking/ort for full docs.
 ";
 
 pub fn print_usage() {
-    unsafe { libc::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len()) };
+    libc::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len());
 }
 
 fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {

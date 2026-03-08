@@ -34,7 +34,7 @@ impl File {
 
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
-        let bytes_read = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
+        let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
         if bytes_read < 0 {
             Err(ort_error(ErrorKind::FileReadFailed, "syscall read error"))
         } else {
@@ -45,8 +45,7 @@ impl Read for File {
 
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written =
-            unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
+        let bytes_written = libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written < 0 {
             Err(ort_error(ErrorKind::FileWriteFailed, "syscall write error"))
         } else {

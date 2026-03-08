@@ -229,9 +229,7 @@ impl HttpError {
 impl From<HttpError> for OrtError {
     fn from(err: HttpError) -> OrtError {
         let c_s = unsafe { CString::from_vec_with_nul_unchecked(err.as_string().into_bytes()) };
-        unsafe {
-            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-        }
+        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
         ort_error(ErrorKind::HttpStatusError, "")
     }
 }

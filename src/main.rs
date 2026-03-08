@@ -94,7 +94,7 @@ fn is_version_flag(args: &[String]) -> bool {
             env!("CARGO_BIN_NAME").to_string() + " " + env!("CARGO_PKG_VERSION") + "\n",
         )
         .unwrap();
-        let _ = unsafe { libc::write(1, v.as_ptr().cast(), v.count_bytes()) };
+        let _ = libc::write(1, v.as_ptr().cast(), v.count_bytes());
         true
     } else {
         false

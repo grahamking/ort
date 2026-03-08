@@ -225,7 +225,7 @@ pub(crate) fn ensure_dir_exists(dir: &str) {
 
 /// Does this file path exists, and is accessible by the user?
 pub(crate) fn path_exists(path: &CStr) -> bool {
-    unsafe { libc::access(path.as_ptr(), libc::F_OK) == 0 }
+    libc::access(path.as_ptr(), libc::F_OK) == 0
 }
 
 /// Read a file into memory
@@ -240,8 +240,7 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
     let mut buffer = [0u8; 4096];
 
     loop {
-        let bytes_read =
-            unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len()) };
+        let bytes_read = libc::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len());
 
         if bytes_read < 0 {
             let _ = libc::close(fd);

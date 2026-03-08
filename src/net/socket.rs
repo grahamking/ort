@@ -38,7 +38,7 @@ impl TcpSocket {
 
 impl Read for TcpSocket {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
-        let bytes_read = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
+        let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
         if bytes_read < 0 {
             Err(ort_error(ErrorKind::SocketReadFailed, "syscall read error"))
         } else {
@@ -49,8 +49,7 @@ impl Read for TcpSocket {
 
 impl Write for TcpSocket {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written =
-            unsafe { libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len()) };
+        let bytes_written = libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written < 0 {
             Err(ort_error(
                 ErrorKind::SocketWriteFailed,

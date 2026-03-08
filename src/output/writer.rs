@@ -185,9 +185,7 @@ impl<W: Write + Send> FileWriter<W> {
                     }
                     let c_s =
                         CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                    unsafe {
-                        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                    }
+                    libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
                     return Err(ort_error(
                         ErrorKind::ResponseStreamError,
                         "OpenRouter returned an error",
@@ -258,7 +256,7 @@ pub struct StdoutWriter {}
 
 impl Write for StdoutWriter {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = unsafe { libc::write(1, buf.as_ptr() as *const c_void, buf.len()) };
+        let bytes_written = libc::write(1, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written >= 0 {
             Ok(bytes_written as usize)
         } else {

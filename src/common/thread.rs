@@ -29,20 +29,18 @@ pub unsafe fn spawn(
     // We never free it, when the threads are done the whole program is usually done.
     //
 
-    let stack_base = unsafe {
-        libc::mmap(
-            ptr::null_mut(),
-            STACK_SIZE + GUARD_SIZE,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_STACK,
-            -1,
-            0,
-        )
-    };
+    let stack_base = libc::mmap(
+        ptr::null_mut(),
+        STACK_SIZE + GUARD_SIZE,
+        libc::PROT_READ | libc::PROT_WRITE,
+        libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_STACK,
+        -1,
+        0,
+    );
     if stack_base.is_null() {
         return Err(ort_error(ErrorKind::ThreadStackAllocFailed, ""));
     }
-    unsafe { libc::mprotect(stack_base, GUARD_SIZE, libc::PROT_NONE) };
+    libc::mprotect(stack_base, GUARD_SIZE, libc::PROT_NONE);
 
     //
     // pthread

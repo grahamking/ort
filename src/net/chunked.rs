@@ -69,9 +69,7 @@ impl<R: Read, const MAX_CHUNK_SIZE: usize> ChunkedIterator<R, MAX_CHUNK_SIZE> {
                 Err(_err) => {
                     let c_s = CString::new("ERROR invalid chunked size: ".to_string() + size_str)
                         .unwrap();
-                    unsafe {
-                        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                    }
+                    libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
                     return Some(Err(ort_error(ErrorKind::ChunkedInvalidSize, "")));
                 }
             };

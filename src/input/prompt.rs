@@ -168,7 +168,7 @@ pub fn run_continue(
             {
                 // In debug build print the path.
                 let c_last_file = CString::new(last_file).unwrap();
-                unsafe { libc::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes()) };
+                libc::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
             }
             return Err(ort_error(
                 ErrorKind::HistoryReadFailed,

@@ -165,10 +165,6 @@ unsafe extern "C" {
     pub fn printf(format: *const c_char, ...) -> c_int;
     pub fn isatty(fd: c_int) -> c_int;
 
-    pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
-    pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
-
-    pub fn access(path: *const c_char, mode: c_int) -> c_int;
     pub fn stat(path: *const c_char, buf: *mut stat) -> c_int;
 
     pub fn mkdir(path: *const c_char, mode: u32) -> c_int;
@@ -200,16 +196,6 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub fn clock_gettime(clock_id: clockid_t, tp: *mut timespec) -> c_int;
-
-    pub fn mmap(
-        addr: *mut c_void,
-        len: size_t,
-        prot: c_int,
-        flags: c_int,
-        fd: c_int,
-        offset: off_t,
-    ) -> *mut c_void;
-    pub fn mprotect(addr: *mut c_void, len: size_t, prot: c_int) -> c_int;
 
     pub fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int;
     pub fn pthread_attr_setstack(
@@ -250,9 +236,97 @@ pub fn getrandom(buf: &mut [u8]) {
     }
 }
 
+const SYS_READ: u32 = 0;
+const SYS_WRITE: u32 = 1;
 const SYS_OPEN: u32 = 2;
 const SYS_CLOSE: u32 = 3;
+const SYS_MMAP: u32 = 9;
+const SYS_MPROTECT: u32 = 10;
+const SYS_ACCESS: u32 = 21;
 const EACCES: i32 = -13; // Permission denied
+
+pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t {
+    let mut ret: ssize_t;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_READ as ssize_t => ret,
+            in("edi") fd,
+            in("rsi") buf,
+            in("rdx") count,
+            options(nostack)
+        );
+    }
+    ret
+}
+
+pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t {
+    let mut ret: ssize_t;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_WRITE as ssize_t => ret,
+            in("edi") fd,
+            in("rsi") buf,
+            in("rdx") count,
+            options(nostack)
+        );
+    }
+    ret
+}
+
+pub fn mmap(
+    addr: *mut c_void,
+    len: size_t,
+    prot: c_int,
+    flags: c_int,
+    fd: c_int,
+    offset: off_t,
+) -> *mut c_void {
+    let mut ret: isize;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_MMAP as isize => ret,
+            in("rdi") addr,
+            in("rsi") len,
+            in("edx") prot,
+            in("r10d") flags,
+            in("r8d") fd,
+            in("r9") offset,
+            options(nostack)
+        );
+    }
+    if ret < 0 {
+        core::ptr::null_mut()
+    } else {
+        ret as *mut c_void
+    }
+}
+
+pub fn mprotect(addr: *mut c_void, len: size_t, prot: c_int) -> c_int {
+    let mut ret: c_long;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_MPROTECT as c_long => ret,
+            in("rdi") addr,
+            in("rsi") len,
+            in("edx") prot,
+            options(nostack)
+        );
+    }
+    ret as c_int
+}
+
+pub fn access(path: *const c_char, mode: c_int) -> c_int {
+    let mut ret: c_long;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_ACCESS as c_long => ret,
+            in("rdi") path,
+            in("esi") mode,
+            options(nostack)
+        );
+    }
+    if ret < 0 { -1 } else { ret as c_int }
+}
 
 pub fn open(path: *const c_char, flags: i32, mode: i32) -> Result<i32, &'static str> {
     let mut result: i32;

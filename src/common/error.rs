@@ -206,9 +206,7 @@ impl OrtError {
         use alloc::ffi::CString;
         let mut s = self.as_string();
         let c_s = CString::new(zclean(&mut s)).unwrap();
-        unsafe {
-            libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-        }
+        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
     }
 
     #[cfg(not(debug_assertions))]

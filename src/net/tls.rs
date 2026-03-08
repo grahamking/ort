@@ -636,10 +636,8 @@ impl<T: Read + Write> Read for TlsStream<T> {
                 let mut err_code_buf: [u8; 5] = [0u8; 5];
                 let len = to_ascii(plaintext[1] as usize, &mut err_code_buf);
                 let err_code = unsafe { CStr::from_bytes_with_nul_unchecked(&err_code_buf[..len]) };
-                unsafe {
-                    libc::write(2, err_level.as_ptr().cast(), err_level.count_bytes());
-                    libc::write(2, err_code.as_ptr().cast(), err_code.count_bytes());
-                }
+                libc::write(2, err_level.as_ptr().cast(), err_level.count_bytes());
+                libc::write(2, err_code.as_ptr().cast(), err_code.count_bytes());
 
                 return Err(ort_error(ErrorKind::TlsAlertReceived, ""));
             }
