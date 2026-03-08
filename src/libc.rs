@@ -35,6 +35,7 @@ pub type in_addr_t = u32;
 pub type in_port_t = u16;
 
 pub const O_CLOEXEC: c_int = 0x80000;
+pub const O_DIRECTORY: c_int = 0x10000;
 pub const O_RDONLY: c_int = 0;
 pub const O_WRONLY: c_int = 1;
 //const O_RDWR: c_int = 2;
@@ -118,12 +119,12 @@ pub struct timespec {
 }
 
 #[repr(C)]
-pub struct dirent {
+pub struct linux_dirent64 {
     pub d_ino: ino_t,
     pub d_off: off_t,
     pub d_reclen: c_ushort,
     pub d_type: c_uchar,
-    pub d_name: [c_char; 256],
+    pub d_name: c_char,
 }
 
 #[repr(C)]
@@ -153,9 +154,6 @@ pub struct pthread_attr_t {
     __size: [u64; 7],
 }
 
-// Opaque C data structure, only used as pointer type
-pub enum DIR {}
-
 #[link(name = "c", kind = "dylib")]
 unsafe extern "C" {
     pub static mut environ: *mut *mut c_char;
@@ -169,10 +167,6 @@ unsafe extern "C" {
 
     pub fn mkdir(path: *const c_char, mode: u32) -> c_int;
     pub fn getenv(name: *const c_char) -> *const c_char;
-
-    pub fn opendir(dirname: *const c_char) -> *mut DIR;
-    pub fn readdir(dirp: *mut DIR) -> *mut dirent;
-    pub fn closedir(dirp: *mut DIR) -> c_int;
 
     pub fn sigemptyset(set: *mut sigset_t) -> i32;
     pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;
@@ -243,6 +237,7 @@ const SYS_CLOSE: u32 = 3;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_ACCESS: u32 = 21;
+const SYS_GETDENTS64: u32 = 217;
 const EACCES: i32 = -13; // Permission denied
 
 pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t {
@@ -326,6 +321,20 @@ pub fn access(path: *const c_char, mode: c_int) -> c_int {
         );
     }
     if ret < 0 { -1 } else { ret as c_int }
+}
+
+pub fn getdents64(fd: c_int, dirp: *mut c_void, count: size_t) -> ssize_t {
+    let mut ret: ssize_t;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_GETDENTS64 as ssize_t => ret,
+            in("edi") fd,
+            in("rsi") dirp,
+            in("rdx") count,
+            options(nostack)
+        );
+    }
+    if ret < 0 { -1 } else { ret }
 }
 
 pub fn open(path: *const c_char, flags: i32, mode: i32) -> Result<i32, &'static str> {
