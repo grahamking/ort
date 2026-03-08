@@ -60,7 +60,7 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'+';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
+            crate::libc::write(2, buf.as_ptr().cast(), len);
 
             // Also print alignment
             //let mut buf = [0u8; 16];
@@ -91,7 +91,7 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'+';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
+            crate::libc::write(2, buf.as_ptr().cast(), len);
 
             // Also print alignment
             //let mut buf = [0u8; 16];
@@ -123,7 +123,7 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'-';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
+            crate::libc::write(2, buf.as_ptr().cast(), len);
         }
 
         #[cfg(not(feature = "arena-alloc"))]
@@ -140,11 +140,11 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'\\';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
+            crate::libc::write(2, buf.as_ptr().cast(), len);
 
             buf[0] = b'/';
             let len = to_ascii(new_size, &mut buf[1..]);
-            unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
+            crate::libc::write(2, buf.as_ptr().cast(), len);
 
             // Also print alignment
             //let mut buf = [0u8; 16];

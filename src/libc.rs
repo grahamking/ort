@@ -240,28 +240,35 @@ const SYS_ACCESS: u32 = 21;
 const SYS_GETDENTS64: u32 = 217;
 const EACCES: i32 = -13; // Permission denied
 
-pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t {
-    let mut ret: ssize_t;
+// On x86_64 Linux, `syscall` always clobbers rcx and r11.
+// Each wrapper must declare both so LLVM does not keep Rust values live there.
+
+pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> i32 {
+    let mut ret: i32;
     unsafe {
         asm!("syscall",
-            inlateout("rax") SYS_READ as ssize_t => ret,
+            inlateout("eax") SYS_READ as i32 => ret,
             in("edi") fd,
             in("rsi") buf,
             in("rdx") count,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
     ret
 }
 
-pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t {
-    let mut ret: ssize_t;
+pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> i32 {
+    let mut ret: i32;
     unsafe {
         asm!("syscall",
-            inlateout("rax") SYS_WRITE as ssize_t => ret,
+            inlateout("eax") SYS_WRITE as i32 => ret,
             in("edi") fd,
             in("rsi") buf,
             in("rdx") count,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -286,6 +293,8 @@ pub fn mmap(
             in("r10d") flags,
             in("r8d") fd,
             in("r9") offset,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -304,6 +313,8 @@ pub fn mprotect(addr: *mut c_void, len: size_t, prot: c_int) -> c_int {
             in("rdi") addr,
             in("rsi") len,
             in("edx") prot,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -317,6 +328,8 @@ pub fn access(path: *const c_char, mode: c_int) -> c_int {
             inlateout("rax") SYS_ACCESS as c_long => ret,
             in("rdi") path,
             in("esi") mode,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -331,6 +344,8 @@ pub fn getdents64(fd: c_int, dirp: *mut c_void, count: size_t) -> ssize_t {
             in("edi") fd,
             in("rsi") dirp,
             in("rdx") count,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -345,6 +360,8 @@ pub fn open(path: *const c_char, flags: i32, mode: i32) -> Result<i32, &'static 
             in("rdi") path,
             in("esi") flags,
             in("edx") mode,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -363,6 +380,8 @@ pub fn close(fd: i32) -> i32 {
         asm!("syscall",
              inout("eax") SYS_CLOSE => ret,
              in("edi") fd,
+             lateout("rcx") _,
+             lateout("r11") _,
              options(nostack, nomem),
         );
     }
