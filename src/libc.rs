@@ -230,7 +230,6 @@ unsafe extern "C" {
     pub fn calloc(nobj: size_t, size: size_t) -> *mut c_void;
     pub fn realloc(p: *mut c_void, size: size_t) -> *mut c_void;
     pub fn free(p: *mut c_void);
-    pub fn abort() -> !;
 }
 
 // Fill buf with random numbers.
