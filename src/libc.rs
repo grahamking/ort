@@ -184,6 +184,8 @@ unsafe extern "C" {
     pub fn getenv(name: *const c_char) -> *const c_char;
 
     pub fn sigemptyset(set: *mut sigset_t) -> i32;
+
+    // #define __NR_rt_sigaction 13
     pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;
 
     pub fn getaddrinfo(
@@ -194,8 +196,11 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn freeaddrinfo(res: *mut addrinfo);
 
+    // #define __NR_socket 41
     pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
+    // #define __NR_connect 42
     pub fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int;
+    // #define __NR_setsockopt 54
     pub fn setsockopt(
         socket: c_int,
         level: c_int,
@@ -204,6 +209,8 @@ unsafe extern "C" {
         option_len: socklen_t,
     ) -> c_int;
 
+    // #define __NR_clock_gettime 228
+    // but use the vDSO instead
     pub fn clock_gettime(clock_id: clockid_t, tp: *mut timespec) -> c_int;
 
     pub fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int;
