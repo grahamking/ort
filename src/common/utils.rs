@@ -219,7 +219,7 @@ pub(crate) fn get_env(cs: &CStr) -> &'static CStr {
 pub(crate) fn ensure_dir_exists(dir: &str) {
     let cs = CString::new(dir).unwrap();
     if !path_exists(cs.as_ref()) {
-        unsafe { libc::mkdir(cs.as_ptr(), 0o755) };
+        libc::mkdir(cs.as_ptr(), 0o755);
     }
 }
 

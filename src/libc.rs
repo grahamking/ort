@@ -35,6 +35,7 @@ pub type sa_family_t = u16;
 pub type in_addr_t = u32;
 pub type in_port_t = u16;
 
+// /usr/include/asm/unistd_64.h
 const SYS_READ: u32 = 0;
 const SYS_WRITE: u32 = 1;
 const SYS_OPEN: u32 = 2;
@@ -43,8 +44,9 @@ const SYS_FSTAT: u32 = 5;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_ACCESS: u32 = 21;
+const SYS_MKDIR: u32 = 83;
 const SYS_GETDENTS64: u32 = 217;
-pub const SYS_FUTEX: c_long = 202; // asm/unistd_64.h __NR_futex
+pub const SYS_FUTEX: c_long = 202;
 
 const EACCES: i32 = -13; // Permission denied
 
@@ -179,7 +181,6 @@ unsafe extern "C" {
     pub fn printf(format: *const c_char, ...) -> c_int;
     pub fn isatty(fd: c_int) -> c_int;
 
-    pub fn mkdir(path: *const c_char, mode: u32) -> c_int;
     pub fn getenv(name: *const c_char) -> *const c_char;
 
     pub fn sigemptyset(set: *mut sigset_t) -> i32;
@@ -340,6 +341,21 @@ pub fn access(path: *const c_char, mode: c_int) -> c_int {
     if ret < 0 { -1 } else { ret as c_int }
 }
 
+pub fn mkdir(path: *const c_char, mode: u32) -> i32 {
+    let mut ret: i32;
+    unsafe {
+        asm!("syscall",
+             inout("eax") SYS_MKDIR => ret,
+             in("rdi") path,
+             in("esi") mode,
+             lateout("rcx") _,
+             lateout("r11") _,
+             options(nostack),
+        );
+    }
+    ret
+}
+
 pub fn getdents64(fd: c_int, dirp: *mut c_void, count: size_t) -> ssize_t {
     let mut ret: ssize_t;
     unsafe {
@@ -417,6 +433,13 @@ pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'sta
 /*
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_mkdir() {
+        let ret = super::mkdir(c"/home/graham/Temp/HERE_gk_test".as_ptr(), 0o755);
+        let s = crate::common::utils::num_to_string(ret);
+        crate::common::utils::print_string(c"mkdir ret = ", &s);
+    }
+
     #[test]
     fn test_getrandom() {
         for _ in 0..10 {
