@@ -11,6 +11,7 @@
 use core::{
     arch::asm,
     ffi::{c_char, c_int, c_long, c_uchar, c_ushort, c_void},
+    mem::MaybeUninit,
 };
 
 type c_ulong = u64;
@@ -34,6 +35,19 @@ pub type sa_family_t = u16;
 pub type in_addr_t = u32;
 pub type in_port_t = u16;
 
+const SYS_READ: u32 = 0;
+const SYS_WRITE: u32 = 1;
+const SYS_OPEN: u32 = 2;
+const SYS_CLOSE: u32 = 3;
+const SYS_FSTAT: u32 = 5;
+const SYS_MMAP: u32 = 9;
+const SYS_MPROTECT: u32 = 10;
+const SYS_ACCESS: u32 = 21;
+const SYS_GETDENTS64: u32 = 217;
+pub const SYS_FUTEX: c_long = 202; // asm/unistd_64.h __NR_futex
+
+const EACCES: i32 = -13; // Permission denied
+
 pub const O_CLOEXEC: c_int = 0x80000;
 pub const O_DIRECTORY: c_int = 0x10000;
 pub const O_RDONLY: c_int = 0;
@@ -46,7 +60,6 @@ pub const F_OK: i32 = 0;
 
 pub const FUTEX_WAIT: c_int = 0;
 pub const FUTEX_WAKE: c_int = 1;
-pub const SYS_FUTEX: c_long = 202; // asm/unistd_64.h __NR_futex
 
 pub const SOCK_STREAM: c_int = 1;
 pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
@@ -118,6 +131,7 @@ pub struct timespec {
     pub tv_nsec: c_long,
 }
 
+// /usr/include/bits/dirent.h
 #[repr(C)]
 pub struct linux_dirent64 {
     pub d_ino: ino_t,
@@ -127,19 +141,21 @@ pub struct linux_dirent64 {
     pub d_name: c_char,
 }
 
+// /usr/include/bits/struct_stat.h
+// 144 bytes
 #[repr(C)]
-pub struct stat {
-    pub st_dev: dev_t,
-    pub st_ino: ino_t,
-    pub st_nlink: nlink_t,
-    pub st_mode: mode_t,
-    pub st_uid: uid_t,
-    pub st_gid: gid_t,
-    __pad0: c_int,
-    pub st_rdev: dev_t,
-    pub st_size: off_t,
-    pub st_blksize: blksize_t,
-    pub st_blocks: blkcnt_t,
+pub struct Stat {
+    pub st_dev: dev_t,         /* Device.  */
+    pub st_ino: ino_t,         /* file serial number.	*/
+    pub st_nlink: nlink_t,     /* Link count.  */
+    pub st_mode: mode_t,       /* File mode.  */
+    pub st_uid: uid_t,         /* User ID of the file's owner.  */
+    pub st_gid: gid_t,         /* Group ID of the file's group.  */
+    __pad0: c_int,             /* switch back to u64 padding */
+    pub st_rdev: dev_t,        /* Device number, if device.  */
+    pub st_size: off_t,        /* Size of file, in bytes.  */
+    pub st_blksize: blksize_t, /* Optimal block size for I/O.  */
+    pub st_blocks: blkcnt_t,   /* Number 512-byte blocks allocated. */
     pub st_atime: time_t,
     pub st_atime_nsec: i64,
     pub st_mtime: time_t,
@@ -162,8 +178,6 @@ unsafe extern "C" {
 
     pub fn printf(format: *const c_char, ...) -> c_int;
     pub fn isatty(fd: c_int) -> c_int;
-
-    pub fn stat(path: *const c_char, buf: *mut stat) -> c_int;
 
     pub fn mkdir(path: *const c_char, mode: u32) -> c_int;
     pub fn getenv(name: *const c_char) -> *const c_char;
@@ -229,16 +243,6 @@ pub fn getrandom(buf: &mut [u8]) {
         i += 8;
     }
 }
-
-const SYS_READ: u32 = 0;
-const SYS_WRITE: u32 = 1;
-const SYS_OPEN: u32 = 2;
-const SYS_CLOSE: u32 = 3;
-const SYS_MMAP: u32 = 9;
-const SYS_MPROTECT: u32 = 10;
-const SYS_ACCESS: u32 = 21;
-const SYS_GETDENTS64: u32 = 217;
-const EACCES: i32 = -13; // Permission denied
 
 // On x86_64 Linux, `syscall` always clobbers rcx and r11.
 // Each wrapper must declare both so LLVM does not keep Rust values live there.
@@ -386,6 +390,28 @@ pub fn close(fd: i32) -> i32 {
         );
     }
     ret
+}
+
+/// open + fstat + close
+pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'static str> {
+    let fd = open(path, O_RDONLY, 0)?;
+    let mut ret: i32;
+    unsafe {
+        asm!("syscall",
+             inout("eax") SYS_FSTAT => ret,
+             in("edi") fd,
+             in("rsi") sb as *mut MaybeUninit<Stat>,
+             lateout("rcx") _,
+             lateout("r11") _,
+             options(nostack),
+        );
+    }
+    if ret != 0 {
+        Err("fstat failed")
+    } else {
+        let _ = close(fd);
+        Ok(())
+    }
 }
 
 /*

@@ -60,15 +60,13 @@ impl Write for File {
 }
 
 pub fn last_modified(path: &CStr) -> OrtResult<time::Instant> {
-    let mut st = MaybeUninit::<libc::stat>::uninit();
-    unsafe {
-        if libc::stat(path.as_ptr(), st.as_mut_ptr()) != 0 {
-            // In debug build print the path.
-            #[cfg(debug_assertions)]
-            libc::write(2, path.as_ptr().cast(), path.count_bytes());
+    let mut st = MaybeUninit::<libc::Stat>::uninit();
+    if libc::stat(path.as_ptr(), &mut st).is_err() {
+        // In debug build print the path.
+        #[cfg(debug_assertions)]
+        libc::write(2, path.as_ptr().cast(), path.count_bytes());
 
-            return Err(ort_error(ErrorKind::FileStatFailed, ""));
-        }
+        return Err(ort_error(ErrorKind::FileStatFailed, ""));
     }
     let st = unsafe { st.assume_init() };
     Ok(time::Instant::new(
