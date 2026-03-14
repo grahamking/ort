@@ -34,7 +34,7 @@ pub fn run(
         let c_host = CString::new(site.host).unwrap();
         let ips = unsafe { resolver::resolve(c_host.as_ptr())? };
         ips.into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), site.port))
             .collect()
     } else {
         settings
@@ -42,7 +42,7 @@ pub fn run(
             .into_iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                SocketAddr::new(IpAddr::V4(ip_addr), 443)
+                SocketAddr::new(IpAddr::V4(ip_addr), site.port)
             })
             .collect()
     };

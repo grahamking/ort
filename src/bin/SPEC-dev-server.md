@@ -31,7 +31,8 @@ The mapping from binary name to Site is in `src/input/cli.rs`.
 Add a new mapping. If the binary is called `drt` it will use a new `Site` called `DEV`. Fields:
 - config file: `dev.json`.
 - API key env var is `ORT_DEV_API_KEY`.
-- host: `localhost:8000`.
+- host: `localhost`.
+- port: 8000
 - chat_completions_url: "/v1/chat/completions".
 - list_url: "/v1/models".
 

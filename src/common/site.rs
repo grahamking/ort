@@ -11,6 +11,7 @@ pub const OPENROUTER: &Site = &Site {
     api_key_env: c"OPENROUTER_API_KEY",
     config_filename: "ort.json",
     host: "openrouter.ai",
+    port: 443,
     chat_completions_url: "/api/v1/chat/completions",
     list_url: "/api/v1/models",
 };
@@ -20,6 +21,7 @@ pub const NVIDIA: &Site = &Site {
     api_key_env: c"NVIDIA_API_KEY",
     config_filename: "nrt.json",
     host: "integrate.api.nvidia.com",
+    port: 443,
     chat_completions_url: "/v1/chat/completions",
     list_url: "/v1/models",
 };
@@ -29,6 +31,7 @@ pub struct Site {
     pub api_key_env: &'static CStr,
     pub config_filename: &'static str,
     pub host: &'static str,
+    pub port: u16,
     pub chat_completions_url: &'static str,
     pub list_url: &'static str,
 }

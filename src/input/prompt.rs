@@ -349,7 +349,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             }
         };
         ips.into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), 443))
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), params.site.port))
             .collect()
     } else {
         params
@@ -357,7 +357,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             .into_iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                SocketAddr::new(IpAddr::V4(ip_addr), 443)
+                SocketAddr::new(IpAddr::V4(ip_addr), params.site.port)
             })
             .collect()
     };
