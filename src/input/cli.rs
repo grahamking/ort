@@ -61,6 +61,7 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
 pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
     let site = match args[0].split('/').next_back().unwrap() {
         "nrt" => site::NVIDIA,
+        "mrt" => site::MOCK,
         _ => site::OPENROUTER,
     };
 

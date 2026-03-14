@@ -231,10 +231,15 @@ pub(crate) fn path_exists(path: &CStr) -> bool {
 /// Read a file into memory
 pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let cs = CString::new(filename).unwrap();
-    let fd = libc::open(cs.as_ptr(), libc::O_RDONLY, 0)?;
-    if fd < 0 {
-        return Err("NOT FOUND");
-    }
+    let fd = match libc::open(cs.as_ptr(), libc::O_RDONLY, 0) {
+        Ok(fd) => fd,
+        Err(v) if v == "Permission denied" => {
+            return Err(v);
+        }
+        Err(_) => {
+            return Err("NOT FOUND");
+        }
+    };
 
     let mut content = Vec::new();
     let mut buffer = [0u8; 4096];

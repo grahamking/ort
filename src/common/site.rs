@@ -26,6 +26,16 @@ pub const NVIDIA: &Site = &Site {
     list_url: "/v1/models",
 };
 
+pub const MOCK: &Site = &Site {
+    name: "MOCK",
+    api_key_env: c"ORT_MOCK_API_KEY",
+    config_filename: "mrt.json",
+    host: "localhost",
+    port: 8000,
+    chat_completions_url: "/v1/chat/completions",
+    list_url: "/v1/models",
+};
+
 pub struct Site {
     pub name: &'static str,
     pub api_key_env: &'static CStr,
