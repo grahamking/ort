@@ -338,7 +338,7 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             return ptr::null_mut();
         }
     };
-    let start = time::Instant::now();
+    let start = time::Ticks::now();
     let addrs: Vec<_> = if params.dns.is_empty() {
         let c_host = CString::new(params.site.host).unwrap();
         let ips = match unsafe { resolver::resolve(c_host.as_ptr()) } {
@@ -389,6 +389,14 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
             return ptr::null_mut();
         }
     }
+
+    let tsc_calibration = match time::tsc_calibration() {
+        Ok(tc) => tc,
+        Err(err) => {
+            params.queue.add(Response::Error(err.as_string()));
+            return ptr::null_mut();
+        }
+    };
 
     let mut stats: stats::Stats = Stats {
         // Default the model to the passed one, in case provider stats don't include it
@@ -486,8 +494,10 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
 
                 // Record time to first token
                 if stats.time_to_first_token.is_none() {
-                    stats.time_to_first_token = Some(time::Instant::now() - start);
-                    token_stream_start = Some(time::Instant::now());
+                    let first_token = time::Ticks::now();
+                    stats.time_to_first_token =
+                        Some(time::elapsed_duration(start, first_token, tsc_calibration));
+                    token_stream_start = Some(time::Ticks::now());
                 }
 
                 // Handle reasoning content
@@ -539,9 +549,10 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         params.queue.add(Response::Error("Interrupted".to_string()));
     } else {
         // Clean finish, send stats
-        let now = time::Instant::now();
-        stats.elapsed_time = now - start;
-        let stream_elapsed_time = now - token_stream_start.unwrap();
+        let now = time::Ticks::now();
+        stats.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
+        let stream_elapsed_time =
+            time::elapsed_duration(token_stream_start.unwrap(), now, tsc_calibration);
         stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1);
 
         params.queue.add(Response::Stats(stats));

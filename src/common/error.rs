@@ -106,6 +106,11 @@ pub enum ErrorKind {
     TlsMissingServerKey,
     TlsAes128GcmDecryptFailed,
 
+    // Time
+    TscCpuidLeafUnavailable,
+    TscInvalidCalibration,
+    TscMissingCrystalClock,
+
     // Misc
     FormatError,
     RateLimited,
@@ -171,6 +176,11 @@ impl ErrorKind {
             ErrorKind::TlsServerNotTls13 => "TlsServerNotTls13",
             ErrorKind::TlsMissingServerKey => "TlsMissingServerKey",
             ErrorKind::TlsAes128GcmDecryptFailed => "TlsAes128GcmDecryptFailed",
+
+            ErrorKind::TscCpuidLeafUnavailable => "TscCpuidLeafUnavailable",
+            ErrorKind::TscInvalidCalibration => "TscInvalidCalibration",
+            ErrorKind::TscMissingCrystalClock => "TscMissingCrystalClock",
+
             ErrorKind::FormatError => "FormatError",
             ErrorKind::RateLimited => "RateLimited",
             ErrorKind::Other => "Other",

@@ -17,7 +17,6 @@ use core::{
 type c_ulong = u64;
 pub type size_t = usize;
 type ssize_t = isize;
-type clockid_t = c_int;
 type time_t = i64;
 type ino_t = u64;
 type off_t = i64;
@@ -68,8 +67,6 @@ pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
 pub const AF_INET: c_int = 2;
 pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN: i32 = 23;
-
-pub const CLOCK_MONOTONIC: clockid_t = 1;
 
 pub const DT_REG: u8 = 8;
 
@@ -125,12 +122,6 @@ pub struct addrinfo {
     pub ai_addr: *mut sockaddr_in,
     pub ai_canonname: *mut c_char,
     pub ai_next: *mut addrinfo,
-}
-
-#[repr(C)]
-pub struct timespec {
-    pub tv_sec: time_t,
-    pub tv_nsec: c_long,
 }
 
 // /usr/include/bits/dirent.h
@@ -208,10 +199,6 @@ unsafe extern "C" {
         value: *const c_void,
         option_len: socklen_t,
     ) -> c_int;
-
-    // #define __NR_clock_gettime 228
-    // but use the vDSO instead
-    pub fn clock_gettime(clock_id: clockid_t, tp: *mut timespec) -> c_int;
 
     pub fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int;
     pub fn pthread_attr_setstack(
