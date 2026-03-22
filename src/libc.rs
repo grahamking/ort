@@ -214,11 +214,6 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn pthread_attr_destroy(attr: *mut pthread_attr_t) -> c_int;
     pub fn pthread_join(native: pthread_t, value: *mut *mut c_void) -> c_int;
-
-    pub fn malloc(size: size_t) -> *mut c_void;
-    pub fn calloc(nobj: size_t, size: size_t) -> *mut c_void;
-    pub fn realloc(p: *mut c_void, size: size_t) -> *mut c_void;
-    pub fn free(p: *mut c_void);
 }
 
 // Fill buf with random numbers.

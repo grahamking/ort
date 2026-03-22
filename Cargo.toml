@@ -2,7 +2,7 @@ cargo-features = ["panic-immediate-abort", "profile-rustflags"]
 
 [package]
 name = "ort-openrouter-cli"
-version = "0.4.4"
+version = "0.4.5"
 edition = "2024"
 description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]
@@ -18,9 +18,6 @@ print-allocations = []
 # Panic the first time we call realloc, which tries to resize a block of memory.
 # Ideally all memory is correctly sized on first alloc.
 panic-on-realloc = []
-
-# Allocate memory entirely from a large static array.
-arena-alloc = []
 
 [[bin]]
 name = "ort"

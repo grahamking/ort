@@ -3,39 +3,34 @@
 //!
 //! MIT License
 //! Copyright (c) 2025 Graham King
+//!
+//! Arena allocator. No heap allocations for entire program run.
+//! We statically allocate a large chunk of memory (`.bss` segment),
+//! and use that to fill allocation requests. This avoids doing
+//! any syscalls to get memory.
 
 #![allow(static_mut_refs)]
 
-#[cfg(not(feature = "arena-alloc"))]
-use crate::libc;
 use core::alloc::Layout;
-#[cfg(not(feature = "arena-alloc"))]
-use core::ffi::c_void;
 
 #[cfg(feature = "panic-on-realloc")]
 static mut IS_FIRST_REALLOC: bool = true;
 
-#[cfg(feature = "arena-alloc")]
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "print-allocations")]
 use crate::common::utils::to_ascii;
 
 /// All allocated memory locations will have this alignment, max_align_t
-#[cfg(feature = "arena-alloc")]
 const ALIGN: usize = 16;
 
 // How much memory to allocate total. Don't exceed this!
-#[cfg(feature = "arena-alloc")]
 const MEM_SIZE: usize = 2 * 1024 * 1024;
 
-#[cfg(feature = "arena-alloc")]
 #[repr(align(16))]
 struct Heap(pub [u8; MEM_SIZE]);
 
-#[cfg(feature = "arena-alloc")]
 static mut HEAP: Heap = Heap([0u8; MEM_SIZE]);
-#[cfg(feature = "arena-alloc")]
 static mut OFFSET: AtomicUsize = AtomicUsize::new(0);
 
 pub struct LibcAlloc;
@@ -69,19 +64,11 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             //unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
 
-        #[cfg(not(feature = "arena-alloc"))]
+        let next_offset = layout.size().next_multiple_of(ALIGN);
         unsafe {
-            libc::malloc(layout.size().max(layout.align())) as *mut u8
-        }
-
-        #[cfg(feature = "arena-alloc")]
-        {
-            let next_offset = layout.size().next_multiple_of(ALIGN);
-            unsafe {
-                HEAP.0
-                    .as_mut_ptr()
-                    .add(OFFSET.fetch_add(next_offset, Ordering::Relaxed))
-            }
+            HEAP.0
+                .as_mut_ptr()
+                .add(OFFSET.fetch_add(next_offset, Ordering::Relaxed))
         }
     }
 
@@ -100,20 +87,8 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             //unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
 
-        #[cfg(not(feature = "arena-alloc"))]
-        unsafe {
-            libc::calloc(1, layout.size().max(layout.align())) as *mut u8
-        }
-
-        #[cfg(feature = "arena-alloc")]
-        {
-            let next_offset = layout.size().next_multiple_of(ALIGN);
-            unsafe {
-                HEAP.0
-                    .as_mut_ptr()
-                    .add(OFFSET.fetch_add(next_offset, Ordering::Relaxed))
-            }
-        }
+        // .bss segment is already zeroed
+        unsafe { self.alloc(layout) }
     }
 
     #[allow(unused_variables)]
@@ -126,13 +101,14 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             crate::libc::write(2, buf.as_ptr().cast(), len);
         }
 
-        #[cfg(not(feature = "arena-alloc"))]
-        unsafe {
-            libc::free(ptr as *mut c_void)
-        }
+        // we never free, program runtime is short
     }
 
-    #[cfg(not(feature = "arena-alloc"))]
+    // ort is tuned to avoid reallocations, so we don't override it.
+    // Parent implements realloc as alloc-and-copy, which is fine because it should not happen.
+    //
+    // Keep here to panic-on-realloc when code changes.
+    /*
     #[allow(unused_variables)]
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         #[cfg(feature = "print-allocations")]
@@ -162,9 +138,8 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
                 panic!("realloc {} -> {}", layout.size(), new_size);
             }
         }
-
-        unsafe { libc::realloc(ptr as *mut c_void, new_size) as *mut u8 }
     }
+    */
 }
 
 /*

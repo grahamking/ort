@@ -22,18 +22,6 @@ This is easy only because it should stop existing as a public concept. In [`src/
 
 This is the symmetric case to `pthread_attr_init`, and it is equally easy to remove. The current code does not rely on any destructor side effects in [`src/common/thread.rs`](/home/graham/src/ort/src/common/thread.rs#L57); it only calls the function because the pthread API requires it. Once the thread API is no longer modeled after pthread attributes, there is nothing to destroy.
 
-6. `free`
-
-This is fairly easy if you lean into the allocator strategy the codebase already hints at in [`src/common/alloc.rs`](/home/graham/src/ort/src/common/alloc.rs#L22). The lowest-risk libc-free option is to make the existing arena or a bump allocator the default for release builds, which makes `free` a no-op for most allocations because the process is short-lived and many allocations are effectively process-lifetime anyway. If you insist on a fully general allocator, this jumps much higher in difficulty.
-
-7. `malloc`
-
-`malloc` is still relatively approachable because the program already has an alternate non-libc allocation mode in [`src/common/alloc.rs`](/home/graham/src/ort/src/common/alloc.rs#L72). The practical replacement is to promote that idea into the default allocator: reserve a fixed heap or map a large heap region with `mmap`, then hand out aligned blocks with a bump pointer. That is enough for this program's observed memory profile, and it keeps the implementation much simpler than a full free-list allocator.
-
-8. `calloc`
-
-Once `malloc` is replaced, `calloc` is just the same allocator plus zeroing. In practice this can be implemented as `alloc_zeroed` backed by the bump allocator or `mmap`-provided zeroed pages, with an explicit `write_bytes` fallback when needed. The reason it ranks slightly after `malloc` is only that you want the base allocator strategy settled first.
-
 9. `socket`
 
 This is a straight syscall wrapper on x86_64 Linux. The current call site in [`src/net/socket.rs`](/home/graham/src/ort/src/net/socket.rs#L19) already uses a libc-shaped interface, so replacing it means adding `SYS_SOCKET` and an inline-asm wrapper exactly like the existing `read`, `write`, and `open` wrappers in [`src/libc.rs`](/home/graham/src/ort/src/libc.rs#L245). There is very little hidden behavior here.
@@ -57,10 +45,6 @@ The program should not keep a generic variadic `syscall` entry point once libc i
 14. `pthread_attr_setstack`
 
 This one is still simpler than real thread creation, but it forces you to settle the stack handoff contract. Right now [`src/common/thread.rs`](/home/graham/src/ort/src/common/thread.rs#L55) uses pthread attributes to tell libc which manually mapped stack to use. In a libc-free implementation, you either store that stack pointer and size in your own thread descriptor, or more directly pass the top-of-stack to a `clone` trampoline, so the function itself goes away but the underlying concept remains.
-
-15. `realloc`
-
-This is where allocator work starts getting real. The program clearly does use `realloc`, especially via `Vec` growth in [`src/common/alloc.rs`](/home/graham/src/ort/src/common/alloc.rs#L137), so the libc-free allocator needs a defined growth story. The simplest workable plan is "allocate a new block, copy `min(old_size, new_size)`, leave the old block alone," but that means your allocator must know each allocation's old size, usually via a small header, and it means memory pressure grows unless the arena is sized generously.
 
 16. `getenv`
 
