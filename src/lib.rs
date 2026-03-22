@@ -13,7 +13,7 @@ pub mod libc;
 mod net;
 mod output;
 
-pub use common::alloc::LibcAlloc;
+pub use common::alloc::ArenaAlloc;
 pub use common::cancel_token::CancelToken;
 pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,

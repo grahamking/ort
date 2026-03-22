@@ -28,10 +28,10 @@ use alloc::{
 #[cfg(not(debug_assertions))]
 use core::ffi::{CStr, c_char, c_int};
 
-use ort_openrouter_cli::LibcAlloc;
+use ort_openrouter_cli::ArenaAlloc;
 
 #[global_allocator]
-static GLOBAL: LibcAlloc = LibcAlloc;
+static GLOBAL: ArenaAlloc = ArenaAlloc;
 
 /// The release mode main
 ///

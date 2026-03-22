@@ -12,11 +12,13 @@
 #![allow(static_mut_refs)]
 
 use core::alloc::Layout;
+use core::ffi::c_void;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::libc;
 
 #[cfg(feature = "panic-on-realloc")]
 static mut IS_FIRST_REALLOC: bool = true;
-
-use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "print-allocations")]
 use crate::common::utils::to_ascii;
@@ -33,7 +35,7 @@ struct Heap(pub [u8; MEM_SIZE]);
 static mut HEAP: Heap = Heap([0u8; MEM_SIZE]);
 static mut OFFSET: AtomicUsize = AtomicUsize::new(0);
 
-pub struct LibcAlloc;
+pub struct ArenaAlloc;
 
 // In case you were wondering, yes all three methods get used. Rust does
 // a bnuch of alloc_zeroed and realloc.
@@ -48,7 +50,7 @@ pub struct LibcAlloc;
 //
 // `ort list` peaks around 180 Kib because it has one large (~128 KiB)
 // allocation which is a string holding the names of all models, so we can sort them.
-unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
+unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         #[cfg(feature = "print-allocations")]
         {
@@ -64,11 +66,20 @@ unsafe impl core::alloc::GlobalAlloc for LibcAlloc {
             //unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
 
-        let next_offset = layout.size().next_multiple_of(ALIGN);
+        // Allocate in multiples of 16 bytes so that we stay aligned for next alloc.
+        let alloc_size = layout.size().next_multiple_of(ALIGN);
+
         unsafe {
-            HEAP.0
-                .as_mut_ptr()
-                .add(OFFSET.fetch_add(next_offset, Ordering::Relaxed))
+            // Read current offset, for this allocation, and move it by alloc_size for next
+            // allocation. fetch_add returns the value before addition.
+            let current_offset = OFFSET.fetch_add(alloc_size, Ordering::Relaxed);
+
+            if OFFSET.load(Ordering::Relaxed) > MEM_SIZE {
+                let msg = c"Out of memory, common/alloc.rs MEM_SIZE\n";
+                libc::write(2, msg.as_ptr() as *const c_void, msg.count_bytes());
+                libc::exit(1);
+            }
+            HEAP.0.as_mut_ptr().add(current_offset)
         }
     }
 

@@ -43,6 +43,7 @@ const SYS_FSTAT: u32 = 5;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_ACCESS: u32 = 21;
+const SYS_EXIT: i32 = 60;
 const SYS_MKDIR: u32 = 83;
 const SYS_GETDENTS64: u32 = 217;
 pub const SYS_FUTEX: c_long = 202;
@@ -416,6 +417,16 @@ pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'sta
     } else {
         let _ = close(fd);
         Ok(())
+    }
+}
+
+pub fn exit(exit_code: i32) -> ! {
+    unsafe {
+        asm!("syscall",
+            in("eax") SYS_EXIT,
+            in("edi") exit_code,
+            options(nostack, nomem, noreturn)
+        )
     }
 }
 
