@@ -58,7 +58,8 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
         Ok(exit_code) => exit_code as c_int,
         Err(err) => {
             let err_msg = CString::new(err.as_string()).unwrap();
-            unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
+            let _ = libc::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
+            let _ = libc::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
             1
         }
     }
@@ -82,7 +83,8 @@ fn main() -> std::process::ExitCode {
         Ok(exit_code) => (exit_code as u8).into(),
         Err(err) => {
             let err_msg = CString::new(err.as_string()).unwrap();
-            unsafe { libc::printf(c"ERROR: %s".as_ptr(), err_msg.as_ptr()) };
+            let _ = libc::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
+            let _ = libc::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
             1.into()
         }
     }

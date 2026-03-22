@@ -6,10 +6,6 @@ Assumptions: this ranking assumes the existing target remains x86_64 Linux, beca
 
 This is the easiest one to remove. The current code only needs an empty signal mask in [`src/common/cancel_token.rs`](/home/graham/src/ort/src/common/cancel_token.rs#L49), so libc's helper can be replaced with direct zero-initialization of `sigset_t`, either by constructing `sigset_t { __val: [0; 16] }` or by using `core::ptr::write_bytes`. There is no libc-specific behavior here beyond filling the structure with zeroes.
 
-2. `printf`
-
-The current call sites only use very small fixed formats: `%s%s\n` in [`src/common/utils.rs`](/home/graham/src/ort/src/common/utils.rs#L148) and `ERROR: %s` in [`src/main.rs`](/home/graham/src/ort/src/main.rs#L60). That means you do not need a general `printf` implementation at all; replace those call sites with a tiny helper that writes the literal prefix and then the string bytes with the existing `write` syscall wrapper. This is mostly mechanical and removes a large libc surface area for almost no runtime work.
-
 3. `freeaddrinfo`
 
 This function becomes unnecessary as soon as `getaddrinfo` stops returning libc-managed linked lists. The clean replacement is to change the resolver boundary so it returns a Rust-owned `Vec<Ipv4Addr>` directly, which is already what [`src/common/resolver.rs`](/home/graham/src/ort/src/common/resolver.rs#L18) wants in the end. If you do that, `freeaddrinfo` simply disappears rather than being reimplemented.

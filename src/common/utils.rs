@@ -147,7 +147,9 @@ pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
 #[allow(unused)]
 pub(crate) fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(zclean(&mut s.to_string())).unwrap();
-    unsafe { libc::printf(c"%s%s\n".as_ptr(), prefix.as_ptr(), msg.as_ptr()) };
+    let _ = libc::write(1, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
+    let _ = libc::write(1, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
+    let _ = libc::write(1, c"\n".as_ptr().cast::<c_void>(), c"\n".count_bytes());
 }
 
 /// Replace any null bytes with an underscore, making it C-safe

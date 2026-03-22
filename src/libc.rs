@@ -170,7 +170,6 @@ unsafe extern "C" {
 
     pub fn syscall(num: c_long, ...) -> c_long;
 
-    pub fn printf(format: *const c_char, ...) -> c_int;
     pub fn isatty(fd: c_int) -> c_int;
 
     pub fn getenv(name: *const c_char) -> *const c_char;
