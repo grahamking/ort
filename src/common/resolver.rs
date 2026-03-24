@@ -5,45 +5,102 @@
 //! Copyright (c) 2025 Graham King
 //!
 
-use core::{ffi::c_char, net::Ipv4Addr};
+use core::{net::Ipv4Addr, ptr::copy_nonoverlapping};
 
 extern crate alloc;
-use alloc::vec;
-use alloc::vec::Vec;
 
-use crate::{ErrorKind, OrtResult, libc, ort_error};
+use crate::{
+    ErrorKind, OrtResult,
+    libc::{self, AF_INET, SOCK_DGRAM},
+    ort_error, utils,
+};
+
+// "openrouter.ai" response is 63 bytes. integrate.api.nvidia.com is more.
+const DNS_MAX_PACKET_LEN: usize = 128;
+#[rustfmt::skip]
+const DNS_PACKET_PREFIX: [u8; 12] = [
+    0, 1, // Transaction ID
+    1, 0, // Flags (12 bits) and response code. "RD" recursion desired is set.
+    0, 1, // Question count
+    0, 0, // Answer count
+    0, 0, // Authority count
+    0, 0, // Additional records count,
+];
+#[rustfmt::skip]
+const DNS_PACKET_SUFFIX: [u8; 4] = [
+    0, 1, // Query class: Internet
+    0, 1, // Query type: "A" records
+];
 
 /// # Safety
 /// System programming is for everyone
-pub unsafe fn resolve(host: *const c_char) -> OrtResult<Vec<Ipv4Addr>> {
-    let mut hints: libc::addrinfo = unsafe { core::mem::zeroed() };
-    hints.ai_family = libc::AF_INET;
-    hints.ai_socktype = libc::SOCK_STREAM;
-    let mut addr_info = core::ptr::null_mut();
-    let return_code = unsafe { libc::getaddrinfo(host, core::ptr::null(), &hints, &mut addr_info) };
-    if return_code != 0 {
-        return Err(ort_error(
-            ErrorKind::DnsResolveFailed,
-            "getaddrinfo syscall error",
-        ));
+pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
+    // socket
+    let sock_fd = unsafe { libc::socket(AF_INET, SOCK_DGRAM, 0) };
+    if sock_fd <= 0 {
+        return Err(ort_error(ErrorKind::DnsResolveFailed, "socket failed"));
     }
 
-    let mut ips = vec![];
-    let mut rp = addr_info;
-    while !rp.is_null() {
-        let ip_bytes = unsafe {
-            let addr = (*rp).ai_addr;
-            (*addr).sin_addr.s_addr
-        };
+    // connect
+    // In UDP "connect" is really "set peer name".
+    // It's a filter so that we only get packets from the correct peer.
+    let addr = libc::sockaddr_in {
+        sin_family: AF_INET as u16,
+        sin_port: 53_u16.to_be(),
+        sin_addr: libc::in_addr {
+            // TODO: Look this up in /etc/resolv.conf
+            s_addr: u32::from_ne_bytes([127, 0, 0, 53]),
+        },
+        sin_zero: [0u8; 8],
+    };
+    let addr_len = size_of::<libc::sockaddr_in>() as libc::socklen_t;
 
-        let ip = Ipv4Addr::from(ip_bytes.to_ne_bytes());
-        ips.push(ip);
+    let res = unsafe {
+        libc::connect(
+            sock_fd,
+            &addr as *const _ as *const libc::sockaddr,
+            addr_len,
+        )
+    };
+    if res < 0 {
+        return Err(ort_error(ErrorKind::DnsResolveFailed, "connect failed"));
+    }
 
-        unsafe {
-            rp = (*rp).ai_next;
+    // build DNS packet
+    let mut query = [0u8; DNS_MAX_PACKET_LEN];
+    let mut query_ptr = query.as_mut_ptr();
+    unsafe {
+        for dat in [&DNS_PACKET_PREFIX, label, &DNS_PACKET_SUFFIX] {
+            copy_nonoverlapping(dat.as_ptr(), query_ptr, dat.len());
+            query_ptr = query_ptr.add(dat.len());
         }
     }
-    unsafe { libc::freeaddrinfo(addr_info) };
 
-    Ok(ips)
+    // write query
+    let bytes_written = libc::write(sock_fd, query.as_ptr().cast(), query.len());
+    if bytes_written != query.len() as i32 {
+        return Err(ort_error(ErrorKind::DnsResolveFailed, "write failed"));
+    }
+
+    // read response
+    let mut buf = [0u8; DNS_MAX_PACKET_LEN];
+    let bytes_read = libc::read(sock_fd, buf.as_mut_ptr().cast(), buf.len());
+    if bytes_read <= 0 {
+        return Err(ort_error(ErrorKind::DnsResolveFailed, "read failed"));
+    }
+
+    // check response code. It's in last four bits of flags. 0 means success.
+    let err_code = buf[3] & 0x0F;
+    if err_code != 0 {
+        let err_code_str = utils::num_to_string(err_code);
+        utils::print_string(c"DNS server err code: ", &err_code_str);
+        return Err(ort_error(ErrorKind::DnsResolveFailed, "server err code"));
+    }
+
+    //let answer_count = u16::from_le_bytes([buf[7], buf[8]]);
+
+    // The last four bytes are always one of the answers, even if there are several
+    let end = bytes_read as usize;
+    let ip = u32::from_be_bytes([buf[end - 4], buf[end - 3], buf[end - 2], buf[end - 1]]);
+    Ok(Ipv4Addr::from_bits(ip))
 }

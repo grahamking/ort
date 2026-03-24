@@ -7,7 +7,6 @@
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
-use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -30,23 +29,21 @@ pub fn run(
     site: &'static Site,
     mut w: impl Write,
 ) -> OrtResult<()> {
-    let addrs: Vec<_> = if settings.dns.is_empty() {
-        let c_host = CString::new(site.host).unwrap();
-        let ips = unsafe { resolver::resolve(c_host.as_ptr())? };
-        ips.into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), site.port))
-            .collect()
+    let addr = if settings.dns.is_empty() {
+        let ip = unsafe { resolver::resolve(site.dns_label)? };
+        SocketAddr::new(IpAddr::V4(ip), site.port)
     } else {
         settings
             .dns
-            .into_iter()
+            .first()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                 SocketAddr::new(IpAddr::V4(ip_addr), site.port)
             })
-            .collect()
+            // unwrap is safe because we checked is_empty
+            .unwrap()
     };
-    let reader = http::list_models(api_key, site.host, site.list_url, addrs)
+    let reader = http::list_models(api_key, site.host, site.list_url, alloc::vec![addr])
         .context("list_models connect")?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;

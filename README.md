@@ -38,7 +38,7 @@ In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
 For experimental [build.nvidia.com](https://build.nvidia.com/) support see at the very end of this README.
 
-## Give it to me straight
+# Give it to me straight
 
 Usage:
 ```
@@ -116,6 +116,12 @@ Here are the settings that are not available on the command line:
 - `save_to_file`: Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
 - `dns`: The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Allows up to 16 addresses, although fewer is probably better.
 
+## Performance
+
+Make sure to set the `dns` entry in config file. This saves a DNS query to at least the local resolver (typically `systemd-resolved`), possibly all the way to root servers.
+
+Non-reasoning models are much faster (and cheaper!) than reasoning models.
+
 ## Reasoning model configuration
 
 Here's what I got from the models I use regularly.
@@ -151,6 +157,8 @@ No reasoning:
 
 - qwen/qwen3-235b-a22b-07-25
 - moonshotai/kimi-k2-0905
+
+# Misc
 
 ## My shortcuts (Nov 2025)
 
@@ -228,6 +236,12 @@ t
 
 If you mostly use models from the big-three labs I highly recommend trying OpenRouter. You get to use Qwen, DeepSeek, Kimi, GLM - all of which have impressed me - and all sorts of cutting edge experiments, such as diffusion model Mercury.
 Orginal version written by GPT-5 to my spec.
+
+## Development
+
+Use `build_release.sh` for the release build. A regular `cargo build --release` will not work because we have to build the rust core library to switch panic modes.
+
+We do our own DNS resolution (of course!). Currently that's an A query to 127.0.0.53, so a resolver will need to be running there (Modern Linux will have `systemd-resolved` there). We do not check `/etc/hosts`, and do not support IPv6.
 
 MIT Licence.
 

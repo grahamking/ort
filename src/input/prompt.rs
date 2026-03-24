@@ -339,33 +339,30 @@ extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
         }
     };
     let start = time::Ticks::now();
-    let addrs: Vec<_> = if params.dns.is_empty() {
-        let c_host = CString::new(params.site.host).unwrap();
-        let ips = match unsafe { resolver::resolve(c_host.as_ptr()) } {
-            Ok(ips) => ips,
+    let addr = if params.dns.is_empty() {
+        let ip = match unsafe { resolver::resolve(params.site.dns_label) } {
+            Ok(ip) => ip,
             Err(err) => {
                 print_string(c"FATAL: resolving host: ", &err.as_string());
                 return ptr::null_mut();
             }
         };
-        ips.into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), params.site.port))
-            .collect()
+        SocketAddr::new(IpAddr::V4(ip), params.site.port)
     } else {
         params
             .dns
-            .into_iter()
+            .first()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                 SocketAddr::new(IpAddr::V4(ip_addr), params.site.port)
             })
-            .collect()
+            .unwrap()
     };
     let mut reader = match http::chat_completions(
         &params.api_key,
         params.site.host,
         params.site.chat_completions_url,
-        addrs,
+        vec![addr],
         &body,
     ) {
         Ok(r) => r,

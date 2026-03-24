@@ -6,10 +6,6 @@ Assumptions: this ranking assumes the existing target remains x86_64 Linux, beca
 
 This is the easiest one to remove. The current code only needs an empty signal mask in [`src/common/cancel_token.rs`](/home/graham/src/ort/src/common/cancel_token.rs#L49), so libc's helper can be replaced with direct zero-initialization of `sigset_t`, either by constructing `sigset_t { __val: [0; 16] }` or by using `core::ptr::write_bytes`. There is no libc-specific behavior here beyond filling the structure with zeroes.
 
-3. `freeaddrinfo`
-
-This function becomes unnecessary as soon as `getaddrinfo` stops returning libc-managed linked lists. The clean replacement is to change the resolver boundary so it returns a Rust-owned `Vec<Ipv4Addr>` directly, which is already what [`src/common/resolver.rs`](/home/graham/src/ort/src/common/resolver.rs#L18) wants in the end. If you do that, `freeaddrinfo` simply disappears rather than being reimplemented.
-
 4. `pthread_attr_init`
 
 This is easy only because it should stop existing as a public concept. In [`src/common/thread.rs`](/home/graham/src/ort/src/common/thread.rs#L49), the attribute object is just a temporary vessel for stack metadata before `pthread_create`. A libc-free thread launcher should replace that flow with a small internal Rust struct, or just pass stack base and size directly to the clone wrapper, which makes `pthread_attr_init` either a no-op or dead code.
@@ -49,10 +45,6 @@ This one is still simpler than real thread creation, but it forces you to settle
 17. `sigaction`
 
 This is harder than `sigemptyset` because raw signal installation on x86_64 Linux is not just one syscall. The direct replacement is `rt_sigaction`, but if you go that route you need to provide the kernel-compatible structure layout and usually a restorer trampoline plus `SA_RESTORER`, which libc normally hides. For this codebase, another viable route is to avoid asynchronous handlers entirely and switch the cancel path in [`src/common/cancel_token.rs`](/home/graham/src/ort/src/common/cancel_token.rs#L46) to a `signalfd`-based model, which may actually be simpler than reproducing libc's signal ABI details.
-
-18. `getaddrinfo`
-
-This is the largest non-threading functional replacement. The current resolver in [`src/common/resolver.rs`](/home/graham/src/ort/src/common/resolver.rs#L18) only needs IPv4 `SOCK_STREAM` results, so you do not need a general RFC-complete `getaddrinfo`; a focused DNS client is enough. A practical plan is to first accept dotted IPv4 literals directly, then check `/etc/hosts`, then send A-record DNS queries to configured servers or nameservers parsed from `/etc/resolv.conf`, and return `Vec<Ipv4Addr>` without any linked-list ABI.
 
 19. `pthread_join`
 

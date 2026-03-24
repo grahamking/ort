@@ -64,6 +64,7 @@ pub const FUTEX_WAIT: c_int = 0;
 pub const FUTEX_WAKE: c_int = 1;
 
 pub const SOCK_STREAM: c_int = 1;
+pub const SOCK_DGRAM: c_int = 2;
 pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
 pub const AF_INET: c_int = 2;
 pub const IPPROTO_TCP: i32 = 6;
@@ -111,18 +112,6 @@ pub struct sockaddr_in {
 pub struct sockaddr {
     pub sa_family: sa_family_t,
     pub sa_data: [c_char; 14],
-}
-
-#[repr(C)]
-pub struct addrinfo {
-    pub ai_flags: c_int,
-    pub ai_family: c_int,
-    pub ai_socktype: c_int,
-    pub ai_protocol: c_int,
-    pub ai_addrlen: socklen_t,
-    pub ai_addr: *mut sockaddr_in,
-    pub ai_canonname: *mut c_char,
-    pub ai_next: *mut addrinfo,
 }
 
 // /usr/include/bits/dirent.h
@@ -178,14 +167,6 @@ unsafe extern "C" {
 
     // #define __NR_rt_sigaction 13
     pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;
-
-    pub fn getaddrinfo(
-        node: *const c_char,
-        service: *const c_char,
-        hints: *const addrinfo,
-        res: *mut *mut addrinfo,
-    ) -> c_int;
-    pub fn freeaddrinfo(res: *mut addrinfo);
 
     // #define __NR_socket 41
     pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
