@@ -43,6 +43,7 @@ const SYS_FSTAT: u32 = 5;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_ACCESS: u32 = 21;
+const SYS_SOCKET: u32 = 41;
 const SYS_EXIT: i32 = 60;
 const SYS_MKDIR: u32 = 83;
 const SYS_GETDENTS64: u32 = 217;
@@ -168,8 +169,6 @@ unsafe extern "C" {
     // #define __NR_rt_sigaction 13
     pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;
 
-    // #define __NR_socket 41
-    pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
     // #define __NR_connect 42
     pub fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int;
     // #define __NR_setsockopt 54
@@ -398,6 +397,22 @@ pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'sta
         let _ = close(fd);
         Ok(())
     }
+}
+
+pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> i32 {
+    let mut ret: i32;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_SOCKET => ret,
+            in("edi") domain,
+            in("esi") ty,
+            in("edx") protocol,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
 }
 
 pub fn exit(exit_code: i32) -> ! {

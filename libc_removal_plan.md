@@ -14,10 +14,6 @@ This is easy only because it should stop existing as a public concept. In [`src/
 
 This is the symmetric case to `pthread_attr_init`, and it is equally easy to remove. The current code does not rely on any destructor side effects in [`src/common/thread.rs`](/home/graham/src/ort/src/common/thread.rs#L57); it only calls the function because the pthread API requires it. Once the thread API is no longer modeled after pthread attributes, there is nothing to destroy.
 
-9. `socket`
-
-This is a straight syscall wrapper on x86_64 Linux. The current call site in [`src/net/socket.rs`](/home/graham/src/ort/src/net/socket.rs#L19) already uses a libc-shaped interface, so replacing it means adding `SYS_SOCKET` and an inline-asm wrapper exactly like the existing `read`, `write`, and `open` wrappers in [`src/libc.rs`](/home/graham/src/ort/src/libc.rs#L245). There is very little hidden behavior here.
-
 10. `connect`
 
 `connect` is the same class of work as `socket`: just add `SYS_CONNECT` and a typed wrapper that preserves the current signature used in [`src/net/socket.rs`](/home/graham/src/ort/src/net/socket.rs#L27). Because you already build the `sockaddr_in` manually, libc is not contributing any address marshalling here. The replacement is almost entirely mechanical.

@@ -36,7 +36,7 @@ const DNS_PACKET_SUFFIX: [u8; 4] = [
 /// System programming is for everyone
 pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
     // socket
-    let sock_fd = unsafe { libc::socket(AF_INET, SOCK_DGRAM, 0) };
+    let sock_fd = libc::socket(AF_INET, SOCK_DGRAM, 0);
     if sock_fd <= 0 {
         return Err(ort_error(ErrorKind::DnsResolveFailed, "socket failed"));
     }

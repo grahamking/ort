@@ -16,7 +16,7 @@ pub struct TcpSocket {
 
 impl TcpSocket {
     pub fn new() -> OrtResult<Self> {
-        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
         if fd == -1 {
             return Err(ort_error(ErrorKind::SocketCreateFailed, ""));
         }

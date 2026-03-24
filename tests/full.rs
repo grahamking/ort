@@ -31,7 +31,8 @@ fn test_hello() {
     const MODEL: &str = "openai/gpt-oss-20b";
     let mut out = Vec::new();
 
-    let args: Vec<String> = ["ort", "-m", MODEL, "-r", "low", "Hello"]
+    // Need "-p latency" to avoid Chutes which can be very slow
+    let args: Vec<String> = ["ort", "-m", MODEL, "-p", "latency", "-r", "low", "Hello"]
         .into_iter()
         .map(|s| s.to_string())
         .collect();
