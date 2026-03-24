@@ -55,13 +55,11 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
     };
     let addr_len = size_of::<libc::sockaddr_in>() as libc::socklen_t;
 
-    let res = unsafe {
-        libc::connect(
-            sock_fd,
-            &addr as *const _ as *const libc::sockaddr,
-            addr_len,
-        )
-    };
+    let res = libc::connect(
+        sock_fd,
+        &addr as *const _ as *const libc::sockaddr,
+        addr_len,
+    );
     if res < 0 {
         return Err(ort_error(ErrorKind::DnsResolveFailed, "connect failed"));
     }

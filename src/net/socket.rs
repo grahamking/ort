@@ -27,8 +27,7 @@ impl TcpSocket {
     pub fn connect(&self, addr: &SocketAddrV4) -> OrtResult<()> {
         let c_addr = socket_addr_v4_to_c(addr);
         let len = size_of::<libc::sockaddr_in>() as libc::socklen_t;
-        let res =
-            unsafe { libc::connect(self.fd, &c_addr as *const _ as *const libc::sockaddr, len) };
+        let res = libc::connect(self.fd, &c_addr as *const _ as *const libc::sockaddr, len);
         if res == -1 {
             return Err(ort_error(ErrorKind::SocketConnectFailed, ""));
         }
