@@ -63,38 +63,18 @@ pub fn run<W: Write + Send>(
     let is_quiet = opts.quiet.unwrap_or_default();
     //let model_name = opts.common.model.clone().unwrap();
 
-    let queue = ResponseQueue::new();
-
-    let mut tids = vec![];
-    if settings.save_to_file {
-        let consumer_last = queue.consumer();
-        let thread_params = Box::new(LastWriterThreadParams {
-            opts: opts.clone(),
-            messages: messages.clone(),
-            consumer_last,
-        });
-        unsafe {
-            match ort_thread::spawn(
-                last_writer_thread,
-                Box::into_raw(thread_params) as *mut c_void,
-            ) {
-                Ok(tid) => {
-                    tids.push(tid);
-                }
-                Err(err) => {
-                    print_string(c"Spawning last_writer_thread failed: ", &err.as_string());
-                }
-            }
-        }
-    }
-
     let mut output_writer: Box<dyn OutputWriter> = if is_pipe_output {
         Box::new(FileWriter::new(w_core, show_reasoning, is_quiet))
     } else {
         Box::new(ConsoleWriter::new(w_core, show_reasoning, is_quiet))
     };
 
-    let output_queue = queue.clone();
+    let mut last_writer = if settings.save_to_file {
+        Some(LastWriter::new(opts.clone(), messages.clone())?)
+    } else {
+        None
+    };
+
     let prompt_cancel_token = cancel_token;
     let params = PromptThreadParams {
         api_key: api_key.to_string(),
@@ -103,7 +83,7 @@ pub fn run<W: Write + Send>(
         opts,
         messages,
         model_idx: 0,
-        queue,
+        queue: ResponseQueue::new(),
         site,
     };
     let mut active_prompt = ActivePrompt::new(params);
@@ -116,7 +96,9 @@ pub fn run<W: Write + Send>(
             Ok(out) => {
                 for event in out {
                     output_writer.write(event.clone())?;
-                    output_queue.add(event);
+                    if let Some(lw) = last_writer.as_mut() {
+                        lw.write(event)?;
+                    }
                 }
             }
             Err(err) => {
@@ -127,19 +109,16 @@ pub fn run<W: Write + Send>(
 
     if cancel_token.is_cancelled() {
         // Probaby user did Ctrl-C
-        output_queue.add(Response::Error("Interrupted".to_string()));
+        output_writer.write(Response::Error("Interrupted".to_string()))?;
     } else {
         // Clean finish, send stats
         let stats = active_prompt.stop();
-        output_writer.write(Response::Stats(stats.clone()))?;
-        output_queue.add(Response::Stats(stats));
-
+        output_writer.write(Response::Stats(stats))?;
         output_writer.stop()?; // prints stats
-    }
-    output_queue.close();
-
-    for tid in tids {
-        unsafe { libc::pthread_join(tid, ptr::null_mut()) };
+        // Finalize JSON
+        if let Some(lw) = last_writer.as_mut() {
+            lw.stop()?;
+        }
     }
 
     Ok(())
@@ -692,27 +671,6 @@ extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
                     .add("--- ".to_string() + &params.model_name + ": " + &err_str);
             }
         }
-    }
-    ptr::null_mut()
-}
-
-struct LastWriterThreadParams {
-    opts: PromptOpts,
-    messages: Vec<Message>,
-    consumer_last: ResponseConsumer,
-}
-
-extern "C" fn last_writer_thread(arg: *mut c_void) -> *mut c_void {
-    let params = unsafe { Box::from_raw(arg as *mut LastWriterThreadParams) };
-    let mut last_writer = match LastWriter::new(params.opts, params.messages) {
-        Ok(lw) => lw,
-        Err(err) => {
-            print_string(c"last_writer_thread LastWriter::new: ", &err.as_string());
-            return ptr::null_mut();
-        }
-    };
-    if let Err(err) = last_writer.run(params.consumer_last) {
-        print_string(c"last_writer_thread last_writer.run: ", &err.as_string());
     }
     ptr::null_mut()
 }

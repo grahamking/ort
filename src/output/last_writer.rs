@@ -8,9 +8,10 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
+use crate::output::writer::OutputWriter;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, Write, common::config,
-    common::file, common::queue, common::stats, common::utils,
+    common::file, common::utils,
 };
 use crate::{Role, ort_error};
 
@@ -23,6 +24,8 @@ const TOKEN_MEM_BUFFER: usize = 1024;
 pub struct LastWriter {
     w: file::File,
     data: LastData,
+    buffer: [u8; TOKEN_MEM_BUFFER + 64],
+    buf_idx: usize,
 }
 
 impl LastWriter {
@@ -38,76 +41,78 @@ impl LastWriter {
         let last_file =
             unsafe { file::File::create(&last_path[..end + 1]).context("create last file")? };
         let data = LastData { opts, messages };
-        Ok(LastWriter { data, w: last_file })
+        Ok(LastWriter {
+            data,
+            w: last_file,
+            buffer: [0u8; TOKEN_MEM_BUFFER + 64],
+            buf_idx: 0,
+        })
     }
+}
 
-    /// Received queue messages and stream response to disk.
-    pub fn run<const N: usize>(
-        &mut self,
-        mut rx: queue::Consumer<Response, N>,
-    ) -> OrtResult<stats::Stats> {
-        //let mut contents = String::with_capacity(TOKEN_MEM_BUFFER + 64);
-        let mut buffer = [0u8; TOKEN_MEM_BUFFER + 64];
-        let mut buf_idx = 0;
-        while let Some(data) = rx.get_next() {
-            match data {
-                Response::Start => {
-                    // Includes opening '{' for whole object
-                    self.w.write_str("{\"messages\":")?;
+impl OutputWriter for LastWriter {
+    /// Received messages and stream response to disk.
+    fn write(&mut self, data: Response) -> OrtResult<()> {
+        match data {
+            Response::Start => {
+                // Includes opening '{' for whole object
+                self.w.write_str("{\"messages\":")?;
 
-                    // Write the initial messages (system, user)
-                    self.w.write_char('[')?;
-                    for (i, msg) in self.data.messages.iter().enumerate() {
-                        if i != 0 {
-                            self.w.write_char(',')?;
-                        }
-                        crate::input::to_json::write_json(msg, &mut self.w)?;
+                // Write the initial messages (system, user)
+                self.w.write_char('[')?;
+                for (i, msg) in self.data.messages.iter().enumerate() {
+                    if i != 0 {
+                        self.w.write_char(',')?;
                     }
+                    crate::input::to_json::write_json(msg, &mut self.w)?;
+                }
 
-                    // Setup streaming for the response message
-                    self.w.write_char(',')?;
-                    self.w.write_str("{\"role\":")?;
-                    crate::input::to_json::write_json_str_simple(
+                // Setup streaming for the response message
+                self.w.write_char(',')?;
+                self.w.write_str("{\"role\":")?;
+                crate::input::to_json::write_json_str_simple(
+                    &mut self.w,
+                    Role::Assistant.as_str(),
+                )?;
+                self.w.write_str(",\"content\":\"")?;
+            }
+            Response::Think(_) => {}
+            Response::Content(content) => {
+                let b = content.as_bytes();
+                let end = self.buf_idx + b.len();
+                self.buffer[self.buf_idx..end].copy_from_slice(b);
+                self.buf_idx = end;
+
+                if self.buffer.len() >= TOKEN_MEM_BUFFER {
+                    crate::input::to_json::write_encoded_bytes(
                         &mut self.w,
-                        Role::Assistant.as_str(),
+                        &self.buffer[..self.buf_idx],
                     )?;
-                    self.w.write_str(",\"content\":\"")?;
-                }
-                Response::Think(_) => {}
-                Response::Content(content) => {
-                    let b = content.as_bytes();
-                    let end = buf_idx + b.len();
-                    buffer[buf_idx..end].copy_from_slice(b);
-                    buf_idx = end;
-
-                    if buffer.len() >= TOKEN_MEM_BUFFER {
-                        crate::input::to_json::write_encoded_bytes(
-                            &mut self.w,
-                            &buffer[..buf_idx],
-                        )?;
-                        buf_idx = 0;
-                    }
-                }
-                Response::Stats(stats) => {
-                    self.data.opts.provider = Some(utils::slug(stats.provider()));
-                }
-                Response::Error(_err) => {
-                    return Err(ort_error(
-                        ErrorKind::LastWriterError,
-                        "LastWriter run error",
-                    ));
-                }
-                Response::None => {
-                    return Err(ort_error(
-                        ErrorKind::QueueDesync,
-                        "Response::None means we read the wrong Queue position",
-                    ));
+                    self.buf_idx = 0;
                 }
             }
+            Response::Stats(stats) => {
+                self.data.opts.provider = Some(utils::slug(stats.provider()));
+            }
+            Response::Error(_err) => {
+                return Err(ort_error(
+                    ErrorKind::LastWriterError,
+                    "LastWriter run error",
+                ));
+            }
+            Response::None => {
+                return Err(ort_error(
+                    ErrorKind::QueueDesync,
+                    "Response::None means we read the wrong Queue position",
+                ));
+            }
         }
+        Ok(())
+    }
 
+    fn stop(&mut self) -> OrtResult<()> {
         // Write final contents
-        crate::input::to_json::write_encoded_bytes(&mut self.w, &buffer[..buf_idx])?;
+        crate::input::to_json::write_encoded_bytes(&mut self.w, &self.buffer[..self.buf_idx])?;
 
         // close the contents message and messages array
         self.w.write_str("\"}]")?;
@@ -118,7 +123,7 @@ impl LastWriter {
         self.w.write_char('}')?; // End of whole object
         let _ = self.w.flush();
 
-        Ok(stats::Stats::default()) // Stats is not used
+        Ok(())
     }
 }
 
@@ -130,7 +135,11 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{LastData, ThinkEvent, common::queue, utils::num_to_string};
+    use crate::{
+        LastData, ThinkEvent,
+        common::{queue, stats},
+        utils::num_to_string,
+    };
 
     #[test]
     fn test_run_success() {
@@ -147,10 +156,15 @@ mod tests {
             Err(err) => panic!("{}", err.as_string()),
         };
         let data = LastData { opts, messages };
-        let mut writer = LastWriter { w: file, data };
+        let mut writer = LastWriter {
+            w: file,
+            data,
+            buffer: [0u8; TOKEN_MEM_BUFFER + 64],
+            buf_idx: 0,
+        };
 
         let q = queue::Queue::<Response, 512>::new();
-        let rx = q.consumer();
+        let mut rx = q.consumer();
 
         q.add(Response::Start);
         q.add(Response::Think(ThinkEvent::Start));
@@ -170,11 +184,16 @@ mod tests {
         }));
         q.close();
 
-        let got_stats = match writer.run(rx) {
-            Ok(stats) => stats,
-            Err(err) => panic!("{}", err.as_string()),
-        };
-        assert_eq!(got_stats.provider, "");
+        while let Some(event) = rx.get_next() {
+            writer
+                .write(event)
+                .map_err(|err| panic!("LastWriter::write failed: {}", err.as_string()))
+                .unwrap();
+        }
+        writer
+            .stop()
+            .map_err(|err| panic!("LastWriter::stop failed: {}", err.as_string()))
+            .unwrap();
 
         let json = utils::filename_read_to_string(TEST_PATH).unwrap();
         let data = LastData::from_json(&json).unwrap();
