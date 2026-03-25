@@ -47,163 +47,202 @@ const SPINNER: [&[u8]; 4] = [
 
 const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
+pub trait OutputWriter {
+    fn write(&mut self, data: Response) -> OrtResult<()>;
+    fn stop(&mut self) -> OrtResult<()>;
+}
+
 pub struct ConsoleWriter<W: Write + Send> {
     pub writer: W, // Must handle ANSI control chars
     pub show_reasoning: bool,
+    pub is_quiet: bool,
+    pub is_running: bool,
+    pub is_first_content: bool,
+    pub spindx: usize,
+    pub stats_out: Option<stats::Stats>,
 }
 
 impl<W: Write + Send> ConsoleWriter<W> {
-    pub fn into_inner(self) -> W {
-        self.writer
-    }
-    pub fn run<const N: usize>(
-        &mut self,
-        mut rx: queue::Consumer<Response, N>,
-    ) -> OrtResult<stats::Stats> {
-        let _ = self.writer.write(MSG_CONNECTING);
-        let _ = self.writer.flush();
-
-        let mut is_first_content = true;
-        let mut spindx = 0;
-        let mut stats_out = None;
-        while let Some(data) = rx.get_next() {
-            match data {
-                Response::Start => {
-                    let _ = self.writer.write(MSG_PROCESSING);
-                    let _ = self.writer.flush();
-                }
-                Response::Think(think) => {
-                    if self.show_reasoning {
-                        match think {
-                            ThinkEvent::Start => {
-                                let _ = self.writer.write(MSG_THINK_TAG_START);
-                            }
-                            ThinkEvent::Content(s) => {
-                                let _ = self.writer.write_all(s.as_bytes());
-                                let _ = self.writer.flush();
-                            }
-                            ThinkEvent::Stop => {
-                                let _ = self.writer.write(MSG_THINK_TAG_END);
-                            }
-                        }
-                    } else {
-                        match think {
-                            ThinkEvent::Start => {
-                                let _ = self.writer.write(MSG_THINKING);
-                                let _ = self.writer.flush();
-                            }
-                            ThinkEvent::Content(_) => {
-                                let _ = self.writer.write(SPINNER[spindx % SPINNER.len()]);
-                                let _ = self.writer.flush();
-                                spindx += 1;
-                            }
-                            ThinkEvent::Stop => {}
-                        }
-                    }
-                }
-                Response::Content(content) => {
-                    if is_first_content {
-                        // Erase the Processing or Thinking line
-                        let _ = self.writer.write(MSG_CLEAR_LINE);
-                        is_first_content = false;
-                    }
-                    let _ = self.writer.write_all(content.as_bytes());
-                    let _ = self.writer.flush();
-                }
-                Response::Stats(stats) => {
-                    stats_out = Some(stats);
-                }
-                Response::Error(err_string) => {
-                    let _ = self.writer.write(CURSOR_ON);
-                    let _ = self.writer.flush();
-                    if err_string.contains(ERR_RATE_LIMITED) {
-                        return Err(ort_error(ErrorKind::RateLimited, ""));
-                    }
-                    utils::print_string(c"\nERROR: ", &err_string);
-                    return Err(ort_error(
-                        ErrorKind::ResponseStreamError,
-                        "OpenRouter returned an error",
-                    ));
-                }
-                Response::None => {
-                    panic!("Response::None means we read the wrong Queue position");
-                }
-            }
+    pub fn new(writer: W, show_reasoning: bool, is_quiet: bool) -> ConsoleWriter<W> {
+        ConsoleWriter {
+            writer,
+            show_reasoning,
+            is_quiet,
+            is_running: false,
+            is_first_content: true,
+            spindx: 0,
+            stats_out: None,
         }
+    }
+}
 
+impl<W: Write + Send> OutputWriter for ConsoleWriter<W> {
+    fn stop(&mut self) -> OrtResult<()> {
         let _ = self.writer.write(CURSOR_ON);
         let _ = self.writer.flush();
 
-        let Some(stats) = stats_out else {
+        let _ = self.writer.write(b"\n");
+        let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        Ok(stats)
+        if !self.is_quiet {
+            let _ = self.writer.write("\nStats: ".as_bytes());
+            let _ = self.writer.write(stats.as_string().as_bytes());
+            let _ = self.writer.write_char('\n');
+        }
+
+        Ok(())
+    }
+
+    fn write(&mut self, data: Response) -> OrtResult<()> {
+        if !self.is_running {
+            let _ = self.writer.write(MSG_CONNECTING);
+            let _ = self.writer.flush();
+            self.is_running = true;
+        }
+
+        match data {
+            Response::Start => {
+                let _ = self.writer.write(MSG_PROCESSING);
+                let _ = self.writer.flush();
+            }
+            Response::Think(think) => {
+                if self.show_reasoning {
+                    match think {
+                        ThinkEvent::Start => {
+                            let _ = self.writer.write(MSG_THINK_TAG_START);
+                        }
+                        ThinkEvent::Content(s) => {
+                            let _ = self.writer.write_all(s.as_bytes());
+                            let _ = self.writer.flush();
+                        }
+                        ThinkEvent::Stop => {
+                            let _ = self.writer.write(MSG_THINK_TAG_END);
+                        }
+                    }
+                } else {
+                    match think {
+                        ThinkEvent::Start => {
+                            let _ = self.writer.write(MSG_THINKING);
+                            let _ = self.writer.flush();
+                        }
+                        ThinkEvent::Content(_) => {
+                            let _ = self.writer.write(SPINNER[self.spindx % SPINNER.len()]);
+                            let _ = self.writer.flush();
+                            self.spindx += 1;
+                        }
+                        ThinkEvent::Stop => {}
+                    }
+                }
+            }
+            Response::Content(content) => {
+                if self.is_first_content {
+                    // Erase the Processing or Thinking line
+                    let _ = self.writer.write(MSG_CLEAR_LINE);
+                    self.is_first_content = false;
+                }
+                let _ = self.writer.write_all(content.as_bytes());
+                let _ = self.writer.flush();
+            }
+            Response::Stats(stats) => {
+                self.stats_out = Some(stats);
+            }
+            Response::Error(err_string) => {
+                let _ = self.writer.write(CURSOR_ON);
+                let _ = self.writer.flush();
+                if err_string.contains(ERR_RATE_LIMITED) {
+                    return Err(ort_error(ErrorKind::RateLimited, ""));
+                }
+                utils::print_string(c"\nERROR: ", &err_string);
+                return Err(ort_error(
+                    ErrorKind::ResponseStreamError,
+                    "OpenRouter returned an error",
+                ));
+            }
+            Response::None => {
+                panic!("Response::None means we read the wrong Queue position");
+            }
+        }
+
+        Ok(())
     }
 }
 
 pub struct FileWriter<W: Write + Send> {
     pub writer: W,
     pub show_reasoning: bool,
+    pub is_quiet: bool,
+    pub stats_out: Option<stats::Stats>,
 }
 
 impl<W: Write + Send> FileWriter<W> {
-    pub fn into_inner(self) -> W {
-        self.writer
+    pub fn new(writer: W, show_reasoning: bool, is_quiet: bool) -> FileWriter<W> {
+        FileWriter {
+            writer,
+            show_reasoning,
+            is_quiet,
+            stats_out: None,
+        }
     }
-    pub fn run<const N: usize>(
-        &mut self,
-        mut rx: queue::Consumer<Response, N>,
-    ) -> OrtResult<stats::Stats> {
-        let mut stats_out = None;
-        while let Some(data) = rx.get_next() {
-            match data {
-                Response::Start => {}
-                Response::Think(think) => {
-                    if self.show_reasoning {
-                        match think {
-                            ThinkEvent::Start => {
-                                let _ = self.writer.write("<think>".as_bytes());
-                            }
-                            ThinkEvent::Content(s) => {
-                                let _ = self.writer.write_all(s.as_bytes());
-                            }
-                            ThinkEvent::Stop => {
-                                let _ = self.writer.write("</think>\n\n".as_bytes());
-                            }
+}
+
+impl<W: Write + Send> OutputWriter for FileWriter<W> {
+    fn write(&mut self, data: Response) -> OrtResult<()> {
+        match data {
+            Response::Start => {}
+            Response::Think(think) => {
+                if self.show_reasoning {
+                    match think {
+                        ThinkEvent::Start => {
+                            let _ = self.writer.write("<think>".as_bytes());
+                        }
+                        ThinkEvent::Content(s) => {
+                            let _ = self.writer.write_all(s.as_bytes());
+                        }
+                        ThinkEvent::Stop => {
+                            let _ = self.writer.write("</think>\n\n".as_bytes());
                         }
                     }
                 }
-                Response::Content(content) => {
-                    let _ = self.writer.write_all(content.as_bytes());
+            }
+            Response::Content(content) => {
+                let _ = self.writer.write_all(content.as_bytes());
+            }
+            Response::Stats(stats) => {
+                self.stats_out = Some(stats);
+            }
+            Response::Error(mut err_string) => {
+                if err_string.contains(ERR_RATE_LIMITED) {
+                    return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
-                Response::Stats(stats) => {
-                    stats_out = Some(stats);
-                }
-                Response::Error(mut err_string) => {
-                    if err_string.contains(ERR_RATE_LIMITED) {
-                        return Err(ort_error(ErrorKind::RateLimited, ""));
-                    }
-                    let c_s =
-                        CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                    libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                    return Err(ort_error(
-                        ErrorKind::ResponseStreamError,
-                        "OpenRouter returned an error",
-                    ));
-                }
-                Response::None => {
-                    return Err(ort_error(
-                        ErrorKind::QueueDesync,
-                        "Response::None means we read the wrong Queue position",
-                    ));
-                }
+                let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
+                libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                return Err(ort_error(
+                    ErrorKind::ResponseStreamError,
+                    "OpenRouter returned an error",
+                ));
+            }
+            Response::None => {
+                return Err(ort_error(
+                    ErrorKind::QueueDesync,
+                    "Response::None means we read the wrong Queue position",
+                ));
             }
         }
+        Ok(())
+    }
 
-        let Some(stats) = stats_out else {
+    fn stop(&mut self) -> OrtResult<()> {
+        let _ = self.writer.write(b"\n");
+        let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        Ok(stats)
+        if !self.is_quiet {
+            let _ = self.writer.write("\nStats: ".as_bytes());
+            let _ = self.writer.write(stats.as_string().as_bytes());
+            let _ = self.writer.write_char('\n');
+        }
+        Ok(())
     }
 }
 

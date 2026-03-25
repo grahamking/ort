@@ -35,7 +35,7 @@ use crate::common::{buf_read, config};
 use crate::libc;
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
-use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter};
+use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
 use crate::utils::print_string;
 use crate::{CancelToken, http, thread as ort_thread};
 use crate::{ErrorKind, LastData};
@@ -65,32 +65,7 @@ pub fn run<W: Write + Send>(
 
     let queue = ResponseQueue::new();
 
-    // Start network connection before almost anything else, this takes time
-
-    let consumer_stdout = queue.consumer();
-
     let mut tids = vec![];
-    let thread_params = Box::new(SingleRunnerThreadParams {
-        w_core,
-        consumer_stdout,
-        is_pipe_output,
-        show_reasoning,
-        is_quiet,
-    });
-    unsafe {
-        match ort_thread::spawn(
-            single_runner_thread::<W>,
-            Box::into_raw(thread_params) as *mut c_void,
-        ) {
-            Ok(tid) => {
-                tids.push(tid);
-            }
-            Err(err) => {
-                print_string(c"Spawning single_runner_thread failed: ", &err.as_string());
-            }
-        }
-    }
-
     if settings.save_to_file {
         let consumer_last = queue.consumer();
         let thread_params = Box::new(LastWriterThreadParams {
@@ -113,6 +88,12 @@ pub fn run<W: Write + Send>(
         }
     }
 
+    let mut output_writer: Box<dyn OutputWriter> = if is_pipe_output {
+        Box::new(FileWriter::new(w_core, show_reasoning, is_quiet))
+    } else {
+        Box::new(ConsoleWriter::new(w_core, show_reasoning, is_quiet))
+    };
+
     let output_queue = queue.clone();
     let prompt_cancel_token = cancel_token;
     let params = PromptThreadParams {
@@ -133,8 +114,9 @@ pub fn run<W: Write + Send>(
                 break;
             }
             Ok(out) => {
-                for resp in out {
-                    output_queue.add(resp);
+                for event in out {
+                    output_writer.write(event.clone())?;
+                    output_queue.add(event);
                 }
             }
             Err(err) => {
@@ -149,7 +131,10 @@ pub fn run<W: Write + Send>(
     } else {
         // Clean finish, send stats
         let stats = active_prompt.stop();
+        output_writer.write(Response::Stats(stats.clone()))?;
         output_queue.add(Response::Stats(stats));
+
+        output_writer.stop()?; // prints stats
     }
     output_queue.close();
 
@@ -708,59 +693,6 @@ extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
             }
         }
     }
-    ptr::null_mut()
-}
-
-struct SingleRunnerThreadParams<W: Write + Send> {
-    w_core: W,
-    consumer_stdout: ResponseConsumer,
-    is_pipe_output: bool,
-    show_reasoning: bool,
-    is_quiet: bool,
-}
-
-extern "C" fn single_runner_thread<W: Write + Send>(arg: *mut c_void) -> *mut c_void {
-    let params = unsafe { Box::from_raw(arg as *mut SingleRunnerThreadParams<W>) };
-
-    let (stats, mut w_core) = if params.is_pipe_output {
-        let mut fw = FileWriter {
-            writer: params.w_core,
-            show_reasoning: params.show_reasoning,
-        };
-        let stats = match fw.run(params.consumer_stdout) {
-            Ok(stats) => stats,
-            Err(err) => {
-                print_string(c"single_runner_thread FileWriter,run: ", &err.as_string());
-                return ptr::null_mut();
-            }
-        };
-        let w_core = fw.into_inner();
-        (stats, w_core)
-    } else {
-        let mut cw = ConsoleWriter {
-            writer: params.w_core,
-            show_reasoning: params.show_reasoning,
-        };
-        let stats = match cw.run(params.consumer_stdout) {
-            Ok(stats) => stats,
-            Err(err) => {
-                print_string(
-                    c"single_runner_thread ConsoleWriter.run: ",
-                    &err.as_string(),
-                );
-                return ptr::null_mut();
-            }
-        };
-        let w_core = cw.into_inner();
-        (stats, w_core)
-    };
-    let _ = w_core.write(b"\n");
-    if !params.is_quiet {
-        let _ = w_core.write("\nStats: ".as_bytes());
-        let _ = w_core.write(stats.as_string().as_bytes());
-        let _ = w_core.write_char('\n');
-    }
-
     ptr::null_mut()
 }
 
