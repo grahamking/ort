@@ -35,6 +35,12 @@ impl TcpSocket {
     }
 }
 
+impl super::AsFd for TcpSocket {
+    fn as_fd(&self) -> i32 {
+        self.fd
+    }
+}
+
 impl Read for TcpSocket {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());

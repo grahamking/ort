@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{ErrorKind, OrtResult, Read, ort_error};
+use crate::{ErrorKind, OrtResult, Read, net::AsFd, ort_error};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -20,6 +20,12 @@ pub struct OrtBufReader<R: Read> {
     buf: [u8; BUF_SIZE],
     pos: usize, // index of next unread byte in `buf`
     cap: usize, // number of bytes currently in `buf`
+}
+
+impl<T: Read + AsFd> AsFd for OrtBufReader<T> {
+    fn as_fd(&self) -> i32 {
+        self.inner.as_fd()
+    }
 }
 
 impl<R: Read> Read for OrtBufReader<R> {

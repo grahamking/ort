@@ -17,6 +17,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::net::AsFd as _;
 use crate::{Context as _, TcpSocket, TlsStream};
 
 use crate::ChatCompletionsResponse;
@@ -430,6 +431,9 @@ impl ActivePrompt {
                 return Err(ort_error(ErrorKind::Other, "running chat_completions"));
             }
         };
+
+        // TODO: We will epoll this
+        let _fd = self.reader.as_ref().unwrap().as_fd();
 
         match http::skip_header(self.reader.as_mut().unwrap()) {
             Ok(true) => {

@@ -14,7 +14,9 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, libc, ort_error};
+use crate::{
+    Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, libc, net::AsFd, ort_error,
+};
 
 mod aead;
 mod ecdh;
@@ -661,6 +663,12 @@ impl<T: Read + Write> Read for TlsStream<T> {
             }
             return Ok(n);
         }
+    }
+}
+
+impl<T: Read + Write + AsFd> AsFd for TlsStream<T> {
+    fn as_fd(&self) -> i32 {
+        self.io.as_fd()
     }
 }
 
