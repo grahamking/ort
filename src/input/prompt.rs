@@ -17,12 +17,11 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::Context as _;
+use crate::{Context as _, TcpSocket, TlsStream};
 
 use crate::ChatCompletionsResponse;
 use crate::OrtResult;
 use crate::build_body;
-use crate::common::config;
 use crate::common::dir;
 use crate::common::file;
 use crate::common::io::Write;
@@ -32,6 +31,7 @@ use crate::common::site::Site;
 use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
+use crate::common::{buf_read, config};
 use crate::libc;
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
@@ -63,19 +63,11 @@ pub fn run<W: Write + Send>(
     let is_quiet = opts.quiet.unwrap_or_default();
     //let model_name = opts.common.model.clone().unwrap();
 
+    let queue = ResponseQueue::new();
+
     // Start network connection before almost anything else, this takes time
-    let queue = start_prompt_thread(
-        api_key,
-        cancel_token,
-        settings.dns,
-        opts.clone(),
-        site,
-        messages.clone(),
-        0,
-    );
 
     let consumer_stdout = queue.consumer();
-    let consumer_last = queue.consumer();
 
     let mut tids = vec![];
     let thread_params = Box::new(SingleRunnerThreadParams {
@@ -100,9 +92,10 @@ pub fn run<W: Write + Send>(
     }
 
     if settings.save_to_file {
+        let consumer_last = queue.consumer();
         let thread_params = Box::new(LastWriterThreadParams {
-            opts,
-            messages,
+            opts: opts.clone(),
+            messages: messages.clone(),
             consumer_last,
         });
         unsafe {
@@ -119,6 +112,46 @@ pub fn run<W: Write + Send>(
             }
         }
     }
+
+    let output_queue = queue.clone();
+    let prompt_cancel_token = cancel_token;
+    let params = PromptThreadParams {
+        api_key: api_key.to_string(),
+        cancel_token: prompt_cancel_token,
+        dns: settings.dns,
+        opts,
+        messages,
+        model_idx: 0,
+        queue,
+        site,
+    };
+    let mut active_prompt = ActivePrompt::new(params);
+    active_prompt.start()?;
+    loop {
+        match active_prompt.next() {
+            Ok(out) if out.is_empty() => {
+                break;
+            }
+            Ok(out) => {
+                for resp in out {
+                    output_queue.add(resp);
+                }
+            }
+            Err(err) => {
+                utils::print_string(c"active_prompt.next: ", &err.as_string());
+            }
+        }
+    }
+
+    if cancel_token.is_cancelled() {
+        // Probaby user did Ctrl-C
+        output_queue.add(Response::Error("Interrupted".to_string()));
+    } else {
+        // Clean finish, send stats
+        let stats = active_prompt.stop();
+        output_queue.add(Response::Stats(stats));
+    }
+    output_queue.close();
 
     for tid in tids {
         unsafe { libc::pthread_join(tid, ptr::null_mut()) };
@@ -328,233 +361,323 @@ pub fn start_prompt_thread(
     queue_clone
 }
 
+struct ActivePrompt {
+    api_key: String,
+    cancel_token: CancelToken,
+    dns: Vec<String>,
+    // Note we do not use the prompt from here, it should be in `messages` by now
+    opts: PromptOpts,
+    site: &'static Site,
+    messages: Vec<Message>,
+    // When running multiple models, this thread should use this one
+    model_idx: usize,
+
+    reader: Option<buf_read::OrtBufReader<TlsStream<TcpSocket>>>,
+
+    stats: stats::Stats,
+    tsc_calibration: time::TscCalibration,
+    token_stream_start: Option<time::Ticks>,
+    start: Option<time::Ticks>,
+    num_tokens: usize,
+    is_start: bool,
+    is_first_reasoning: bool,
+    is_first_content: bool,
+    line_buf: String,
+}
+
+impl ActivePrompt {
+    pub fn new(params: PromptThreadParams) -> Self {
+        ActivePrompt {
+            api_key: params.api_key,
+            cancel_token: params.cancel_token,
+            dns: params.dns,
+            site: params.site,
+            messages: params.messages,
+            model_idx: params.model_idx,
+            reader: None,
+            stats: Stats {
+                // Default the model to the passed one, in case provider stats don't include it
+                used_model: params
+                    .opts
+                    .models
+                    .get(params.model_idx)
+                    .cloned()
+                    .expect("Missing model name"),
+                // Provider doesn't make sense for build.nvidia.com
+                provider: params.site.name.to_string(),
+                ..Default::default()
+            },
+            tsc_calibration: match time::tsc_calibration() {
+                Ok(tc) => tc,
+                Err(err) => {
+                    print_string(c"FATAL running tsc_calibration: ", &err.as_string());
+                    panic!("FATAL running tsc_calibration: {}", err.as_string());
+                }
+            },
+            opts: params.opts,
+            token_stream_start: None,
+            start: None,
+            num_tokens: 0,
+            is_start: true,
+            is_first_reasoning: true,
+            is_first_content: true,
+            line_buf: String::with_capacity(1024),
+        }
+    }
+
+    /// Start the HTTP request
+    pub fn start(&mut self) -> OrtResult<()> {
+        let body = match build_body(self.model_idx, &self.opts, &self.messages) {
+            Ok(b) => b,
+            Err(err) => {
+                print_string(c"FATAL: build_body: ", &err.as_string());
+                return Err(ort_error(ErrorKind::Other, "build body"));
+            }
+        };
+        self.start = Some(time::Ticks::now());
+        let addr = if self.dns.is_empty() {
+            let ip = match unsafe { resolver::resolve(self.site.dns_label) } {
+                Ok(ip) => ip,
+                Err(err) => {
+                    print_string(c"FATAL: resolving host: ", &err.as_string());
+                    return Err(ort_error(ErrorKind::DnsResolveFailed, ""));
+                }
+            };
+            SocketAddr::new(IpAddr::V4(ip), self.site.port)
+        } else {
+            self.dns
+                .first()
+                .map(|a| {
+                    let ip_addr = a.parse::<Ipv4Addr>().unwrap();
+                    SocketAddr::new(IpAddr::V4(ip_addr), self.site.port)
+                })
+                .unwrap()
+        };
+        self.reader = match http::chat_completions(
+            &self.api_key,
+            self.site.host,
+            self.site.chat_completions_url,
+            vec![addr],
+            &body,
+        ) {
+            Ok(r) => Some(r),
+            Err(err) => {
+                print_string(c"FATAL running chat_completions: ", &err.as_string());
+                return Err(ort_error(ErrorKind::Other, "running chat_completions"));
+            }
+        };
+
+        match http::skip_header(self.reader.as_mut().unwrap()) {
+            Ok(true) => {
+                // TODO it's transfer encoding chunked, this is the common case
+                // which we don't handle correctly yet
+            }
+            Ok(false) => {
+                // Not chunked encoding. I don't think we ever get here.
+                // But the rest of this function assumes we do.
+            }
+            Err(err) => {
+                print_string(c"FATAL running skip_header: ", &err.as_string());
+                return Err(ort_error(ErrorKind::HttpStatusError, "running skip_header"));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn next(&mut self) -> OrtResult<Vec<Response>> {
+        let mut queue = vec![];
+
+        loop {
+            if self.cancel_token.is_cancelled() {
+                return Ok(queue);
+            }
+
+            self.line_buf.clear();
+            match self.reader.as_mut().unwrap().read_line(&mut self.line_buf) {
+                Ok(0) => {
+                    // EOF
+                    return Ok(queue);
+                }
+                Ok(_) => {
+                    // success
+                }
+                Err(err) => {
+                    queue.push(Response::Error(
+                        "Stream read error: ".to_string() + &err.as_string(),
+                    ));
+                    // TODO: Should we return Err instead?
+                    return Ok(queue);
+                }
+            }
+            let line = self.line_buf.trim();
+            //utils::print_string(c"LINE: ", &line_buf);
+
+            if self.is_start {
+                // Very first message from server, usually
+                // : OPENROUTER PROCESSING
+                queue.push(Response::Start);
+                self.is_start = false;
+                return Ok(queue);
+            }
+
+            // SSE heartbeats and blank lines
+            // TODO: and this skips chunked transfer encoding size lines
+            if line.is_empty() || line.starts_with(':') {
+                continue;
+            }
+            // Skip HTTP headers
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
+            if data == "[DONE]" {
+                return Ok(queue);
+            }
+
+            // Each data: line is a JSON chunk in OpenAI streaming format
+            match ChatCompletionsResponse::from_json(data) {
+                Ok(mut v) => {
+                    // Handle last message which contains the "usage" key
+                    // Do this before getting choices because it's empty on last message.
+                    if let Some(usage) = v.usage {
+                        self.stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
+                        self.stats.provider =
+                            v.provider.expect("Last message was missing provider");
+                        self.stats.used_model = v.model.expect("Last message was missing model");
+                    }
+
+                    // Standard OpenAI stream delta shape
+                    let Some(delta) = v.choices.pop().map(|c| c.delta) else {
+                        continue;
+                    };
+
+                    let has_reasoning = delta
+                        .reasoning
+                        .as_ref()
+                        .map(|x| !x.is_empty())
+                        .unwrap_or(false);
+                    let has_content = delta
+                        .content
+                        .as_ref()
+                        .map(|x| !x.is_empty())
+                        .unwrap_or(false);
+
+                    if !(has_reasoning || has_content) {
+                        continue;
+                    }
+
+                    // Record time to first token
+                    if self.stats.time_to_first_token.is_none() {
+                        let first_token = time::Ticks::now();
+                        self.stats.time_to_first_token = Some(time::elapsed_duration(
+                            self.start.unwrap(),
+                            first_token,
+                            self.tsc_calibration,
+                        ));
+                        self.token_stream_start = Some(time::Ticks::now());
+                    }
+
+                    // Handle reasoning content
+                    if let Some(reasoning_content) = delta.reasoning.as_ref()
+                        && !reasoning_content.is_empty()
+                    {
+                        self.num_tokens += 1;
+                        if self.is_first_reasoning {
+                            if reasoning_content.trim().is_empty() {
+                                // Don't allow starting with carriage return or blank space, that messes up the display
+                                continue;
+                            }
+                            queue.push(Response::Think(ThinkEvent::Start));
+                            self.is_first_reasoning = false;
+                        }
+                        let r_event =
+                            Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
+                        queue.push(r_event);
+                    }
+
+                    // Handle regular content
+                    if let Some(content) = delta.content.as_ref()
+                        && !content.is_empty()
+                    {
+                        self.num_tokens += 1;
+                        if self.is_first_content && content.trim().is_empty() {
+                            // Don't allow starting with carriage return or blank space, that messes up the display
+                            if queue.is_empty() {
+                                continue;
+                            } else {
+                                return Ok(queue);
+                            }
+                        }
+                        // If we signaled the open (!is_first_reasoning)
+                        // and we signaled the close yet (is_first_reasoning),
+                        // signal the close.
+                        if !self.is_first_reasoning && self.is_first_content {
+                            queue.push(Response::Think(ThinkEvent::Stop));
+                            self.is_first_content = false;
+                        }
+                        let r_event = Response::Content(content.to_string());
+                        queue.push(r_event);
+                    }
+                }
+                Err(err) => {
+                    utils::print_string(c"Malformed: ", &err);
+                }
+            }
+
+            return Ok(queue);
+        }
+    }
+
+    pub fn stop(mut self) -> Stats {
+        let now = time::Ticks::now();
+        self.stats.elapsed_time =
+            time::elapsed_duration(self.start.take().unwrap(), now, self.tsc_calibration);
+        let stream_elapsed_time =
+            time::elapsed_duration(self.token_stream_start.unwrap(), now, self.tsc_calibration);
+        self.stats.inter_token_latency_ms =
+            stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
+
+        self.stats
+    }
+}
+
 // extern "C" so that we can call it from `pthread_create`
 extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
     let params = unsafe { Box::from_raw(arg as *mut PromptThreadParams) };
-    let body = match build_body(params.model_idx, &params.opts, &params.messages) {
-        Ok(b) => b,
-        Err(err) => {
-            print_string(c"FATAL: build_body: ", &err.as_string());
-            return ptr::null_mut();
-        }
-    };
-    let start = time::Ticks::now();
-    let addr = if params.dns.is_empty() {
-        let ip = match unsafe { resolver::resolve(params.site.dns_label) } {
-            Ok(ip) => ip,
-            Err(err) => {
-                print_string(c"FATAL: resolving host: ", &err.as_string());
-                return ptr::null_mut();
-            }
-        };
-        SocketAddr::new(IpAddr::V4(ip), params.site.port)
-    } else {
-        params
-            .dns
-            .first()
-            .map(|a| {
-                let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                SocketAddr::new(IpAddr::V4(ip_addr), params.site.port)
-            })
-            .unwrap()
-    };
-    let mut reader = match http::chat_completions(
-        &params.api_key,
-        params.site.host,
-        params.site.chat_completions_url,
-        vec![addr],
-        &body,
-    ) {
-        Ok(r) => r,
-        Err(err) => {
-            print_string(c"FATAL running chat_completions: ", &err.as_string());
-            return ptr::null_mut();
-        }
+    let queue = params.queue.clone();
+    let cancel_token = params.cancel_token;
+
+    let mut active_prompt = ActivePrompt::new(*params);
+    if active_prompt.start().is_err() {
+        // "start()" already logged the error
+        return ptr::null_mut();
     };
 
-    match http::skip_header(&mut reader) {
-        Ok(true) => {
-            // TODO it's transfer encoding chunked, this is the common case
-            // which we don't handle correctly yet
-        }
-        Ok(false) => {
-            // Not chunked encoding. I don't think we ever get here.
-            // But the rest of this function assumes we do.
-        }
-        Err(err) => {
-            params.queue.add(Response::Error(err.as_string()));
-            return ptr::null_mut();
-        }
-    }
-
-    let tsc_calibration = match time::tsc_calibration() {
-        Ok(tc) => tc,
-        Err(err) => {
-            params.queue.add(Response::Error(err.as_string()));
-            return ptr::null_mut();
-        }
-    };
-
-    let mut stats: stats::Stats = Stats {
-        // Default the model to the passed one, in case provider stats don't include it
-        used_model: params
-            .opts
-            .models
-            .get(params.model_idx)
-            .cloned()
-            .expect("Missing model name"),
-        // Provider doesn't make sense for build.nvidia.com
-        provider: params.site.name.to_string(),
-        ..Default::default()
-    };
-    let mut token_stream_start = None;
-    let mut num_tokens = 0;
-    let mut is_start = true;
-    let mut is_first_reasoning = true;
-    let mut is_first_content = true;
-
-    let mut line_buf = String::with_capacity(1024);
     loop {
-        if params.cancel_token.is_cancelled() {
-            break;
-        }
-
-        line_buf.clear();
-        match reader.read_line(&mut line_buf) {
-            Ok(0) => {
-                // EOF
+        match active_prompt.next() {
+            Ok(out) if out.is_empty() => {
                 break;
             }
-            Ok(_) => {
-                // success
-            }
-            Err(err) => {
-                params.queue.add(Response::Error(
-                    "Stream read error: ".to_string() + &err.as_string(),
-                ));
-                break;
-            }
-        }
-        let line = line_buf.trim();
-        //utils::print_string(c"LINE: ", &line_buf);
-
-        if is_start {
-            // Very first message from server, usually
-            // : OPENROUTER PROCESSING
-            params.queue.add(Response::Start);
-            is_start = false;
-        }
-
-        // SSE heartbeats and blank lines
-        // TODO: and this skips chunked transfer encoding size lines
-        if line.is_empty() || line.starts_with(':') {
-            continue;
-        }
-        // Skip HTTP headers
-        let Some(data) = line.strip_prefix("data: ") else {
-            continue;
-        };
-        if data == "[DONE]" {
-            break;
-        }
-
-        // Each data: line is a JSON chunk in OpenAI streaming format
-        match ChatCompletionsResponse::from_json(data) {
-            Ok(mut v) => {
-                // Handle last message which contains the "usage" key
-                // Do this before getting choices because it's empty on last message.
-                if let Some(usage) = v.usage {
-                    stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
-                    stats.provider = v.provider.expect("Last message was missing provider");
-                    stats.used_model = v.model.expect("Last message was missing model");
-                }
-
-                // Standard OpenAI stream delta shape
-                let Some(delta) = v.choices.pop().map(|c| c.delta) else {
-                    continue;
-                };
-
-                let has_reasoning = delta
-                    .reasoning
-                    .as_ref()
-                    .map(|x| !x.is_empty())
-                    .unwrap_or(false);
-                let has_content = delta
-                    .content
-                    .as_ref()
-                    .map(|x| !x.is_empty())
-                    .unwrap_or(false);
-
-                if !(has_reasoning || has_content) {
-                    continue;
-                }
-
-                // Record time to first token
-                if stats.time_to_first_token.is_none() {
-                    let first_token = time::Ticks::now();
-                    stats.time_to_first_token =
-                        Some(time::elapsed_duration(start, first_token, tsc_calibration));
-                    token_stream_start = Some(time::Ticks::now());
-                }
-
-                // Handle reasoning content
-                if let Some(reasoning_content) = delta.reasoning.as_ref()
-                    && !reasoning_content.is_empty()
-                {
-                    num_tokens += 1;
-                    if is_first_reasoning {
-                        if reasoning_content.trim().is_empty() {
-                            // Don't allow starting with carriage return or blank space, that messes up the display
-                            continue;
-                        }
-                        params.queue.add(Response::Think(ThinkEvent::Start));
-                        is_first_reasoning = false;
-                    }
-                    let r_event =
-                        Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
-                    params.queue.add(r_event);
-                }
-
-                // Handle regular content
-                if let Some(content) = delta.content.as_ref()
-                    && !content.is_empty()
-                {
-                    num_tokens += 1;
-                    if is_first_content && content.trim().is_empty() {
-                        // Don't allow starting with carriage return or blank space, that messes up the display
-                        continue;
-                    }
-                    // If we signaled the open (!is_first_reasoning)
-                    // and we signaled the close yet (is_first_reasoning),
-                    // signal the close.
-                    if !is_first_reasoning && is_first_content {
-                        params.queue.add(Response::Think(ThinkEvent::Stop));
-                        is_first_content = false;
-                    }
-                    let r_event = Response::Content(content.to_string());
-                    params.queue.add(r_event);
+            Ok(out) => {
+                for resp in out {
+                    queue.add(resp);
                 }
             }
             Err(err) => {
-                utils::print_string(c"Malformed: ", &err);
+                utils::print_string(c"active_prompt.next: ", &err.as_string());
             }
         }
     }
 
-    if params.cancel_token.is_cancelled() {
+    if cancel_token.is_cancelled() {
         // Probaby user did Ctrl-C
-        params.queue.add(Response::Error("Interrupted".to_string()));
+        queue.add(Response::Error("Interrupted".to_string()));
     } else {
         // Clean finish, send stats
-        let now = time::Ticks::now();
-        stats.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
-        let stream_elapsed_time =
-            time::elapsed_duration(token_stream_start.unwrap(), now, tsc_calibration);
-        stats.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1);
-
-        params.queue.add(Response::Stats(stats));
+        let stats = active_prompt.stop();
+        queue.add(Response::Stats(stats));
     }
-    params.queue.close();
+    queue.close();
 
     ptr::null_mut()
 }
