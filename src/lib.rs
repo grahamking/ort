@@ -20,7 +20,6 @@ pub use common::data::{
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,
 };
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_error};
-pub use common::thread;
 pub use common::utils;
 pub use common::{io::Read, io::Write};
 

@@ -14,7 +14,6 @@ use core::{
     mem::MaybeUninit,
 };
 
-type c_ulong = u64;
 pub type size_t = usize;
 type ssize_t = isize;
 type time_t = i64;
@@ -27,7 +26,6 @@ type uid_t = u32;
 type gid_t = u32;
 type blksize_t = i64;
 type blkcnt_t = i64;
-pub type pthread_t = c_ulong;
 
 pub type socklen_t = u32;
 pub type sa_family_t = u16;
@@ -158,11 +156,6 @@ pub struct Stat {
     __unused: [i64; 3],
 }
 
-#[repr(C)]
-pub struct pthread_attr_t {
-    __size: [u64; 7],
-}
-
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct epoll_event {
@@ -191,21 +184,6 @@ unsafe extern "C" {
         value: *const c_void,
         option_len: socklen_t,
     ) -> c_int;
-
-    pub fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int;
-    pub fn pthread_attr_setstack(
-        attr: *mut pthread_attr_t,
-        stackaddr: *mut c_void,
-        stacksize: size_t,
-    ) -> c_int;
-    pub fn pthread_create(
-        native: *mut pthread_t,
-        attr: *const pthread_attr_t,
-        f: extern "C" fn(*mut c_void) -> *mut c_void,
-        value: *mut c_void,
-    ) -> c_int;
-    pub fn pthread_attr_destroy(attr: *mut pthread_attr_t) -> c_int;
-    pub fn pthread_join(native: pthread_t, value: *mut *mut c_void) -> c_int;
 }
 
 // Fill buf with random numbers.
