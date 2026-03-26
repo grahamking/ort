@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{ErrorKind, OrtResult, Read, TlsStream, Write, net::AsFd, ort_error};
+use crate::{ErrorKind, OrtResult, Read, net::AsFd, ort_error};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -174,11 +174,13 @@ impl<R: Read> OrtBufReader<R> {
     }
 }
 
+/*
 impl<T: Read + Write> OrtBufReader<TlsStream<T>> {
     pub fn has_pending_data(&self) -> bool {
         !self.buffer_consumed() || self.inner.has_buffered_data()
     }
 }
+*/
 
 pub fn fd_read_to_string(fd: c_int, buffer: &mut String) {
     const READ_CHUNK: usize = 64 * 1024;

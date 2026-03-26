@@ -95,47 +95,7 @@ pub fn run<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(params);
     active_prompt.start()?;
 
-    // Now that we have established the TLS connection and parsed the HTTP response headers,
-    // switch the socket to non-blocking
-
-    let socket_fd = active_prompt.as_fd();
-    // technically we should F_GETFL first to get the flags, but we know what they are
-    libc::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
-
-    let epoll_fd = libc::epoll_create(1); // 1 is ignored but must be non-zero
-    if epoll_fd < 0 {
-        return Err(ort_error(ErrorKind::Other, "epoll_create"));
-    }
-    let epoll_fd = EpollFd(epoll_fd);
-
-    let mut event = libc::epoll_event {
-        events: libc::EPOLLIN,
-        data: socket_fd as u64,
-    };
-    if libc::epoll_ctl(epoll_fd.raw(), libc::EPOLL_CTL_ADD, socket_fd, &mut event) < 0 {
-        return Err(ort_error(ErrorKind::Other, "epoll_ctl"));
-    }
-
-    let mut ready_events = [libc::epoll_event { events: 0, data: 0 }];
-
     loop {
-        if !active_prompt.has_pending_data() {
-            let ready = libc::epoll_wait(
-                epoll_fd.raw(),
-                ready_events.as_mut_ptr(),
-                ready_events.len() as i32,
-                EPOLL_WAIT_TIMEOUT_MS,
-            );
-            if ready < 0 || cancel_token.is_cancelled() {
-                // Ctrl-C usually appears as ready < 0
-                // but I'd like the cancel_token to notice
-                break;
-            }
-            if ready == 0 {
-                continue;
-            }
-        }
-
         match active_prompt.next() {
             Ok(out) if out.is_empty() => {
                 break;
@@ -147,13 +107,6 @@ pub fn run<W: Write + Send>(
                         lw.write(event)?;
                     }
                 }
-            }
-            Err(OrtError {
-                kind: ErrorKind::WouldBlock,
-                ..
-            }) => {
-                // we read all the data, back to epoll_wait
-                continue;
             }
             Err(err) => {
                 // TODO? 429 is useful to know about
@@ -327,6 +280,8 @@ pub fn run_multi(
             let active_prompt = &mut active_prompts[evt.data as usize];
             let output_writer = &mut active_writers[evt.data as usize];
             //let name = &names[evt.data as usize];
+
+            // TODO: loop until WouldBlock?
 
             match active_prompt.next() {
                 Ok(out) if out.is_empty() => {
@@ -651,12 +606,14 @@ impl ActivePrompt {
         self.stats.clone()
     }
 
+    /*
     fn has_pending_data(&self) -> bool {
         self.reader
             .as_ref()
             .map(|reader| reader.has_pending_data())
             .unwrap_or(false)
     }
+    */
 }
 
 impl AsFd for ActivePrompt {
