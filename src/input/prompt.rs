@@ -17,7 +17,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::net::AsFd as _;
+use crate::net::AsFd;
 use crate::{Context as _, TcpSocket, TlsStream};
 
 use crate::ChatCompletionsResponse;
@@ -33,7 +33,7 @@ use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
 use crate::common::{buf_read, config};
-use crate::libc;
+use crate::libc::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
@@ -89,6 +89,12 @@ pub fn run<W: Write + Send>(
     };
     let mut active_prompt = ActivePrompt::new(params);
     active_prompt.start()?;
+
+    // now set it non-blocking so we can epoll
+    let _socket_fd = active_prompt.as_fd();
+    // technically we should F_GETFL first to get the flags, but we know what they are
+    //libc::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
+
     loop {
         match active_prompt.next() {
             Ok(out) if out.is_empty() => {
@@ -432,9 +438,6 @@ impl ActivePrompt {
             }
         };
 
-        // TODO: We will epoll this
-        let _fd = self.reader.as_ref().unwrap().as_fd();
-
         match http::skip_header(self.reader.as_mut().unwrap()) {
             Ok(true) => {
                 // TODO it's transfer encoding chunked, this is the common case
@@ -606,6 +609,12 @@ impl ActivePrompt {
             stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
 
         self.stats
+    }
+}
+
+impl AsFd for ActivePrompt {
+    fn as_fd(&self) -> i32 {
+        self.reader.as_ref().unwrap().as_fd()
     }
 }
 

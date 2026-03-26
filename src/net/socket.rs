@@ -8,7 +8,7 @@ use core::ffi::{c_int, c_void};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_error};
+use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_error, utils};
 
 pub struct TcpSocket {
     fd: i32,
@@ -45,6 +45,9 @@ impl Read for TcpSocket {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
         if bytes_read < 0 {
+            // see /usr/include/asm-generic/errno.h to translate the codes
+            let err_code = utils::num_to_string(-bytes_read);
+            utils::print_string(c"socket read err: ", &err_code);
             Err(ort_error(ErrorKind::SocketReadFailed, "syscall read error"))
         } else {
             Ok(bytes_read as usize)
@@ -56,6 +59,9 @@ impl Write for TcpSocket {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
         let bytes_written = libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written < 0 {
+            // see /usr/include/asm-generic/errno.h to translate the codes
+            let err_code = utils::num_to_string(-bytes_written);
+            utils::print_string(c"socket write err: ", &err_code);
             Err(ort_error(
                 ErrorKind::SocketWriteFailed,
                 "syscall write error",

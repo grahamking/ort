@@ -46,19 +46,23 @@ const SYS_ACCESS: u32 = 21;
 const SYS_SOCKET: u32 = 41;
 const SYS_CONNECT: u32 = 42;
 const SYS_EXIT: i32 = 60;
+const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
 const SYS_GETDENTS64: u32 = 217;
 pub const SYS_FUTEX: c_long = 202;
 
 const EACCES: i32 = -13; // Permission denied
 
+// TODO check these two, might be wrong values, and convert to decimal
 pub const O_CLOEXEC: c_int = 0x80000;
 pub const O_DIRECTORY: c_int = 0x10000;
+
 pub const O_RDONLY: c_int = 0;
 pub const O_WRONLY: c_int = 1;
 //const O_RDWR: c_int = 2;
 pub const O_CREAT: c_int = 64;
 pub const O_TRUNC: c_int = 512;
+pub const O_NONBLOCK: c_int = 2048;
 
 pub const F_OK: i32 = 0;
 
@@ -81,6 +85,8 @@ pub const PROT_WRITE: c_int = 2;
 pub const MAP_PRIVATE: c_int = 0x0002;
 pub const MAP_ANONYMOUS: c_int = 0x0020;
 pub const MAP_STACK: c_int = 0x020000;
+
+pub const F_SETFL: c_int = 4;
 
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -415,13 +421,29 @@ pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> i32 {
 }
 
 pub fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int {
-    let mut ret: i32;
+    let mut ret: c_int;
     unsafe {
         asm!("syscall",
             inout("eax") SYS_CONNECT => ret,
             in("edi") socket,
             in("rsi") address,
             in("edx") len,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn fcntl(fd: c_int, op: c_int, flags: c_int) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_FCNTL => ret,
+            in("edi") fd,
+            in("esi") op,
+            in("edx") flags,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
