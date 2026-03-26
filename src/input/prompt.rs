@@ -18,7 +18,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::net::AsFd;
-use crate::{Context as _, TcpSocket, TlsStream};
+use crate::{Context as _, OrtError, TcpSocket, TlsStream};
 
 use crate::ChatCompletionsResponse;
 use crate::OrtResult;
@@ -45,9 +45,24 @@ use crate::{Response, ThinkEvent};
 
 // The readers must never fall further behind than this many responses
 const RESPONSE_BUF_LEN: usize = 256;
+const EPOLL_WAIT_TIMEOUT_MS: i32 = 100;
 
 type ResponseQueue = queue::Queue<Response, RESPONSE_BUF_LEN>;
 type ResponseConsumer = queue::Consumer<Response, RESPONSE_BUF_LEN>;
+
+struct EpollFd(i32);
+
+impl EpollFd {
+    fn raw(&self) -> i32 {
+        self.0
+    }
+}
+
+impl Drop for EpollFd {
+    fn drop(&mut self) {
+        let _ = libc::close(self.0);
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
@@ -90,12 +105,47 @@ pub fn run<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(params);
     active_prompt.start()?;
 
-    // now set it non-blocking so we can epoll
-    let _socket_fd = active_prompt.as_fd();
+    // Now that we have established the TLS connection and parsed the HTTP response headers,
+    // switch the socket to non-blocking
+
+    let socket_fd = active_prompt.as_fd();
     // technically we should F_GETFL first to get the flags, but we know what they are
-    //libc::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
+    libc::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
+
+    let epoll_fd = libc::epoll_create(1); // 1 is ignored but must be non-zero
+    if epoll_fd < 0 {
+        return Err(ort_error(ErrorKind::Other, "epoll_create"));
+    }
+    let epoll_fd = EpollFd(epoll_fd);
+
+    let mut event = libc::epoll_event {
+        events: libc::EPOLLIN,
+        data: socket_fd as u64,
+    };
+    if libc::epoll_ctl(epoll_fd.raw(), libc::EPOLL_CTL_ADD, socket_fd, &mut event) < 0 {
+        return Err(ort_error(ErrorKind::Other, "epoll_ctl"));
+    }
+
+    let mut ready_events = [libc::epoll_event { events: 0, data: 0 }];
 
     loop {
+        if !active_prompt.has_pending_data() {
+            let ready = libc::epoll_wait(
+                epoll_fd.raw(),
+                ready_events.as_mut_ptr(),
+                ready_events.len() as i32,
+                EPOLL_WAIT_TIMEOUT_MS,
+            );
+            if ready < 0 || cancel_token.is_cancelled() {
+                // Ctrl-C usually appears as ready < 0
+                // but I'd like the cancel_token to notice
+                break;
+            }
+            if ready == 0 {
+                continue;
+            }
+        }
+
         match active_prompt.next() {
             Ok(out) if out.is_empty() => {
                 break;
@@ -108,6 +158,13 @@ pub fn run<W: Write + Send>(
                     }
                 }
             }
+            Err(OrtError {
+                kind: ErrorKind::WouldBlock,
+                ..
+            }) => {
+                // we read all the data, back to epoll_wait
+                continue;
+            }
             Err(err) => {
                 utils::print_string(c"active_prompt.next: ", &err.as_string());
             }
@@ -116,15 +173,15 @@ pub fn run<W: Write + Send>(
 
     if cancel_token.is_cancelled() {
         // Probaby user did Ctrl-C
-        output_writer.write(Response::Error("Interrupted".to_string()))?;
+        output_writer.stop(false)?; // reset console
     } else {
         // Clean finish, send stats
         let stats = active_prompt.stop();
         output_writer.write(Response::Stats(stats))?;
-        output_writer.stop()?; // prints stats
+        output_writer.stop(true)?; // prints stats
         // Finalize JSON
         if let Some(lw) = last_writer.as_mut() {
-            lw.stop()?;
+            lw.stop(true)?;
         }
     }
 
@@ -465,20 +522,18 @@ impl ActivePrompt {
             }
 
             self.line_buf.clear();
-            match self.reader.as_mut().unwrap().read_line(&mut self.line_buf) {
-                Ok(0) => {
+            match self
+                .reader
+                .as_mut()
+                .unwrap()
+                .read_line(&mut self.line_buf)?
+            {
+                0 => {
                     // EOF
                     return Ok(queue);
                 }
-                Ok(_) => {
+                _ => {
                     // success
-                }
-                Err(err) => {
-                    queue.push(Response::Error(
-                        "Stream read error: ".to_string() + &err.as_string(),
-                    ));
-                    // TODO: Should we return Err instead?
-                    return Ok(queue);
                 }
             }
             let line = self.line_buf.trim();
@@ -609,6 +664,13 @@ impl ActivePrompt {
             stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
 
         self.stats
+    }
+
+    fn has_pending_data(&self) -> bool {
+        self.reader
+            .as_ref()
+            .map(|reader| reader.has_pending_data())
+            .unwrap_or(false)
     }
 }
 

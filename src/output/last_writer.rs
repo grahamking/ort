@@ -110,7 +110,7 @@ impl OutputWriter for LastWriter {
         Ok(())
     }
 
-    fn stop(&mut self) -> OrtResult<()> {
+    fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
         // Write final contents
         crate::input::to_json::write_encoded_bytes(&mut self.w, &self.buffer[..self.buf_idx])?;
 
@@ -191,7 +191,7 @@ mod tests {
                 .unwrap();
         }
         writer
-            .stop()
+            .stop(true)
             .map_err(|err| panic!("LastWriter::stop failed: {}", err.as_string()))
             .unwrap();
 

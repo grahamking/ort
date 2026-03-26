@@ -45,6 +45,9 @@ impl Read for TcpSocket {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
         let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
         if bytes_read < 0 {
+            if bytes_read == libc::EAGAIN {
+                return Err(ort_error(ErrorKind::WouldBlock, ""));
+            }
             // see /usr/include/asm-generic/errno.h to translate the codes
             let err_code = utils::num_to_string(-bytes_read);
             utils::print_string(c"socket read err: ", &err_code);

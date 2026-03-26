@@ -49,7 +49,7 @@ const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
 pub trait OutputWriter {
     fn write(&mut self, data: Response) -> OrtResult<()>;
-    fn stop(&mut self) -> OrtResult<()>;
+    fn stop(&mut self, include_stats: bool) -> OrtResult<()>;
 }
 
 pub struct ConsoleWriter<W: Write + Send> {
@@ -77,19 +77,20 @@ impl<W: Write + Send> ConsoleWriter<W> {
 }
 
 impl<W: Write + Send> OutputWriter for ConsoleWriter<W> {
-    fn stop(&mut self) -> OrtResult<()> {
+    fn stop(&mut self, include_stats: bool) -> OrtResult<()> {
         let _ = self.writer.write(CURSOR_ON);
-        let _ = self.writer.flush();
-
         let _ = self.writer.write(b"\n");
+        let _ = self.writer.flush();
+        if !include_stats || self.is_quiet {
+            return Ok(());
+        }
+
         let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        if !self.is_quiet {
-            let _ = self.writer.write("\nStats: ".as_bytes());
-            let _ = self.writer.write(stats.as_string().as_bytes());
-            let _ = self.writer.write_char('\n');
-        }
+        let _ = self.writer.write("\nStats: ".as_bytes());
+        let _ = self.writer.write(stats.as_string().as_bytes());
+        let _ = self.writer.write_char('\n');
 
         Ok(())
     }
@@ -232,16 +233,18 @@ impl<W: Write + Send> OutputWriter for FileWriter<W> {
         Ok(())
     }
 
-    fn stop(&mut self) -> OrtResult<()> {
+    fn stop(&mut self, include_stats: bool) -> OrtResult<()> {
         let _ = self.writer.write(b"\n");
+        if !include_stats || self.is_quiet {
+            return Ok(());
+        }
+
         let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        if !self.is_quiet {
-            let _ = self.writer.write("\nStats: ".as_bytes());
-            let _ = self.writer.write(stats.as_string().as_bytes());
-            let _ = self.writer.write_char('\n');
-        }
+        let _ = self.writer.write("\nStats: ".as_bytes());
+        let _ = self.writer.write(stats.as_string().as_bytes());
+        let _ = self.writer.write_char('\n');
         Ok(())
     }
 }

@@ -65,6 +65,8 @@ pub enum ErrorKind {
 
     // Generic I/O
     UnexpectedEof,
+    // O_NONBLOCK socket has no data to read right now
+    WouldBlock,
 
     // HTTP chunked transfer decoding
     //
@@ -148,6 +150,7 @@ impl ErrorKind {
             ErrorKind::SocketReadFailed => "SocketReadFailed",
             ErrorKind::SocketWriteFailed => "SocketWriteFailed",
             ErrorKind::UnexpectedEof => "UnexpectedEof",
+            ErrorKind::WouldBlock => "WouldBlock",
             ErrorKind::ChunkedEofInSize => "ChunkedEofInSize",
             ErrorKind::ChunkedSizeReadError => "ChunkedSizeReadError",
             ErrorKind::ChunkedInvalidSize => "ChunkedInvalidSize",

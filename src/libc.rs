@@ -48,9 +48,13 @@ const SYS_CONNECT: u32 = 42;
 const SYS_EXIT: i32 = 60;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
+const SYS_EPOLL_CREATE: i32 = 213;
+const SYS_EPOLL_WAIT: i32 = 232;
+const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
 pub const SYS_FUTEX: c_long = 202;
 
+pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EACCES: i32 = -13; // Permission denied
 
 // TODO check these two, might be wrong values, and convert to decimal
@@ -75,6 +79,8 @@ pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
 pub const AF_INET: c_int = 2;
 pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN: i32 = 23;
+pub const EPOLLIN: u32 = 0x001;
+pub const EPOLL_CTL_ADD: c_int = 1;
 
 pub const DT_REG: u8 = 8;
 
@@ -159,6 +165,12 @@ pub struct Stat {
 #[repr(C)]
 pub struct pthread_attr_t {
     __size: [u64; 7],
+}
+
+#[repr(C, packed)]
+pub struct epoll_event {
+    pub events: u32,
+    pub data: u64,
 }
 
 #[link(name = "c", kind = "dylib")]
@@ -444,6 +456,59 @@ pub fn fcntl(fd: c_int, op: c_int, flags: c_int) -> c_int {
             in("edi") fd,
             in("esi") op,
             in("edx") flags,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn epoll_create(size: c_int) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_EPOLL_CREATE => ret,
+            in("edi") size,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn epoll_ctl(epfd: c_int, op: c_int, fd: c_int, event: *mut epoll_event) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_EPOLL_CTL => ret,
+            in("edi") epfd,
+            in("esi") op,
+            in("edx") fd,
+            in("r10") event,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn epoll_wait(
+    epfd: c_int,
+    events: *mut epoll_event,
+    maxevents: c_int,
+    timeout: c_int,
+) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_EPOLL_WAIT => ret,
+            in("edi") epfd,
+            in("rsi") events,
+            in("edx") maxevents,
+            in("r10d") timeout,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),

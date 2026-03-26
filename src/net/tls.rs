@@ -344,6 +344,20 @@ impl<T: Read + Write> TlsStream<T> {
         })
     }
 
+    pub fn has_buffered_data(&self) -> bool {
+        /*
+        let out = self.rpos < self.rbuf.len();
+        let msg = alloc::string::ToString::to_string(&"rpos = ")
+            + &utils::num_to_string(self.rpos)
+            + ", rbuf.len() = "
+            + &utils::num_to_string(self.rbuf.len())
+            + " . "
+            + if out { "true" } else { "false" };
+        utils::print_string(c"tls has_buffered_data: ", &msg);
+        */
+        self.rpos < self.rbuf.len()
+    }
+
     fn send_client_hello<W: Write>(
         io: &mut W,
         sni_host: &str,

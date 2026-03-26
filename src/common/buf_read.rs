@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{ErrorKind, OrtResult, Read, net::AsFd, ort_error};
+use crate::{ErrorKind, OrtResult, Read, TlsStream, Write, net::AsFd, ort_error};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -48,6 +48,16 @@ impl<R: Read> OrtBufReader<R> {
 
     #[inline(always)]
     fn buffer_consumed(&self) -> bool {
+        /*
+        let out = self.pos >= self.cap;
+        let msg = alloc::string::ToString::to_string(&"pos = ")
+            + &utils::num_to_string(self.pos)
+            + ", cap = "
+            + &utils::num_to_string(self.cap)
+            + ". "
+            + if out { "true" } else { "false" };
+        utils::print_string(c"buf_read buffer_consumed: ", &msg);
+        */
         self.pos >= self.cap
     }
 
@@ -58,8 +68,8 @@ impl<R: Read> OrtBufReader<R> {
     ///   * `cap` is the number of bytes read
     #[inline]
     fn fill_buf(&mut self) -> OrtResult<()> {
-        self.pos = 0;
         let n = self.inner.read(&mut self.buf)?;
+        self.pos = 0;
         self.cap = n;
         Ok(())
     }
@@ -161,6 +171,12 @@ impl<R: Read> OrtBufReader<R> {
         }
 
         Ok(())
+    }
+}
+
+impl<T: Read + Write> OrtBufReader<TlsStream<T>> {
+    pub fn has_pending_data(&self) -> bool {
+        !self.buffer_consumed() || self.inner.has_buffered_data()
     }
 }
 
