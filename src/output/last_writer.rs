@@ -135,11 +135,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{
-        LastData, ThinkEvent,
-        common::{queue, stats},
-        utils::num_to_string,
-    };
+    use crate::{LastData, ThinkEvent, common::stats, utils::num_to_string};
 
     #[test]
     fn test_run_success() {
@@ -163,28 +159,24 @@ mod tests {
             buf_idx: 0,
         };
 
-        let q = queue::Queue::<Response, 512>::new();
-        let mut rx = q.consumer();
-
-        q.add(Response::Start);
-        q.add(Response::Think(ThinkEvent::Start));
-        q.add(Response::Think(ThinkEvent::Content(
-            "thinking...".to_string(),
-        )));
-        q.add(Response::Think(ThinkEvent::Stop));
+        let mut q = vec![
+            Response::Start,
+            Response::Think(ThinkEvent::Start),
+            Response::Think(ThinkEvent::Content("thinking...".to_string())),
+            Response::Think(ThinkEvent::Stop),
+        ];
         for i in 1..100 {
-            q.add(Response::Content("Hello".to_string()));
-            q.add(Response::Content(" world ".to_string()));
-            q.add(Response::Content(num_to_string(i)));
-            q.add(Response::Content(". ".to_string()));
+            q.push(Response::Content("Hello".to_string()));
+            q.push(Response::Content(" world ".to_string()));
+            q.push(Response::Content(num_to_string(i)));
+            q.push(Response::Content(". ".to_string()));
         }
-        q.add(Response::Stats(stats::Stats {
+        q.push(Response::Stats(stats::Stats {
             provider: "OpenRouter AI".to_string(),
             ..Default::default()
         }));
-        q.close();
 
-        while let Some(event) = rx.get_next() {
+        for event in q {
             writer
                 .write(event)
                 .map_err(|err| panic!("LastWriter::write failed: {}", err.as_string()))

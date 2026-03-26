@@ -16,7 +16,6 @@ pub mod dir;
 pub mod error;
 pub mod file;
 pub mod io;
-pub mod queue;
 pub mod resolver;
 pub mod site;
 pub mod stats;

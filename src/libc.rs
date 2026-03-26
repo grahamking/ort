@@ -52,7 +52,6 @@ const SYS_EPOLL_CREATE: i32 = 213;
 const SYS_EPOLL_WAIT: i32 = 232;
 const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
-pub const SYS_FUTEX: c_long = 202;
 
 pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EACCES: i32 = -13; // Permission denied
@@ -69,9 +68,6 @@ pub const O_TRUNC: c_int = 512;
 pub const O_NONBLOCK: c_int = 2048;
 
 pub const F_OK: i32 = 0;
-
-pub const FUTEX_WAIT: c_int = 0;
-pub const FUTEX_WAKE: c_int = 1;
 
 pub const SOCK_STREAM: c_int = 1;
 pub const SOCK_DGRAM: c_int = 2;
@@ -167,6 +163,7 @@ pub struct pthread_attr_t {
     __size: [u64; 7],
 }
 
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct epoll_event {
     pub events: u32,
@@ -176,8 +173,6 @@ pub struct epoll_event {
 #[link(name = "c", kind = "dylib")]
 unsafe extern "C" {
     pub static mut environ: *mut *mut c_char;
-
-    pub fn syscall(num: c_long, ...) -> c_long;
 
     pub fn isatty(fd: c_int) -> c_int;
 

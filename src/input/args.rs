@@ -20,6 +20,8 @@ use crate::ReasoningEffort;
 use crate::common::utils;
 use crate::{ErrorKind, ort_error};
 
+const MAX_CONCURRENT_MODELS: usize = 10;
+
 pub struct ListOpts {
     pub is_json: bool,
 }
@@ -58,6 +60,9 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
                     return Err(ArgParseError::new_str("Missing value for -m"));
                 }
                 models.push(args[i].clone());
+                if models.len() > MAX_CONCURRENT_MODELS {
+                    return Err(ArgParseError::new_str("Too many '-m' flags, max 10"));
+                }
                 i += 1;
             }
             "-s" => {

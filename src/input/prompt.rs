@@ -5,15 +5,12 @@
 //! Copyright (c) 2025 Graham King
 
 use core::cmp::max;
-use core::ffi::c_void;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
-use core::ptr;
 
 extern crate alloc;
 use alloc::boxed::Box;
 use alloc::ffi::CString;
 use alloc::string::{String, ToString};
-use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -26,7 +23,6 @@ use crate::build_body;
 use crate::common::dir;
 use crate::common::file;
 use crate::common::io::Write;
-use crate::common::queue;
 use crate::common::resolver;
 use crate::common::site::Site;
 use crate::common::stats::{self, Stats};
@@ -38,17 +34,12 @@ use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
 use crate::utils::print_string;
-use crate::{CancelToken, http, thread as ort_thread};
+use crate::{CancelToken, http};
 use crate::{ErrorKind, LastData};
 use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
 
-// The readers must never fall further behind than this many responses
-const RESPONSE_BUF_LEN: usize = 256;
 const EPOLL_WAIT_TIMEOUT_MS: i32 = 100;
-
-type ResponseQueue = queue::Queue<Response, RESPONSE_BUF_LEN>;
-type ResponseConsumer = queue::Consumer<Response, RESPONSE_BUF_LEN>;
 
 struct EpollFd(i32);
 
@@ -99,7 +90,6 @@ pub fn run<W: Write + Send>(
         opts,
         messages,
         model_idx: 0,
-        queue: ResponseQueue::new(),
         site,
     };
     let mut active_prompt = ActivePrompt::new(params);
@@ -166,6 +156,9 @@ pub fn run<W: Write + Send>(
                 continue;
             }
             Err(err) => {
+                // TODO? 429 is useful to know about
+                // let err_str = err.as_string();
+                // if err_str.contains("429 Too Many Requests") {
                 utils::print_string(c"active_prompt.next: ", &err.as_string());
             }
         }
@@ -263,10 +256,6 @@ pub fn run_multi(
     messages: Vec<crate::Message>,
     mut w: impl Write + Send,
 ) -> OrtResult<()> {
-    // We'll likely never use this many, but making it the same as RESPONSE_BUF_LEN
-    // makes for a smaller binary because generics.
-    const MAX_MODELS: usize = 256;
-
     let num_models = opts.models.len();
     let mut msg = String::with_capacity(32);
     msg.push_str("Calling ");
@@ -275,71 +264,103 @@ pub fn run_multi(
     let _ = w.write(msg.as_bytes());
     let _ = w.flush();
 
-    // Start all the queries
-    let mut query_consumers = Vec::with_capacity(num_models);
-    for idx in 0..num_models {
-        let dns = settings.dns.clone();
-        let opts_c = opts.clone();
-        let messages_c = messages.clone();
+    let epoll_fd = libc::epoll_create(num_models as i32);
+    if epoll_fd < 0 {
+        return Err(ort_error(ErrorKind::Other, "epoll_create"));
+    }
+    let epoll_fd = EpollFd(epoll_fd);
+    let mut names = Vec::with_capacity(num_models); // debug
+    let mut active_prompts = Vec::with_capacity(num_models);
+    let mut active_writers = Vec::with_capacity(num_models);
 
-        let model_name = opts_c.models.get(idx).unwrap().clone();
-        let queue_single =
-            start_prompt_thread(api_key, cancel_token, dns, opts_c, site, messages_c, idx);
-        let consumer_collected = queue_single.consumer();
-        query_consumers.push((model_name, consumer_collected));
+    // Start all the queries.
+    // We negotiate TLS one at a time, should start epoll earlier to do all at once.
+    for idx in 0..num_models {
+        let model_name = opts.models.get(idx).unwrap().clone();
+        names.push(model_name);
+
+        let params = PromptThreadParams {
+            api_key: api_key.to_string(),
+            cancel_token,
+            dns: settings.dns.clone(),
+            site,
+            opts: opts.clone(),
+            messages: messages.clone(),
+            model_idx: idx,
+        };
+        let mut active_prompt = ActivePrompt::new(params);
+        active_prompt.start()?;
+        let socket_fd = active_prompt.as_fd();
+
+        active_prompts.push(active_prompt);
+        active_writers.push(CollectedWriter::new());
+
+        libc::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
+        let mut event = libc::epoll_event {
+            events: libc::EPOLLIN,
+            data: active_prompts.len() as u64 - 1,
+        };
+        if libc::epoll_ctl(epoll_fd.raw(), libc::EPOLL_CTL_ADD, socket_fd, &mut event) < 0 {
+            return Err(ort_error(ErrorKind::Other, "epoll_ctl"));
+        }
     }
 
-    let queue_done = queue::Queue::<String, MAX_MODELS>::new();
-    let mut consumer_done = queue_done.consumer();
+    let mut ready_events = vec![libc::epoll_event { events: 0, data: 0 }; active_prompts.len()];
+    while !ready_events.is_empty() {
+        let num_ready = libc::epoll_wait(
+            epoll_fd.raw(),
+            ready_events.as_mut_ptr(),
+            ready_events.len() as i32,
+            EPOLL_WAIT_TIMEOUT_MS,
+        );
+        if num_ready < 0 || cancel_token.is_cancelled() {
+            // Ctrl-C usually appears as ready < 0
+            // but I'd like the cancel_token to notice
+            break;
+        }
+        if num_ready == 0 {
+            continue;
+        }
 
-    // Collect the responses, printing them when ready
-    let mut tids = Vec::with_capacity(num_models);
-    for (model_name, consumer_collected) in query_consumers {
-        let thread_params = Box::new(MultiCollectThreadParams {
-            model_name,
-            consumer_collected,
-            full_output_queue: queue_done.clone(),
-        });
-        unsafe {
-            match ort_thread::spawn(
-                multi_collect_thread,
-                Box::into_raw(thread_params) as *mut c_void,
-            ) {
-                Ok(tid) => {
-                    tids.push(tid);
+        let mut num_done = 0;
+        for evt in ready_events[..num_ready as usize].iter() {
+            let active_prompt = &mut active_prompts[evt.data as usize];
+            let output_writer = &mut active_writers[evt.data as usize];
+            //let name = &names[evt.data as usize];
+
+            match active_prompt.next() {
+                Ok(out) if out.is_empty() => {
+                    num_done += 1;
+
+                    let stats = active_prompt.stop();
+                    output_writer.write(Response::Stats(stats))?;
+                    output_writer.stop(true)?;
+
+                    let _ = w.write(output_writer.output.as_ref().unwrap().as_bytes());
+                    let _ = w.write("\n\n".as_bytes());
+                    let _ = w.flush();
+                }
+                Ok(out) => {
+                    for event in out {
+                        output_writer.write(event.clone())?;
+                    }
+                }
+                Err(OrtError {
+                    kind: ErrorKind::WouldBlock,
+                    ..
+                }) => {
+                    // we read all the data, back to epoll_wait
                 }
                 Err(err) => {
-                    print_string(c"Spawning multi_collect_thread failed: ", &err.as_string());
+                    utils::print_string(c"active_prompt.next: ", &err.as_string());
                 }
             }
         }
-    }
 
-    for _ in 0..num_models {
-        if cancel_token.is_cancelled() {
-            break;
-        }
-        match consumer_done.get_next() {
-            Some(model_output) => {
-                let _ = w.write(model_output.as_bytes());
-                let _ = w.write("\n\n".as_bytes());
-                let _ = w.flush();
-            }
-            None => {
-                // queue closed, which is impossible
-                break;
-            }
+        for _ in 0..num_done {
+            let _ = ready_events.pop();
         }
     }
-
-    // All the threads should be done
-    for tid in tids {
-        if cancel_token.is_cancelled() {
-            break;
-        }
-        unsafe { libc::pthread_join(tid, ptr::null_mut()) };
-    }
-
     Ok(())
 }
 
@@ -350,43 +371,7 @@ struct PromptThreadParams {
     opts: PromptOpts,
     messages: Vec<Message>,
     model_idx: usize,
-    queue: Arc<ResponseQueue>,
     site: &'static Site,
-}
-
-/// Start prompt in a new thread. Returns almost immediately with a queue.
-/// Streams the response to the queue.
-pub fn start_prompt_thread(
-    api_key: &str,
-    cancel_token: CancelToken,
-    dns: Vec<String>,
-    // Note we do not use the prompt from here, it should be in `messages` by now
-    opts: PromptOpts,
-    site: &'static Site,
-    messages: Vec<Message>,
-    // When running multiple models, this thread should use this one
-    model_idx: usize,
-) -> Arc<ResponseQueue> {
-    let queue = ResponseQueue::new();
-    let queue_clone = queue.clone();
-
-    let params = Box::new(PromptThreadParams {
-        api_key: api_key.to_string(),
-        cancel_token,
-        dns,
-        opts,
-        messages,
-        model_idx,
-        queue,
-        site,
-    });
-
-    unsafe {
-        if let Err(err) = ort_thread::spawn(prompt_thread, Box::into_raw(params) as *mut c_void) {
-            print_string(c"Spawning prompt_thread failed: ", &err.as_string());
-        }
-    }
-    queue_clone
 }
 
 struct ActivePrompt {
@@ -654,7 +639,7 @@ impl ActivePrompt {
         }
     }
 
-    pub fn stop(mut self) -> Stats {
+    pub fn stop(&mut self) -> Stats {
         let now = time::Ticks::now();
         self.stats.elapsed_time =
             time::elapsed_duration(self.start.take().unwrap(), now, self.tsc_calibration);
@@ -663,7 +648,7 @@ impl ActivePrompt {
         self.stats.inter_token_latency_ms =
             stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
 
-        self.stats
+        self.stats.clone()
     }
 
     fn has_pending_data(&self) -> bool {
@@ -678,76 +663,6 @@ impl AsFd for ActivePrompt {
     fn as_fd(&self) -> i32 {
         self.reader.as_ref().unwrap().as_fd()
     }
-}
-
-// extern "C" so that we can call it from `pthread_create`
-extern "C" fn prompt_thread(arg: *mut c_void) -> *mut c_void {
-    let params = unsafe { Box::from_raw(arg as *mut PromptThreadParams) };
-    let queue = params.queue.clone();
-    let cancel_token = params.cancel_token;
-
-    let mut active_prompt = ActivePrompt::new(*params);
-    if active_prompt.start().is_err() {
-        // "start()" already logged the error
-        return ptr::null_mut();
-    };
-
-    loop {
-        match active_prompt.next() {
-            Ok(out) if out.is_empty() => {
-                break;
-            }
-            Ok(out) => {
-                for resp in out {
-                    queue.add(resp);
-                }
-            }
-            Err(err) => {
-                utils::print_string(c"active_prompt.next: ", &err.as_string());
-            }
-        }
-    }
-
-    if cancel_token.is_cancelled() {
-        // Probaby user did Ctrl-C
-        queue.add(Response::Error("Interrupted".to_string()));
-    } else {
-        // Clean finish, send stats
-        let stats = active_prompt.stop();
-        queue.add(Response::Stats(stats));
-    }
-    queue.close();
-
-    ptr::null_mut()
-}
-
-struct MultiCollectThreadParams {
-    model_name: String,
-    consumer_collected: ResponseConsumer,
-    full_output_queue: Arc<queue::Queue<String, 256>>,
-}
-
-extern "C" fn multi_collect_thread(arg: *mut c_void) -> *mut c_void {
-    let params = unsafe { Box::from_raw(arg as *mut MultiCollectThreadParams) };
-    let mut mr = CollectedWriter {};
-    match mr.run(params.consumer_collected) {
-        Ok(full_output) => {
-            params.full_output_queue.add(full_output);
-        }
-        Err(err) => {
-            let err_str = err.as_string();
-            if err_str.contains("429 Too Many Requests") {
-                params
-                    .full_output_queue
-                    .add("--- ".to_string() + &params.model_name + ": Overloaded");
-            } else {
-                params
-                    .full_output_queue
-                    .add("--- ".to_string() + &params.model_name + ": " + &err_str);
-            }
-        }
-    }
-    ptr::null_mut()
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.

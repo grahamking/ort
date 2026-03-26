@@ -11,9 +11,7 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 
 use crate::utils::zclean;
-use crate::{
-    ErrorKind, OrtResult, Response, ThinkEvent, Write, common::queue, common::stats, common::utils,
-};
+use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats, common::utils};
 use crate::{libc, ort_error};
 
 const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
@@ -249,48 +247,60 @@ impl<W: Write + Send> OutputWriter for FileWriter<W> {
     }
 }
 
-pub struct CollectedWriter {}
+pub struct CollectedWriter {
+    contents: String,
+    got_stats: Option<stats::Stats>,
+    pub output: Option<String>,
+}
 
 impl CollectedWriter {
-    pub fn run<const N: usize>(
-        &mut self,
-        mut rx: queue::Consumer<Response, N>,
-    ) -> OrtResult<String> {
-        let mut got_stats = None;
-        let mut contents = String::with_capacity(4096);
-        while let Some(data) = rx.get_next() {
-            match data {
-                Response::Start => {}
-                Response::Think(_) => {}
-                Response::Content(content) => {
-                    contents.push_str(&content);
-                }
-                Response::Stats(stats) => {
-                    got_stats = Some(stats);
-                }
-                Response::Error(_err) => {
-                    // Original message: CollectedWriter + err detail
-                    return Err(ort_error(
-                        ErrorKind::ResponseStreamError,
-                        "CollectedWriter response error",
-                    ));
-                }
-                Response::None => {
-                    return Err(ort_error(
-                        ErrorKind::QueueDesync,
-                        "Response::None means we read the wrong Queue position",
-                    ));
-                }
+    pub fn new() -> Self {
+        Self {
+            got_stats: None,
+            contents: String::with_capacity(4096),
+            output: None,
+        }
+    }
+}
+
+impl OutputWriter for CollectedWriter {
+    fn write(&mut self, data: Response) -> OrtResult<()> {
+        match data {
+            Response::Start => {}
+            Response::Think(_) => {}
+            Response::Content(content) => {
+                self.contents.push_str(&content);
+            }
+            Response::Stats(stats) => {
+                self.got_stats = Some(stats);
+            }
+            Response::Error(_err) => {
+                // Original message: CollectedWriter + err detail
+                return Err(ort_error(
+                    ErrorKind::ResponseStreamError,
+                    "CollectedWriter response error",
+                ));
+            }
+            Response::None => {
+                return Err(ort_error(
+                    ErrorKind::QueueDesync,
+                    "Response::None means we read the wrong Queue position",
+                ));
             }
         }
+        Ok(())
+    }
 
-        let stat_string = got_stats.unwrap().as_string();
-        let mut out = String::with_capacity(stat_string.len() + contents.len() + 9);
+    fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
+        let stat_string = self.got_stats.take().unwrap().as_string();
+        let mut out = String::with_capacity(stat_string.len() + self.contents.len() + 9);
         out.push_str("--- ");
         out.push_str(&stat_string);
         out.push_str(" ---\n");
-        out.push_str(&contents);
-        Ok(out)
+        out.push_str(&self.contents);
+
+        self.output = Some(out);
+        Ok(())
     }
 }
 
