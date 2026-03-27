@@ -14,7 +14,6 @@ mod net;
 mod output;
 
 pub use common::alloc::ArenaAlloc;
-pub use common::cancel_token::CancelToken;
 pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,

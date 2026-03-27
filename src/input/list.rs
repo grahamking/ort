@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use crate::common::site::Site;
 use crate::{
-    CancelToken, Context, OrtResult, Read, Write, chunked,
+    Context, OrtResult, Read, Write, chunked,
     common::{buf_read, config, resolver},
     http,
     input::args,
@@ -23,7 +23,6 @@ const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
 
 pub fn run(
     api_key: &str,
-    _cancel_token: CancelToken, // TODO use CancelToken
     settings: config::Settings,
     opts: args::ListOpts,
     site: &'static Site,

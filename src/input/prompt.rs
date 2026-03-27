@@ -29,12 +29,12 @@ use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
 use crate::common::{buf_read, config};
+use crate::http;
 use crate::libc::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
 use crate::utils::print_string;
-use crate::{CancelToken, http};
 use crate::{ErrorKind, LastData};
 use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
@@ -58,7 +58,6 @@ impl Drop for EpollFd {
 #[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
     api_key: &str,
-    cancel_token: CancelToken,
     settings: config::Settings,
     opts: PromptOpts,
     site: &'static Site,
@@ -82,10 +81,8 @@ pub fn run<W: Write + Send>(
         None
     };
 
-    let prompt_cancel_token = cancel_token;
     let params = PromptThreadParams {
         api_key: api_key.to_string(),
-        cancel_token: prompt_cancel_token,
         dns: settings.dns,
         opts,
         messages,
@@ -117,18 +114,13 @@ pub fn run<W: Write + Send>(
         }
     }
 
-    if cancel_token.is_cancelled() {
-        // Probaby user did Ctrl-C
-        output_writer.stop(false)?; // reset console
-    } else {
-        // Clean finish, send stats
-        let stats = active_prompt.stop();
-        output_writer.write(Response::Stats(stats))?;
-        output_writer.stop(true)?; // prints stats
-        // Finalize JSON
-        if let Some(lw) = last_writer.as_mut() {
-            lw.stop(true)?;
-        }
+    // Clean finish, send stats
+    let stats = active_prompt.stop();
+    output_writer.write(Response::Stats(stats))?;
+    output_writer.stop(true)?; // prints stats
+    // Finalize JSON
+    if let Some(lw) = last_writer.as_mut() {
+        lw.stop(true)?;
     }
 
     Ok(())
@@ -138,7 +130,6 @@ pub fn run<W: Write + Send>(
 /// pane to populate the context, then run with the new prompt.
 pub fn run_continue(
     api_key: &str,
-    cancel_token: CancelToken,
     settings: config::Settings,
     mut opts: crate::PromptOpts,
     site: &'static Site,
@@ -190,7 +181,6 @@ pub fn run_continue(
 
     run(
         api_key,
-        cancel_token,
         settings,
         opts,
         site,
@@ -202,7 +192,6 @@ pub fn run_continue(
 
 pub fn run_multi(
     api_key: &str,
-    cancel_token: CancelToken,
     settings: config::Settings,
     opts: PromptOpts,
     site: &'static Site,
@@ -234,7 +223,6 @@ pub fn run_multi(
 
         let params = PromptThreadParams {
             api_key: api_key.to_string(),
-            cancel_token,
             dns: settings.dns.clone(),
             site,
             opts: opts.clone(),
@@ -266,9 +254,8 @@ pub fn run_multi(
             ready_events.len() as i32,
             EPOLL_WAIT_TIMEOUT_MS,
         );
-        if num_ready < 0 || cancel_token.is_cancelled() {
-            // Ctrl-C usually appears as ready < 0
-            // but I'd like the cancel_token to notice
+        if num_ready < 0 {
+            // Ctrl-C
             break;
         }
         if num_ready == 0 {
@@ -321,7 +308,6 @@ pub fn run_multi(
 
 struct PromptThreadParams {
     api_key: String,
-    cancel_token: CancelToken,
     dns: Vec<String>,
     opts: PromptOpts,
     messages: Vec<Message>,
@@ -331,7 +317,6 @@ struct PromptThreadParams {
 
 struct ActivePrompt {
     api_key: String,
-    cancel_token: CancelToken,
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
@@ -357,7 +342,6 @@ impl ActivePrompt {
     pub fn new(params: PromptThreadParams) -> Self {
         ActivePrompt {
             api_key: params.api_key,
-            cancel_token: params.cancel_token,
             dns: params.dns,
             site: params.site,
             messages: params.messages,
@@ -457,10 +441,6 @@ impl ActivePrompt {
         let mut queue = vec![];
 
         loop {
-            if self.cancel_token.is_cancelled() {
-                return Ok(queue);
-            }
-
             self.line_buf.clear();
             match self
                 .reader

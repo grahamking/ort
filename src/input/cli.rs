@@ -96,8 +96,6 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
         }
     };
 
-    let cancel_token = crate::CancelToken::init();
-
     let cmd_result = match cmd {
         args::Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
@@ -119,7 +117,6 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
-                    cancel_token,
                     cfg.settings.unwrap_or_default(),
                     cli_opts,
                     site,
@@ -130,7 +127,6 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
             } else {
                 prompt::run_multi(
                     &api_key,
-                    cancel_token,
                     cfg.settings.unwrap_or_default(),
                     cli_opts,
                     site,
@@ -141,21 +137,15 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
         }
         args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
-            cancel_token,
             cfg.settings.unwrap_or_default(),
             cli_opts,
             site,
             !is_terminal,
             w,
         ),
-        args::Cmd::List(args) => list::run(
-            &api_key,
-            cancel_token,
-            cfg.settings.unwrap_or_default(),
-            args,
-            site,
-            w,
-        ),
+        args::Cmd::List(args) => {
+            list::run(&api_key, cfg.settings.unwrap_or_default(), args, site, w)
+        }
     };
     cmd_result.map(|_| 0)
 }

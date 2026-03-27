@@ -89,21 +89,6 @@ pub const MAP_STACK: c_int = 0x020000;
 pub const F_SETFL: c_int = 4;
 
 #[repr(C)]
-#[allow(non_camel_case_types)]
-pub struct sigset_t {
-    __val: [u64; 16],
-}
-
-#[repr(C)]
-#[allow(non_camel_case_types)]
-pub struct sigaction {
-    pub sa_sigaction: usize,
-    pub sa_mask: sigset_t,
-    pub sa_flags: i32,
-    pub sa_restorer: Option<extern "C" fn()>,
-}
-
-#[repr(C)]
 pub struct in_addr {
     pub s_addr: in_addr_t,
 }
@@ -170,11 +155,6 @@ unsafe extern "C" {
     pub fn isatty(fd: c_int) -> c_int;
 
     pub fn getenv(name: *const c_char) -> *const c_char;
-
-    pub fn sigemptyset(set: *mut sigset_t) -> i32;
-
-    // #define __NR_rt_sigaction 13
-    pub fn sigaction(signum: i32, act: *const sigaction, oldact: *mut sigaction) -> i32;
 
     // #define __NR_setsockopt 54
     pub fn setsockopt(
