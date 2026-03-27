@@ -40,6 +40,7 @@ const SYS_CLOSE: u32 = 3;
 const SYS_FSTAT: u32 = 5;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
+const SYS_IOCTL: u32 = 16;
 const SYS_ACCESS: u32 = 21;
 const SYS_SOCKET: u32 = 41;
 const SYS_CONNECT: u32 = 42;
@@ -54,6 +55,7 @@ const SYS_GETDENTS64: u32 = 217;
 
 pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EACCES: i32 = -13; // Permission denied
+const ENOTTY: i32 = -25; // Not a typewriter / inappropriate ioctl for device
 
 // TODO check these two, might be wrong values, and convert to decimal
 pub const O_CLOEXEC: c_int = 0x80000;
@@ -88,6 +90,7 @@ pub const MAP_ANONYMOUS: c_int = 0x0020;
 pub const MAP_STACK: c_int = 0x020000;
 
 pub const F_SETFL: c_int = 4;
+const TCGETS: usize = 0x5401;
 
 #[repr(C)]
 pub struct in_addr {
@@ -152,8 +155,6 @@ pub struct epoll_event {
 #[link(name = "c", kind = "dylib")]
 unsafe extern "C" {
     pub static mut environ: *mut *mut c_char;
-
-    pub fn isatty(fd: c_int) -> c_int;
 
     pub fn getenv(name: *const c_char) -> *const c_char;
 }
@@ -270,6 +271,27 @@ pub fn access(path: *const c_char, mode: c_int) -> c_int {
         );
     }
     if ret < 0 { -1 } else { ret as c_int }
+}
+
+pub fn isatty(fd: c_int) -> bool {
+    let mut ret: c_long;
+    let mut termios = MaybeUninit::<[u8; 64]>::uninit();
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_IOCTL as c_long => ret,
+            in("edi") fd,
+            in("rsi") TCGETS,
+            in("rdx") termios.as_mut_ptr(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack)
+        );
+    }
+    match ret {
+        0 => true,
+        x if x == ENOTTY as c_long => false,
+        _ => false,
+    }
 }
 
 pub fn mkdir(path: *const c_char, mode: u32) -> i32 {

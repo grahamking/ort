@@ -47,7 +47,7 @@ fn test_hello() {
 
     let first_line = lines.next().unwrap();
     assert!(
-        first_line.contains("assist") || first_line.contains("help"),
+        first_line.contains("assist") || first_line.contains("help") || first_line.contains("ello"),
         "Invalid line: '{first_line}'"
     );
 

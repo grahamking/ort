@@ -52,7 +52,7 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int 
     }
 
     // Check stdout for redirection
-    let is_terminal = unsafe { libc::isatty(1) == 1 };
+    let is_terminal = libc::isatty(1);
 
     match cli::main(&args, is_terminal, StdoutWriter {}) {
         Ok(exit_code) => exit_code as c_int,
@@ -77,7 +77,7 @@ fn main() -> std::process::ExitCode {
     }
 
     // Check stdout for redirection
-    let is_terminal = unsafe { libc::isatty(1) == 1 };
+    let is_terminal = libc::isatty(1);
 
     match cli::main(&args, is_terminal, StdoutWriter {}) {
         Ok(exit_code) => (exit_code as u8).into(),

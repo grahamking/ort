@@ -46,7 +46,7 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     if args[1].as_str() == "list" {
         args::parse_list_args(args)
     } else {
-        let is_pipe_input = unsafe { libc::isatty(STDIN_FILENO) == 0 };
+        let is_pipe_input = !libc::isatty(STDIN_FILENO);
         let stdin = if is_pipe_input {
             let mut buffer = String::with_capacity(8 * 1024);
             buf_read::fd_read_to_string(STDIN_FILENO, &mut buffer);
