@@ -81,15 +81,13 @@ impl Write for TcpSocket {
 
 fn set_tcp_fastopen(fd: i32) {
     let optval: c_int = 1; // Enable
-    unsafe {
-        libc::setsockopt(
-            fd,
-            libc::IPPROTO_TCP,
-            libc::TCP_FASTOPEN_CONNECT,
-            &optval as *const _ as *const core::ffi::c_void,
-            size_of::<i32>() as u32,
-        );
-    }
+    libc::setsockopt(
+        fd,
+        libc::IPPROTO_TCP,
+        libc::TCP_FASTOPEN_CONNECT,
+        &optval as *const _ as *const core::ffi::c_void,
+        size_of::<i32>() as u32,
+    );
 }
 
 fn socket_addr_v4_to_c(addr: &SocketAddrV4) -> libc::sockaddr_in {

@@ -43,6 +43,7 @@ const SYS_MPROTECT: u32 = 10;
 const SYS_ACCESS: u32 = 21;
 const SYS_SOCKET: u32 = 41;
 const SYS_CONNECT: u32 = 42;
+const SYS_SETSOCKOPT: i32 = 54;
 const SYS_EXIT: i32 = 60;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
@@ -155,15 +156,6 @@ unsafe extern "C" {
     pub fn isatty(fd: c_int) -> c_int;
 
     pub fn getenv(name: *const c_char) -> *const c_char;
-
-    // #define __NR_setsockopt 54
-    pub fn setsockopt(
-        socket: c_int,
-        level: c_int,
-        name: c_int,
-        value: *const c_void,
-        option_len: socklen_t,
-    ) -> c_int;
 }
 
 // Fill buf with random numbers.
@@ -393,6 +385,30 @@ pub fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int
             in("edi") socket,
             in("rsi") address,
             in("edx") len,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn setsockopt(
+    socket: c_int,
+    level: c_int,
+    name: c_int,
+    value: *const c_void,
+    option_len: socklen_t,
+) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_SETSOCKOPT => ret,
+            in("edi") socket,
+            in("esi") level,
+            in("edx") name,
+            in("r10") value,
+            in("r8d") option_len,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
