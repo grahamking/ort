@@ -72,7 +72,7 @@ pub const SOCK_DGRAM: c_int = 2;
 pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
 pub const AF_INET: c_int = 2;
 pub const IPPROTO_TCP: i32 = 6;
-pub const TCP_FASTOPEN: i32 = 23;
+pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
 pub const EPOLL_CTL_ADD: c_int = 1;
 

@@ -2,9 +2,7 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 
 Context from the current code and binary:
 - `target/release/ort` is still dynamically linked to `libc.so.6` and has an `INTERP` segment for `/lib64/ld-linux-x86-64.so.2`.
-- The single-model prompt path currently starts 2-3 pthreads, each with a 1 MiB stack plus a 64 KiB guard page.
 - TLS application-data decrypt currently recomputes AES key schedule and GHASH state for every record, and allocates fresh `Vec`s per record.
-- The code tries to enable TCP Fast Open, but it sets `TCP_FASTOPEN`, which is the listener-side option, not the client-side fast-open path.
 - A supplied `strace -f -c ./target/release/ort --version` run showed 35 syscalls and about 221 us total startup time, dominated by loader/libc setup (`mmap`, `mprotect`, `openat`, `pread64`, `fstat`).
 - That confirms loader-skipping is real, but also confirms it is not a top-5 optimization for end-to-end `prompt` latency unless you are explicitly chasing sub-millisecond startup.
 
@@ -18,12 +16,6 @@ Context from the current code and binary:
 - Given your stated constraints, replay risk is not a blocker.
 - For a CLI that performs exactly one request, 0-RTT is the highest-leverage way to reduce time to first byte on warm connections because the request can leave in the first flight.
 - If OpenRouter does not accept early data, keep the resumption machinery anyway and just fall back to resumed 1-RTT.
-
-3. Fix client-side TCP Fast Open and use the real Linux client path.
-- `src/net/socket.rs` sets `TCP_FASTOPEN`, which Linux documents as the listener-side option.
-- For a client you want `TCP_FASTOPEN_CONNECT` or `sendmsg(MSG_FASTOPEN)`, and if you are willing to be aggressive, possibly `TCP_FASTOPEN_NO_COOKIE`.
-- Persist any learned TFO cookie so reconnects can use it immediately.
-- This is the fastest way to open the TCP socket earlier without changing features.
 
 4. Collapse the HTTP request into one TLS application record and one send path.
 - `src/net/http.rs` writes the HTTP header and JSON body as two separate TLS writes, so that becomes two TLS records and extra encryption/syscall work.
@@ -41,17 +33,6 @@ Context from the current code and binary:
 - `nonce_xor` also allocates with `concat()` for every record, which is pure overhead on the hot path.
 - Replace this with fixed scratch buffers inside `TlsStream`, read the header into `[u8; 5]`, decrypt directly into a reusable plaintext buffer, and build the nonce in a `[u8; 12]` stack array.
 - This should cut allocator pressure, copies, and branchy small-object work.
-
-7. Make the single-model prompt path single-threaded.
-- For the normal prompt path, threads are not buying much overlap but they do add startup cost, stack mappings, queue traffic, and string cloning.
-- Today `run()` starts a prompt thread, a writer thread, and usually a last-writer thread, then joins them all.
-- One synchronous loop can connect, read, decrypt, parse SSE, write stdout, and append the last-file data inline.
-- If you still want overlap, keep at most one helper thread for the disk writer, not three.
-
-8. Do not replace threads with `epoll` for the prompt path; replace them with a straight-line blocking loop.
-- `epoll` or a fully async state machine is unlikely to beat one blocking socket plus stdout plus one optional file.
-- For a single request, `epoll` adds state-machine overhead and code size without eliminating the main costs.
-- The best thread optimization here is fewer threads, not a more complex scheduler.
 
 9. Replace the queue-based `Response` fanout with direct writes or a zero-copy buffer.
 - The current queue stores `Response: Clone`, and every content token becomes a `String` that is cloned for each consumer.
@@ -146,6 +127,5 @@ Summary of where I would spend time first:
 1. TLS resumption + 0-RTT.
 2. Real client-side TFO and one-record request send.
 3. Cache AES-GCM key schedule/GHASH state and remove per-record TLS allocations/copies.
-4. Collapse the single-model prompt path to one thread.
 5. Direct byte-oriented SSE/JSON parsing.
 6. Direct-syscall startup path that removes `ld-linux` and `libc.so.6`.

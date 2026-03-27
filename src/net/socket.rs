@@ -85,7 +85,7 @@ fn set_tcp_fastopen(fd: i32) {
         libc::setsockopt(
             fd,
             libc::IPPROTO_TCP,
-            libc::TCP_FASTOPEN,
+            libc::TCP_FASTOPEN_CONNECT,
             &optval as *const _ as *const core::ffi::c_void,
             size_of::<i32>() as u32,
         );
