@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 
 use core::ffi::{c_str::CStr, c_void};
 
+use crate::cli::Env;
 use crate::libc;
 
 /// Converts the number to a string, putting it plus a carriage return into `buf`.
@@ -42,7 +43,7 @@ pub(crate) fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     i + 1
 }
 
-pub(crate) fn num_to_string<T>(num: T) -> String
+pub fn num_to_string<T>(num: T) -> String
 where
     T: TryInto<i128> + Copy,
 {
@@ -145,7 +146,7 @@ pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
 }
 
 #[allow(unused)]
-pub(crate) fn print_string(prefix: &CStr, s: &str) {
+pub fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(zclean(&mut s.to_string())).unwrap();
     let _ = libc::write(1, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
     let _ = libc::write(1, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
@@ -176,10 +177,10 @@ pub(crate) fn slug(s: &str) -> String {
 }
 
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.
-pub(crate) fn last_filename() -> String {
+pub(crate) fn last_filename(env: &Env) -> String {
     // We don't expect pane IDs to go beyong 999
     let mut buf: [u8; 3] = [0; 3];
-    let buf_len = tmux_pane_id(&mut buf);
+    let buf_len = tmux_pane_id(env.TMUX_PANE.unwrap_or_default(), &mut buf);
 
     let mut out = String::with_capacity(16);
     out.push_str("last-");
@@ -193,28 +194,16 @@ pub(crate) fn last_filename() -> String {
 // Write the ID of this tmux pane as a string into the given buf.
 // Writes 0 if there is no TMUX_PANE env var defined.
 // Returns the length in bytes of the written ID.
-pub fn tmux_pane_id(buf: &mut [u8]) -> usize {
-    let v = get_env(c"TMUX_PANE");
+pub fn tmux_pane_id(tmux_pane_var: &str, buf: &mut [u8]) -> usize {
+    let v = tmux_pane_var;
     if v.is_empty() {
         buf[0] = b'0';
         return 1;
     }
     // removing leading '%'. Values are e.g. '%4'
-    let id_len = v.count_bytes() - 1;
-    buf[..id_len].copy_from_slice(&v.to_bytes()[1..]);
+    let id_len = v.len() - 1;
+    buf[..id_len].copy_from_slice(&v.as_bytes()[1..]);
     id_len
-}
-
-/// Read the value of an environment variable
-// Can't use std::env, we're no_std
-pub(crate) fn get_env(cs: &CStr) -> &'static CStr {
-    // Get a pointer to the var in our process env (above _start)
-    let value_ptr = unsafe { libc::getenv(cs.as_ptr()) };
-    if value_ptr.is_null() {
-        return c"";
-    }
-    // Re-interpret those bytes as a Rust CStr
-    unsafe { CStr::from_ptr(value_ptr) }
 }
 
 /// Create this directory if necessary. Does not create ancestors.

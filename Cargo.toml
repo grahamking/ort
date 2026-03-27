@@ -1,4 +1,5 @@
-cargo-features = ["panic-immediate-abort", "profile-rustflags"]
+cargo-features = ["profile-rustflags"]
+#cargo-features = ["panic-immediate-abort", "profile-rustflags"]
 
 [package]
 name = "ort-openrouter-cli"
@@ -27,6 +28,11 @@ path = "src/main.rs"
 opt-level = "s"
 strip = true
 codegen-units = 1
-panic = "immediate-abort"
+# immediate-abort saves binary size which is very nice, but:
+# 1. makes building / installing more difficult, needs rust-src
+# 2. make debugging harder, no panic info at all
+# 3. does not work without libc AFAICT
+#panic = "immediate-abort"
+panic = "abort"
 lto = true
-rustflags = ["-Ctarget-cpu=native", "-Crelocation-model=static", "-Clink-args=-Wl,--build-id=none,--no-eh-frame-hdr", "-Cforce-frame-pointers=yes"]
+rustflags = ["-Ctarget-cpu=native", "-Clink-args=-nostartfiles", "-Crelocation-model=static", "-Clink-args=-Wl,--no-dynamic-linker,--build-id=none,--no-eh-frame-hdr", "-Cforce-frame-pointers=yes"]

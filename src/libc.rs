@@ -152,13 +152,6 @@ pub struct epoll_event {
     pub data: u64,
 }
 
-#[link(name = "c", kind = "dylib")]
-unsafe extern "C" {
-    pub static mut environ: *mut *mut c_char;
-
-    pub fn getenv(name: *const c_char) -> *const c_char;
-}
-
 // Fill buf with random numbers.
 // buf len must be a multiple of 8.
 pub fn getrandom(buf: &mut [u8]) {

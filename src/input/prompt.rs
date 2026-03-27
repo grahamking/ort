@@ -14,6 +14,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::cli::Env;
 use crate::net::AsFd;
 use crate::{Context as _, OrtError, TcpSocket, TlsStream};
 
@@ -59,6 +60,7 @@ impl Drop for EpollFd {
 pub fn run<W: Write + Send>(
     api_key: &str,
     settings: config::Settings,
+    env: &Env,
     opts: PromptOpts,
     site: &'static Site,
     messages: Vec<crate::Message>,
@@ -76,7 +78,7 @@ pub fn run<W: Write + Send>(
     };
 
     let mut last_writer = if settings.save_to_file {
-        Some(LastWriter::new(opts.clone(), messages.clone())?)
+        Some(LastWriter::new(opts.clone(), messages.clone(), env)?)
     } else {
         None
     };
@@ -131,15 +133,16 @@ pub fn run<W: Write + Send>(
 pub fn run_continue(
     api_key: &str,
     settings: config::Settings,
+    env: &Env,
     mut opts: crate::PromptOpts,
     site: &'static Site,
     is_pipe_output: bool,
     w: impl Write + Send,
 ) -> OrtResult<()> {
     let mut last_path = [0u8; 128];
-    let cache_dir_end = config::cache_dir(&mut last_path)?;
+    let cache_dir_end = config::cache_dir(env, &mut last_path)?;
     last_path[cache_dir_end] = b'/';
-    let last_filename = utils::last_filename();
+    let last_filename = utils::last_filename(env);
     let start = cache_dir_end + 1;
     let end = start + last_filename.len();
     last_path[start..end].copy_from_slice(last_filename.as_bytes());
@@ -182,6 +185,7 @@ pub fn run_continue(
     run(
         api_key,
         settings,
+        &Default::default(),
         opts,
         site,
         last.messages,

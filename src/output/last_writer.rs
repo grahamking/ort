@@ -8,6 +8,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
+use crate::cli::Env;
 use crate::output::writer::OutputWriter;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, Write, common::config,
@@ -29,11 +30,11 @@ pub struct LastWriter {
 }
 
 impl LastWriter {
-    pub fn new(opts: PromptOpts, messages: Vec<Message>) -> OrtResult<Self> {
+    pub fn new(opts: PromptOpts, messages: Vec<Message>, env: &Env) -> OrtResult<Self> {
         let mut last_path = [0u8; 128];
-        let idx = config::cache_dir(&mut last_path)?;
+        let idx = config::cache_dir(env, &mut last_path)?;
         last_path[idx] = b'/';
-        let last_filename = utils::last_filename();
+        let last_filename = utils::last_filename(env);
         let start = idx + 1;
         let end = start + last_filename.len();
         last_path[start..end].copy_from_slice(last_filename.as_bytes());

@@ -4,12 +4,9 @@
 //! MIT License
 //! Copyright (c) 2026 Graham King
 
-use core::ffi::CStr;
-
 #[rustfmt::skip]
 pub const OPENROUTER: &Site = &Site {
     name: "OpenRouter",
-    api_key_env: c"OPENROUTER_API_KEY",
     config_filename: "ort.json",
     host: "openrouter.ai",
     dns_label: &[
@@ -25,7 +22,6 @@ pub const OPENROUTER: &Site = &Site {
 #[rustfmt::skip]
 pub const NVIDIA: &Site = &Site {
     name: "NVIDIA",
-    api_key_env: c"NVIDIA_API_KEY",
     config_filename: "nrt.json",
     host: "integrate.api.nvidia.com",
     dns_label: &[
@@ -42,7 +38,6 @@ pub const NVIDIA: &Site = &Site {
 
 pub const MOCK: &Site = &Site {
     name: "MOCK",
-    api_key_env: c"ORT_MOCK_API_KEY",
     config_filename: "mrt.json",
     host: "localhost",
     dns_label: &[9, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't', 0],
@@ -53,7 +48,6 @@ pub const MOCK: &Site = &Site {
 
 pub struct Site {
     pub name: &'static str,
-    pub api_key_env: &'static CStr,
     pub config_filename: &'static str,
     pub host: &'static str,
     pub dns_label: &'static [u8],

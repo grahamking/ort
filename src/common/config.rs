@@ -7,17 +7,21 @@
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::ffi::CStr;
 
-use crate::{ErrorKind, OrtResult, PromptOpts, common::utils, ort_error};
+use crate::{ErrorKind, OrtResult, PromptOpts, cli::Env, common::utils, ort_error};
 
 const DEFAULT_SAVE_TO_FILE: bool = true;
 
-pub fn load_config(filename: &'static str) -> OrtResult<ConfigFile> {
+pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
     let mut config_file = [0u8; 64];
 
     // Write the config directory into `config_file`
-    let mut end = xdg_dir(c"XDG_CONFIG_HOME", ".config", &mut config_file)?;
+    let mut end = xdg_dir(
+        env.XDG_CONFIG_HOME.unwrap_or_default(),
+        env.HOME.unwrap_or_default(),
+        ".config",
+        &mut config_file,
+    )?;
     config_file[end] = b'/';
     end += 1;
     let start = end;
@@ -85,8 +89,13 @@ impl ApiKey {
     }
 }
 
-pub fn cache_dir(cache_dir: &mut [u8]) -> OrtResult<usize> {
-    let mut end = xdg_dir(c"XDG_CACHE_HOME", ".cache", cache_dir)?;
+pub fn cache_dir(env: &Env, cache_dir: &mut [u8]) -> OrtResult<usize> {
+    let mut end = xdg_dir(
+        env.XDG_CACHE_HOME.unwrap_or_default(),
+        env.HOME.unwrap_or_default(),
+        ".cache",
+        cache_dir,
+    )?;
     cache_dir[end] = b'/';
     end += 1;
     let start = end;
@@ -100,21 +109,24 @@ pub fn cache_dir(cache_dir: &mut [u8]) -> OrtResult<usize> {
 
 /// A standard XDG directory based on environment variable, or default.
 /// Writes the result into `target` and returns the length of the written string.
-pub fn xdg_dir(var_name: &CStr, default: &'static str, target: &mut [u8]) -> OrtResult<usize> {
-    let dir = utils::get_env(var_name);
-    if !dir.is_empty() {
+pub fn xdg_dir(
+    xdg_var_value: &str,
+    home_dir: &str,
+    default: &'static str,
+    target: &mut [u8],
+) -> OrtResult<usize> {
+    // TODO: Pass Option instead of checking for empty
+    if !xdg_var_value.is_empty() {
         // If it's in the env var, we assume the dir exists
-        // Safety: to_str() will panic if the env var is not valid UTF-8
-        let dir_len = dir.count_bytes();
-        target[..dir_len + 1].copy_from_slice(dir.to_bytes_with_nul());
+        let dir_len = xdg_var_value.len();
+        target[..dir_len + 1].copy_from_slice(xdg_var_value.as_bytes());
         return Ok(dir_len + 1);
     }
 
-    let home_dir = utils::get_env(c"HOME");
     if !home_dir.is_empty() {
         let mut start = 0;
-        let mut end = home_dir.count_bytes();
-        target[start..end].copy_from_slice(home_dir.to_bytes());
+        let mut end = home_dir.len();
+        target[start..end].copy_from_slice(home_dir.as_bytes());
         target[end] = b'/';
         end += 1;
         start = end;

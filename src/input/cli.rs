@@ -7,14 +7,13 @@
 use core::ffi::{c_int, c_void};
 
 extern crate alloc;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
 use crate::common::config;
-use crate::common::utils;
 use crate::common::{buf_read, site};
 use crate::input::args;
 use crate::libc;
@@ -35,6 +34,18 @@ See https://github.com/grahamking/ort for full docs.
 
 pub fn print_usage() {
     libc::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len());
+}
+
+/// The environment variables we use
+#[allow(nonstandard_style)]
+#[derive(Default)]
+pub struct Env {
+    pub HOME: Option<&'static str>,
+    pub TMUX_PANE: Option<&'static str>,
+    pub XDG_CONFIG_HOME: Option<&'static str>,
+    pub XDG_CACHE_HOME: Option<&'static str>,
+    pub OPENROUTER_API_KEY: Option<&'static str>,
+    pub NVIDIA_API_KEY: Option<&'static str>,
 }
 
 fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
@@ -58,7 +69,12 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     }
 }
 
-pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResult<c_int> {
+pub fn main(
+    args: &[String],
+    env: Env,
+    is_terminal: bool,
+    w: impl Write + Send,
+) -> OrtResult<c_int> {
     let site = match args[0].split('/').next_back().unwrap() {
         "nrt" => site::NVIDIA,
         "mrt" => site::MOCK,
@@ -66,12 +82,16 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
     };
 
     // Load ~/.config/ort.json or nrt.json
-    let cfg = config::load_config(site.config_filename)?;
+    let cfg = config::load_config(&env, site.config_filename)?;
 
     // Fail fast if key missing
-    let mut api_key = utils::get_env(site.api_key_env)
-        .to_string_lossy()
-        .into_owned();
+    let api_key_ref = match site.name {
+        "OpenRouter" => env.OPENROUTER_API_KEY.unwrap_or_default(),
+        "NVIDIA" => env.NVIDIA_API_KEY.unwrap_or_default(),
+        "MOCK" => "test",
+        _ => panic!("unknown site"),
+    };
+    let mut api_key = api_key_ref.to_string();
     if api_key.is_empty() {
         api_key = match cfg.get_api_key() {
             Some(k) => k,
@@ -118,6 +138,7 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
                 prompt::run(
                     &api_key,
                     cfg.settings.unwrap_or_default(),
+                    &env,
                     cli_opts,
                     site,
                     messages,
@@ -138,6 +159,7 @@ pub fn main(args: &[String], is_terminal: bool, w: impl Write + Send) -> OrtResu
         args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
             cfg.settings.unwrap_or_default(),
+            &env,
             cli_opts,
             site,
             !is_terminal,
