@@ -31,10 +31,10 @@ use crate::common::time;
 use crate::common::utils;
 use crate::common::{buf_read, config};
 use crate::http;
-use crate::syscall::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
+use crate::syscall::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::utils::print_string;
 use crate::{ErrorKind, LastData};
 use crate::{Message, PromptOpts};
@@ -245,7 +245,13 @@ pub fn run_multi(
             events: syscall::EPOLLIN,
             data: active_prompts.len() as u64 - 1,
         };
-        if syscall::epoll_ctl(epoll_fd.raw(), syscall::EPOLL_CTL_ADD, socket_fd, &mut event) < 0 {
+        if syscall::epoll_ctl(
+            epoll_fd.raw(),
+            syscall::EPOLL_CTL_ADD,
+            socket_fd,
+            &mut event,
+        ) < 0
+        {
             return Err(ort_error(ErrorKind::Other, "epoll_ctl"));
         }
     }

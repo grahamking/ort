@@ -16,9 +16,9 @@ use crate::Write;
 use crate::common::config;
 use crate::common::{buf_read, site};
 use crate::input::args;
-use crate::syscall;
 use crate::list;
 use crate::prompt;
+use crate::syscall;
 use crate::{ErrorKind, ort_error};
 
 const STDIN_FILENO: i32 = 0;

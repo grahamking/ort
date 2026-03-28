@@ -10,9 +10,9 @@ use core::{net::Ipv4Addr, ptr::copy_nonoverlapping};
 extern crate alloc;
 
 use crate::{
-    ErrorKind, OrtResult,
+    ErrorKind, OrtResult, ort_error,
     syscall::{self, AF_INET, SOCK_DGRAM},
-    ort_error, utils,
+    utils,
 };
 
 // "openrouter.ai" response is 63 bytes. integrate.api.nvidia.com is more.

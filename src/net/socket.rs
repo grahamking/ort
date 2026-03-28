@@ -16,7 +16,11 @@ pub struct TcpSocket {
 
 impl TcpSocket {
     pub fn new() -> OrtResult<Self> {
-        let fd = syscall::socket(syscall::AF_INET, syscall::SOCK_STREAM | syscall::SOCK_CLOEXEC, 0);
+        let fd = syscall::socket(
+            syscall::AF_INET,
+            syscall::SOCK_STREAM | syscall::SOCK_CLOEXEC,
+            0,
+        );
         if fd == -1 {
             return Err(ort_error(ErrorKind::SocketCreateFailed, ""));
         }
@@ -27,7 +31,11 @@ impl TcpSocket {
     pub fn connect(&self, addr: &SocketAddrV4) -> OrtResult<()> {
         let c_addr = socket_addr_v4_to_c(addr);
         let len = size_of::<syscall::sockaddr_in>() as syscall::socklen_t;
-        let res = syscall::connect(self.fd, &c_addr as *const _ as *const syscall::sockaddr, len);
+        let res = syscall::connect(
+            self.fd,
+            &c_addr as *const _ as *const syscall::sockaddr,
+            len,
+        );
         if res == -1 {
             return Err(ort_error(ErrorKind::SocketConnectFailed, ""));
         }

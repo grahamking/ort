@@ -10,9 +10,9 @@
 
 mod common;
 mod input;
-pub mod syscall;
 mod net;
 mod output;
+pub mod syscall;
 
 pub use common::alloc::ArenaAlloc;
 pub use common::data::{
