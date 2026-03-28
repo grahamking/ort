@@ -11,7 +11,7 @@ extern crate alloc;
 
 use crate::{
     ErrorKind, OrtResult,
-    libc::{self, AF_INET, SOCK_DGRAM},
+    syscall::{self, AF_INET, SOCK_DGRAM},
     ort_error, utils,
 };
 
@@ -36,7 +36,7 @@ const DNS_PACKET_SUFFIX: [u8; 4] = [
 /// System programming is for everyone
 pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
     // socket
-    let sock_fd = libc::socket(AF_INET, SOCK_DGRAM, 0);
+    let sock_fd = syscall::socket(AF_INET, SOCK_DGRAM, 0);
     if sock_fd <= 0 {
         return Err(ort_error(ErrorKind::DnsResolveFailed, "socket failed"));
     }
@@ -44,20 +44,20 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
     // connect
     // In UDP "connect" is really "set peer name".
     // It's a filter so that we only get packets from the correct peer.
-    let addr = libc::sockaddr_in {
+    let addr = syscall::sockaddr_in {
         sin_family: AF_INET as u16,
         sin_port: 53_u16.to_be(),
-        sin_addr: libc::in_addr {
+        sin_addr: syscall::in_addr {
             // TODO: Look this up in /etc/resolv.conf
             s_addr: u32::from_ne_bytes([127, 0, 0, 53]),
         },
         sin_zero: [0u8; 8],
     };
-    let addr_len = size_of::<libc::sockaddr_in>() as libc::socklen_t;
+    let addr_len = size_of::<syscall::sockaddr_in>() as syscall::socklen_t;
 
-    let res = libc::connect(
+    let res = syscall::connect(
         sock_fd,
-        &addr as *const _ as *const libc::sockaddr,
+        &addr as *const _ as *const syscall::sockaddr,
         addr_len,
     );
     if res < 0 {
@@ -75,14 +75,14 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
     }
 
     // write query
-    let bytes_written = libc::write(sock_fd, query.as_ptr().cast(), query.len());
+    let bytes_written = syscall::write(sock_fd, query.as_ptr().cast(), query.len());
     if bytes_written != query.len() as i32 {
         return Err(ort_error(ErrorKind::DnsResolveFailed, "write failed"));
     }
 
     // read response
     let mut buf = [0u8; DNS_MAX_PACKET_LEN];
-    let bytes_read = libc::read(sock_fd, buf.as_mut_ptr().cast(), buf.len());
+    let bytes_read = syscall::read(sock_fd, buf.as_mut_ptr().cast(), buf.len());
     if bytes_read <= 0 {
         return Err(ort_error(ErrorKind::DnsResolveFailed, "read failed"));
     }

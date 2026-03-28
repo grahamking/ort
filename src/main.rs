@@ -13,7 +13,7 @@
 #![cfg_attr(not(debug_assertions), feature(lang_items))]
 #![allow(internal_features)]
 
-use ort_openrouter_cli::{StdoutWriter, cli, libc};
+use ort_openrouter_cli::{StdoutWriter, cli, syscall};
 
 #[cfg(debug_assertions)]
 use std::ffi::CString;
@@ -130,14 +130,14 @@ pub unsafe extern "C" fn main(
     }
 
     // Check stdout for redirection
-    let is_terminal = libc::isatty(1);
+    let is_terminal = syscall::isatty(1);
 
     match cli::main(&args, env, is_terminal, StdoutWriter {}) {
         Ok(exit_code) => exit_code as c_int,
         Err(err) => {
             let err_msg = CString::new(err.as_string()).unwrap();
-            let _ = libc::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
-            let _ = libc::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
+            let _ = syscall::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
+            let _ = syscall::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
             1
         }
     }
@@ -176,14 +176,14 @@ fn main() -> std::process::ExitCode {
     };
 
     // Check stdout for redirection
-    let is_terminal = libc::isatty(1);
+    let is_terminal = syscall::isatty(1);
 
     match cli::main(&args, env, is_terminal, StdoutWriter {}) {
         Ok(exit_code) => (exit_code as u8).into(),
         Err(err) => {
             let err_msg = CString::new(err.as_string()).unwrap();
-            let _ = libc::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
-            let _ = libc::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
+            let _ = syscall::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
+            let _ = syscall::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
             1.into()
         }
     }
@@ -195,7 +195,7 @@ fn is_version_flag(args: &[String]) -> bool {
             env!("CARGO_BIN_NAME").to_string() + " " + env!("CARGO_PKG_VERSION") + "\n",
         )
         .unwrap();
-        let _ = libc::write(1, v.as_ptr().cast(), v.count_bytes());
+        let _ = syscall::write(1, v.as_ptr().cast(), v.count_bytes());
         true
     } else {
         false
@@ -205,22 +205,22 @@ fn is_version_flag(args: &[String]) -> bool {
 #[cfg(not(debug_assertions))]
 #[panic_handler]
 fn my_panic(info: &core::panic::PanicInfo) -> ! {
-    libc::write(1, "panic: ".as_ptr().cast(), "panic: ".len());
+    syscall::write(1, "panic: ".as_ptr().cast(), "panic: ".len());
     if let Some(msg) = info.message().as_str() {
-        libc::write(2, msg.as_ptr().cast(), msg.len());
-        libc::write(2, ", ".as_ptr().cast(), 2);
+        syscall::write(2, msg.as_ptr().cast(), msg.len());
+        syscall::write(2, ", ".as_ptr().cast(), 2);
     }
     if let Some(location) = info.location() {
         let f = location.file();
-        libc::write(2, f.as_ptr().cast(), f.len());
-        libc::write(2, ", ".as_ptr().cast(), 2);
+        syscall::write(2, f.as_ptr().cast(), f.len());
+        syscall::write(2, ", ".as_ptr().cast(), 2);
 
         let line = location.line();
         let line_s = ort_openrouter_cli::utils::num_to_string(line);
-        libc::write(2, line_s.as_ptr().cast(), line_s.len());
+        syscall::write(2, line_s.as_ptr().cast(), line_s.len());
     }
-    libc::write(1, "\n".as_ptr().cast(), 1);
-    libc::exit(99)
+    syscall::write(1, "\n".as_ptr().cast(), 1);
+    syscall::exit(99)
 }
 
 #[cfg(not(debug_assertions))]

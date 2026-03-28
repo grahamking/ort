@@ -12,7 +12,7 @@ use alloc::string::{String, ToString};
 
 use crate::utils::zclean;
 use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats, common::utils};
-use crate::{libc, ort_error};
+use crate::{ort_error, syscall};
 
 const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
 
@@ -215,7 +215,7 @@ impl<W: Write + Send> OutputWriter for FileWriter<W> {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
                 let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
                 return Err(ort_error(
                     ErrorKind::ResponseStreamError,
                     "OpenRouter returned an error",
@@ -308,7 +308,7 @@ pub struct StdoutWriter {}
 
 impl Write for StdoutWriter {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = libc::write(1, buf.as_ptr() as *const c_void, buf.len());
+        let bytes_written = syscall::write(1, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written >= 0 {
             Ok(bytes_written as usize)
         } else {

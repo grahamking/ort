@@ -15,7 +15,7 @@ use crate::{
     Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
     ort_error,
 };
-use crate::{libc, utils};
+use crate::{syscall, utils};
 
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
@@ -229,7 +229,7 @@ impl HttpError {
 impl From<HttpError> for OrtError {
     fn from(err: HttpError) -> OrtError {
         let c_s = unsafe { CString::from_vec_with_nul_unchecked(err.as_string().into_bytes()) };
-        libc::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+        syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
         ort_error(ErrorKind::HttpStatusError, "")
     }
 }

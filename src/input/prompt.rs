@@ -31,7 +31,7 @@ use crate::common::time;
 use crate::common::utils;
 use crate::common::{buf_read, config};
 use crate::http;
-use crate::libc::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
+use crate::syscall::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
@@ -52,7 +52,7 @@ impl EpollFd {
 
 impl Drop for EpollFd {
     fn drop(&mut self) {
-        let _ = libc::close(self.0);
+        let _ = syscall::close(self.0);
     }
 }
 
@@ -169,7 +169,7 @@ pub fn run_continue(
             {
                 // In debug build print the path.
                 let c_last_file = CString::new(last_file).unwrap();
-                libc::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
+                syscall::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
             }
             return Err(ort_error(
                 ErrorKind::HistoryReadFailed,
@@ -210,7 +210,7 @@ pub fn run_multi(
     let _ = w.write(msg.as_bytes());
     let _ = w.flush();
 
-    let epoll_fd = libc::epoll_create(num_models as i32);
+    let epoll_fd = syscall::epoll_create(num_models as i32);
     if epoll_fd < 0 {
         return Err(ort_error(ErrorKind::Other, "epoll_create"));
     }
@@ -240,19 +240,19 @@ pub fn run_multi(
         active_prompts.push(active_prompt);
         active_writers.push(CollectedWriter::new());
 
-        libc::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
-        let mut event = libc::epoll_event {
-            events: libc::EPOLLIN,
+        syscall::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
+        let mut event = syscall::epoll_event {
+            events: syscall::EPOLLIN,
             data: active_prompts.len() as u64 - 1,
         };
-        if libc::epoll_ctl(epoll_fd.raw(), libc::EPOLL_CTL_ADD, socket_fd, &mut event) < 0 {
+        if syscall::epoll_ctl(epoll_fd.raw(), syscall::EPOLL_CTL_ADD, socket_fd, &mut event) < 0 {
             return Err(ort_error(ErrorKind::Other, "epoll_ctl"));
         }
     }
 
-    let mut ready_events = vec![libc::epoll_event { events: 0, data: 0 }; active_prompts.len()];
+    let mut ready_events = vec![syscall::epoll_event { events: 0, data: 0 }; active_prompts.len()];
     while !ready_events.is_empty() {
-        let num_ready = libc::epoll_wait(
+        let num_ready = syscall::epoll_wait(
             epoll_fd.raw(),
             ready_events.as_mut_ptr(),
             ready_events.len() as i32,

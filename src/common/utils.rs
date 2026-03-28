@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use core::ffi::{c_str::CStr, c_void};
 
 use crate::cli::Env;
-use crate::libc;
+use crate::syscall;
 
 /// Converts the number to a string, putting it plus a carriage return into `buf`.
 /// `buf` must be big enough to hold the largest possible number of digits in
@@ -148,9 +148,9 @@ pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
 #[allow(unused)]
 pub fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(zclean(&mut s.to_string())).unwrap();
-    let _ = libc::write(1, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
-    let _ = libc::write(1, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
-    let _ = libc::write(1, c"\n".as_ptr().cast::<c_void>(), c"\n".count_bytes());
+    let _ = syscall::write(1, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
+    let _ = syscall::write(1, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
+    let _ = syscall::write(1, c"\n".as_ptr().cast::<c_void>(), c"\n".count_bytes());
 }
 
 /// Replace any null bytes with an underscore, making it C-safe
@@ -210,19 +210,19 @@ pub fn tmux_pane_id(tmux_pane_var: &str, buf: &mut [u8]) -> usize {
 pub(crate) fn ensure_dir_exists(dir: &str) {
     let cs = CString::new(dir).unwrap();
     if !path_exists(cs.as_ref()) {
-        libc::mkdir(cs.as_ptr(), 0o755);
+        syscall::mkdir(cs.as_ptr(), 0o755);
     }
 }
 
 /// Does this file path exists, and is accessible by the user?
 pub(crate) fn path_exists(path: &CStr) -> bool {
-    libc::access(path.as_ptr(), libc::F_OK) == 0
+    syscall::access(path.as_ptr(), syscall::F_OK) == 0
 }
 
 /// Read a file into memory
 pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let cs = CString::new(filename).unwrap();
-    let fd = match libc::open(cs.as_ptr(), libc::O_RDONLY, 0) {
+    let fd = match syscall::open(cs.as_ptr(), syscall::O_RDONLY, 0) {
         Ok(fd) => fd,
         Err(v) if v == "Permission denied" => {
             return Err(v);
@@ -236,10 +236,10 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
     let mut buffer = [0u8; 4096];
 
     loop {
-        let bytes_read = libc::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len());
+        let bytes_read = syscall::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len());
 
         if bytes_read < 0 {
-            let _ = libc::close(fd);
+            let _ = syscall::close(fd);
             return Err("READ ERROR");
         }
         if bytes_read == 0 {

@@ -89,7 +89,7 @@ mod tests {
     fn bench_hmac_long(b: &mut Bencher) {
         let key = b"secret";
         let mut data = [0u8; 448];
-        crate::libc::getrandom(&mut data);
+        crate::syscall::getrandom(&mut data);
         b.iter(|| {
             black_box(super::sign(key, &data));
         });

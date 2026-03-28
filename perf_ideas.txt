@@ -1,10 +1,7 @@
 Performance ideas for the prompt path of ort, ordered by expected gain.
 
 Context from the current code and binary:
-- `target/release/ort` is still dynamically linked to `libc.so.6` and has an `INTERP` segment for `/lib64/ld-linux-x86-64.so.2`.
 - TLS application-data decrypt currently recomputes AES key schedule and GHASH state for every record, and allocates fresh `Vec`s per record.
-- A supplied `strace -f -c ./target/release/ort --version` run showed 35 syscalls and about 221 us total startup time, dominated by loader/libc setup (`mmap`, `mprotect`, `openat`, `pread64`, `fstat`).
-- That confirms loader-skipping is real, but also confirms it is not a top-5 optimization for end-to-end `prompt` latency unless you are explicitly chasing sub-millisecond startup.
 
 1. Implement TLS 1.3 session resumption and persist tickets across runs.
 - This is the biggest warm-path latency win because the CLI always makes a fresh connection today.
@@ -34,11 +31,6 @@ Context from the current code and binary:
 - Replace this with fixed scratch buffers inside `TlsStream`, read the header into `[u8; 5]`, decrypt directly into a reusable plaintext buffer, and build the nonce in a `[u8; 12]` stack array.
 - This should cut allocator pressure, copies, and branchy small-object work.
 
-9. Replace the queue-based `Response` fanout with direct writes or a zero-copy buffer.
-- The current queue stores `Response: Clone`, and every content token becomes a `String` that is cloned for each consumer.
-- If you keep threads, use a single-producer/single-consumer ring for prompt mode, or store byte ranges into a shared arena rather than cloning `String`.
-- If you remove threads, this entire cost disappears.
-
 10. Parse SSE and JSON directly from bytes instead of building `String`s and mini ASTs.
 - The prompt path only really needs `delta.content`, `delta.reasoning`, and the final `usage.cost/provider/model`.
 - Right now the code reads line-by-line into a `String`, parses a full `ChatCompletionsResponse`, allocates strings, then allocates more strings for `Response::Content` and `ThinkEvent::Content`.
@@ -54,12 +46,6 @@ Context from the current code and binary:
 - The current code uses a portable 16-limb `i64/i128` implementation.
 - On modern Linux x86_64 CPUs, a 5x51 or 4x64 implementation using BMI2/ADX or tight inline assembly should be materially faster for cold handshakes.
 - This matters less once resumption is done, but it is still the main remaining cold-handshake CPU cost.
-
-13. Remove the dynamic loader and libc dependency instead of only tuning Rust link flags.
-- The release binary is still dynamically linked and therefore still pays `ld-linux` startup and PLT/relocation overhead.
-- If you want to skip the loader, do it by going to a custom `_start` plus direct syscalls and in-process env/argv parsing.
-- Do not just flip on static glibc; that will likely make the binary much larger, which conflicts with your size constraint.
-- The syscall path also lets you remove libc wrappers around `open`, `read`, `write`, `socket`, `connect`, `clock_gettime`, `getrandom`, `futex`, and thread startup.
 
 14. Prefer direct syscalls and `writev`/`sendmsg` over hand-written assembler for libc replacement.
 - Replacing a libc call with inline assembly that still performs the same syscall will not buy much.
@@ -128,4 +114,3 @@ Summary of where I would spend time first:
 2. Real client-side TFO and one-record request send.
 3. Cache AES-GCM key schedule/GHASH state and remove per-record TLS allocations/copies.
 5. Direct byte-oriented SSE/JSON parsing.
-6. Direct-syscall startup path that removes `ld-linux` and `libc.so.6`.

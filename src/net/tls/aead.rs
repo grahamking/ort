@@ -675,7 +675,7 @@ mod tests {
     fn bench_key_expansion(b: &mut Bencher) {
         // Setup (not timed)
         let mut key = [0u8; 16];
-        crate::libc::getrandom(&mut key);
+        crate::syscall::getrandom(&mut key);
 
         // Timed iteration
         b.iter(|| {
@@ -687,9 +687,9 @@ mod tests {
     fn bench_aes_encrypt_block(b: &mut Bencher) {
         // Setup (not timed)
         let mut key = [0u8; 16];
-        crate::libc::getrandom(&mut key);
+        crate::syscall::getrandom(&mut key);
         let mut nonce = [0u8; 16]; // 12 bytes but getrandom requires multiple of 8
-        crate::libc::getrandom(&mut nonce);
+        crate::syscall::getrandom(&mut nonce);
         let round_keys = key_expansion(&key);
         let j0 = {
             let mut j = [0u8; 16];
@@ -711,11 +711,11 @@ mod tests {
     fn bench_ghash(b: &mut Bencher) {
         // Setup (not timed)
         let mut ciphertext = [0u8; 448];
-        crate::libc::getrandom(&mut ciphertext);
+        crate::syscall::getrandom(&mut ciphertext);
         let mut hdr = [0u8; 8];
-        crate::libc::getrandom(&mut hdr);
+        crate::syscall::getrandom(&mut hdr);
         let mut h_bytes = [0u8; 16];
-        crate::libc::getrandom(&mut h_bytes);
+        crate::syscall::getrandom(&mut h_bytes);
         let h = u128::from_be_bytes(h_bytes);
 
         // Timed iteration
@@ -728,14 +728,14 @@ mod tests {
     fn bench_decrypt(b: &mut Bencher) {
         // Setup (not timed)
         let mut key = [0u8; 16];
-        crate::libc::getrandom(&mut key);
+        crate::syscall::getrandom(&mut key);
         let mut nonce = [0u8; 16]; // 12 bytes but getrandom requires multiple of 8
-        crate::libc::getrandom(&mut nonce);
+        crate::syscall::getrandom(&mut nonce);
         let mut hdr = [0u8; 8]; // 5 bytes, but getrandom requires min 8
-        crate::libc::getrandom(&mut hdr);
+        crate::syscall::getrandom(&mut hdr);
         // OpenAI chat completions responses are typically 400 - 500 bytes
         let mut plaintext = [0u8; 448];
-        crate::libc::getrandom(&mut plaintext);
+        crate::syscall::getrandom(&mut plaintext);
         let ciphertext = aes_128_gcm_encrypt(&key, &nonce[..12], &hdr[..5], &plaintext).unwrap();
 
         // Timed part

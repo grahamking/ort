@@ -10,7 +10,7 @@
 
 mod common;
 mod input;
-pub mod libc;
+pub mod syscall;
 mod net;
 mod output;
 

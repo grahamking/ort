@@ -15,7 +15,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, libc, net::AsFd, ort_error,
+    Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, net::AsFd, ort_error,
+    syscall,
 };
 
 mod aead;
@@ -119,10 +120,10 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
 
     // X25519
     let mut random = [0u8; 32];
-    libc::getrandom(&mut random);
+    syscall::getrandom(&mut random);
 
     let mut session_id = [0u8; 32];
-    libc::getrandom(&mut session_id);
+    syscall::getrandom(&mut session_id);
 
     // legacy_version
     ch_body.extend_from_slice(&0x0303u16.to_be_bytes());
@@ -281,7 +282,7 @@ impl<T: Read + Write> TlsStream<T> {
 
         // A private key is simply random bytes. /dev/urandom is cryptographically secure.
         let mut client_private_key = [0u8; 32];
-        libc::getrandom(&mut client_private_key);
+        syscall::getrandom(&mut client_private_key);
         debug_print("Client private key", &client_private_key);
 
         debug_print("MSG -> ClientHello", &[]);
@@ -652,8 +653,8 @@ impl<T: Read + Write> Read for TlsStream<T> {
                 let mut err_code_buf: [u8; 5] = [0u8; 5];
                 let len = to_ascii(plaintext[1] as usize, &mut err_code_buf);
                 let err_code = unsafe { CStr::from_bytes_with_nul_unchecked(&err_code_buf[..len]) };
-                libc::write(2, err_level.as_ptr().cast(), err_level.count_bytes());
-                libc::write(2, err_code.as_ptr().cast(), err_code.count_bytes());
+                syscall::write(2, err_level.as_ptr().cast(), err_level.count_bytes());
+                syscall::write(2, err_code.as_ptr().cast(), err_code.count_bytes());
 
                 return Err(ort_error(ErrorKind::TlsAlertReceived, ""));
             }

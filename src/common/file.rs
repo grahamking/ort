@@ -11,7 +11,7 @@ use core::mem::MaybeUninit;
 extern crate alloc;
 
 use crate::common::time;
-use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_error};
+use crate::{ErrorKind, OrtResult, Read, Write, ort_error, syscall};
 
 pub struct File {
     fd: c_int,
@@ -22,8 +22,8 @@ impl File {
     /// Calls libc::open with the given pointer. Is actually safe.
     /// Path must end with a null byte.
     pub unsafe fn create(path: &[u8]) -> OrtResult<Self> {
-        let flags = libc::O_CLOEXEC | libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
-        let fd = libc::open(path.as_ptr() as *const c_char, flags, 0o660 as c_int)
+        let flags = syscall::O_CLOEXEC | syscall::O_WRONLY | syscall::O_CREAT | syscall::O_TRUNC;
+        let fd = syscall::open(path.as_ptr() as *const c_char, flags, 0o660 as c_int)
             .map_err(|e| ort_error(ErrorKind::FileCreateFailed, e))?;
         if fd == -1 {
             return Err(ort_error(ErrorKind::FileCreateFailed, "open64 failed"));
@@ -34,7 +34,7 @@ impl File {
 
 impl Read for File {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
-        let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
+        let bytes_read = syscall::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
         if bytes_read < 0 {
             Err(ort_error(ErrorKind::FileReadFailed, "syscall read error"))
         } else {
@@ -45,7 +45,7 @@ impl Read for File {
 
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
+        let bytes_written = syscall::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written < 0 {
             Err(ort_error(ErrorKind::FileWriteFailed, "syscall write error"))
         } else {
@@ -60,11 +60,11 @@ impl Write for File {
 }
 
 pub fn last_modified(path: &CStr) -> OrtResult<time::Instant> {
-    let mut st = MaybeUninit::<libc::Stat>::uninit();
-    if libc::stat(path.as_ptr(), &mut st).is_err() {
+    let mut st = MaybeUninit::<syscall::Stat>::uninit();
+    if syscall::stat(path.as_ptr(), &mut st).is_err() {
         // In debug build print the path.
         #[cfg(debug_assertions)]
-        libc::write(2, path.as_ptr().cast(), path.count_bytes());
+        syscall::write(2, path.as_ptr().cast(), path.count_bytes());
 
         return Err(ort_error(ErrorKind::FileStatFailed, ""));
     }

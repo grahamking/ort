@@ -8,7 +8,7 @@ use core::ffi::{c_int, c_void};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-use crate::{ErrorKind, OrtResult, Read, Write, libc, ort_error, utils};
+use crate::{ErrorKind, OrtResult, Read, Write, ort_error, syscall, utils};
 
 pub struct TcpSocket {
     fd: i32,
@@ -16,7 +16,7 @@ pub struct TcpSocket {
 
 impl TcpSocket {
     pub fn new() -> OrtResult<Self> {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        let fd = syscall::socket(syscall::AF_INET, syscall::SOCK_STREAM | syscall::SOCK_CLOEXEC, 0);
         if fd == -1 {
             return Err(ort_error(ErrorKind::SocketCreateFailed, ""));
         }
@@ -26,8 +26,8 @@ impl TcpSocket {
 
     pub fn connect(&self, addr: &SocketAddrV4) -> OrtResult<()> {
         let c_addr = socket_addr_v4_to_c(addr);
-        let len = size_of::<libc::sockaddr_in>() as libc::socklen_t;
-        let res = libc::connect(self.fd, &c_addr as *const _ as *const libc::sockaddr, len);
+        let len = size_of::<syscall::sockaddr_in>() as syscall::socklen_t;
+        let res = syscall::connect(self.fd, &c_addr as *const _ as *const syscall::sockaddr, len);
         if res == -1 {
             return Err(ort_error(ErrorKind::SocketConnectFailed, ""));
         }
@@ -43,9 +43,9 @@ impl super::AsFd for TcpSocket {
 
 impl Read for TcpSocket {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
-        let bytes_read = libc::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
+        let bytes_read = syscall::read(self.fd, buf.as_mut_ptr() as *mut c_void, buf.len());
         if bytes_read < 0 {
-            if bytes_read == libc::EAGAIN {
+            if bytes_read == syscall::EAGAIN {
                 return Err(ort_error(ErrorKind::WouldBlock, ""));
             }
             // see /usr/include/asm-generic/errno.h to translate the codes
@@ -60,7 +60,7 @@ impl Read for TcpSocket {
 
 impl Write for TcpSocket {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = libc::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
+        let bytes_written = syscall::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
         if bytes_written < 0 {
             // see /usr/include/asm-generic/errno.h to translate the codes
             let err_code = utils::num_to_string(-bytes_written);
@@ -81,27 +81,27 @@ impl Write for TcpSocket {
 
 fn set_tcp_fastopen(fd: i32) {
     let optval: c_int = 1; // Enable
-    libc::setsockopt(
+    syscall::setsockopt(
         fd,
-        libc::IPPROTO_TCP,
-        libc::TCP_FASTOPEN_CONNECT,
+        syscall::IPPROTO_TCP,
+        syscall::TCP_FASTOPEN_CONNECT,
         &optval as *const _ as *const core::ffi::c_void,
         size_of::<i32>() as u32,
     );
 }
 
-fn socket_addr_v4_to_c(addr: &SocketAddrV4) -> libc::sockaddr_in {
-    libc::sockaddr_in {
-        sin_family: libc::AF_INET as libc::sa_family_t,
+fn socket_addr_v4_to_c(addr: &SocketAddrV4) -> syscall::sockaddr_in {
+    syscall::sockaddr_in {
+        sin_family: syscall::AF_INET as syscall::sa_family_t,
         sin_port: addr.port().to_be(),
         sin_addr: ip_v4_addr_to_c(addr.ip()),
         ..unsafe { core::mem::zeroed() }
     }
 }
-fn ip_v4_addr_to_c(addr: &Ipv4Addr) -> libc::in_addr {
+fn ip_v4_addr_to_c(addr: &Ipv4Addr) -> syscall::in_addr {
     // `s_addr` is stored as BE on all machines and the array is in BE order.
     // So the native endian conversion method is used so that it's never swapped.
-    libc::in_addr {
+    syscall::in_addr {
         s_addr: u32::from_ne_bytes(addr.octets()),
     }
 }

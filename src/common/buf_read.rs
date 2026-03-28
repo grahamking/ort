@@ -198,10 +198,10 @@ pub fn fd_read_to_string(fd: c_int, buffer: &mut String) {
         let to_read = min(avail, READ_CHUNK);
 
         let n = unsafe {
-            crate::libc::read(
+            crate::syscall::read(
                 fd,
                 v.as_mut_ptr().add(len) as *mut _,
-                to_read as crate::libc::size_t,
+                to_read as crate::syscall::size_t,
             )
         };
         if n == 0 {

@@ -16,7 +16,7 @@ use crate::Write;
 use crate::common::config;
 use crate::common::{buf_read, site};
 use crate::input::args;
-use crate::libc;
+use crate::syscall;
 use crate::list;
 use crate::prompt;
 use crate::{ErrorKind, ort_error};
@@ -33,7 +33,7 @@ See https://github.com/grahamking/ort for full docs.
 ";
 
 pub fn print_usage() {
-    libc::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len());
+    syscall::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len());
 }
 
 /// The environment variables we use
@@ -57,7 +57,7 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     if args[1].as_str() == "list" {
         args::parse_list_args(args)
     } else {
-        let is_pipe_input = !libc::isatty(STDIN_FILENO);
+        let is_pipe_input = !syscall::isatty(STDIN_FILENO);
         let stdin = if is_pipe_input {
             let mut buffer = String::with_capacity(8 * 1024);
             buf_read::fd_read_to_string(STDIN_FILENO, &mut buffer);

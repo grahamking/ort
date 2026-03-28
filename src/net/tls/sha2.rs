@@ -202,7 +202,7 @@ mod tests {
     fn bench_sha256_448_bytes(b: &mut Bencher) {
         // OpenAI chat completion responses are often a few hundred bytes.
         let mut input = [0u8; 448];
-        crate::libc::getrandom(&mut input);
+        crate::syscall::getrandom(&mut input);
 
         b.iter(|| {
             let _ = super::sha256(&input);

@@ -15,7 +15,7 @@ use core::alloc::Layout;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::libc;
+use crate::syscall;
 
 #[cfg(feature = "panic-on-realloc")]
 static mut IS_FIRST_REALLOC: bool = true;
@@ -59,7 +59,7 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'+';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            crate::libc::write(2, buf.as_ptr().cast(), len);
+            crate::syscall::write(2, buf.as_ptr().cast(), len);
 
             // Also print alignment
             //let mut buf = [0u8; 16];
@@ -78,8 +78,8 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
 
             if OFFSET.load(Ordering::Relaxed) > MEM_SIZE {
                 let msg = c"Out of memory, common/alloc.rs MEM_SIZE\n";
-                libc::write(2, msg.as_ptr() as *const c_void, msg.count_bytes());
-                libc::exit(1);
+                syscall::write(2, msg.as_ptr() as *const c_void, msg.count_bytes());
+                syscall::exit(1);
             }
             HEAP.0.as_mut_ptr().add(current_offset)
         }
@@ -91,7 +91,7 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'+';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            crate::libc::write(2, buf.as_ptr().cast(), len);
+            crate::syscall::write(2, buf.as_ptr().cast(), len);
 
             // Also print alignment
             //let mut buf = [0u8; 16];
@@ -111,7 +111,7 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'-';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            crate::libc::write(2, buf.as_ptr().cast(), len);
+            crate::syscall::write(2, buf.as_ptr().cast(), len);
         }
 
         // we never free, program runtime is short
@@ -129,11 +129,11 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
             let mut buf = [0u8; 16];
             buf[0] = b'\\';
             let len = to_ascii(layout.size(), &mut buf[1..]);
-            crate::libc::write(2, buf.as_ptr().cast(), len);
+            crate::syscall::write(2, buf.as_ptr().cast(), len);
 
             buf[0] = b'/';
             let len = to_ascii(new_size, &mut buf[1..]);
-            crate::libc::write(2, buf.as_ptr().cast(), len);
+            crate::syscall::write(2, buf.as_ptr().cast(), len);
 
             // Also print alignment
             //let mut buf = [0u8; 16];
