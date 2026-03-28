@@ -44,6 +44,8 @@ static GLOBAL: ArenaAlloc = ArenaAlloc;
 
 #[cfg(not(debug_assertions))]
 global_asm!(include_str!("start.s"));
+#[cfg(not(debug_assertions))]
+global_asm!(include_str!("builtins.s"));
 
 /// The release mode main
 /// Note the real entry point is in start.s, which calls this.
