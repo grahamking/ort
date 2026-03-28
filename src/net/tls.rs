@@ -874,10 +874,10 @@ fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
                 pk.copy_from_slice(&ed[4..4 + 32]);
                 server_pub = Some(pk);
             }
-            EXT_SUPPORTED_VERSIONS => {
-                if ed.len() != 2 || u16::from_be_bytes([ed[0], ed[1]]) != TLS13 {
-                    return Err(ort_error(ErrorKind::TlsServerNotTls13, ""));
-                }
+            EXT_SUPPORTED_VERSIONS
+                if (ed.len() != 2 || u16::from_be_bytes([ed[0], ed[1]]) != TLS13) =>
+            {
+                return Err(ort_error(ErrorKind::TlsServerNotTls13, ""));
             }
             _ => {}
         }

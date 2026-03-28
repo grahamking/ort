@@ -1,11 +1,11 @@
 # Install
 
 1. Install rust from [rust-lang.org](https://rust-lang.org/) or your package manager, any version should work.
-2. Install the Rust version and component we need: `rustup toolchain install nightly-2026-01-07 --component rust-src`
+2. Install the Rust version and component we need: `rustup toolchain install nightly-2026-03-25`
 3. Install `ort`:
 
 ```
-cargo +nightly-2026-01-07 install --locked -Zbuild-std=core,alloc ort-openrouter-cli
+cargo +nightly-2026-03-25 install --locked ort-openrouter-cli
 ```
 
 The binary is called `ort`.
@@ -18,7 +18,7 @@ If you consider your online activity very high risk (don't use Open Router then!
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~150 KiB ELF binary. It does not use the Rust std library or any external Rust crates.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~180 KiB ELF binary. It does not use the Rust std library or any external Rust crates, not even libc. It is statically linked.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -238,8 +238,6 @@ If you mostly use models from the big-three labs I highly recommend trying OpenR
 Orginal version written by GPT-5 to my spec.
 
 ## Development
-
-Use `build_release.sh` for the release build. A regular `cargo build --release` will not work because we have to build the rust core library to switch panic modes.
 
 We do our own DNS resolution (of course!). Currently that's an A query to 127.0.0.53, so a resolver will need to be running there (Modern Linux will have `systemd-resolved` there). We do not check `/etc/hosts`, and do not support IPv6.
 

@@ -5,7 +5,8 @@
 //! Copyright (c) 2025 Graham King
 
 #![no_std]
-#![feature(test)]
+// feature(test) for benchmarking
+#![cfg_attr(test, feature(test))]
 
 mod common;
 mod input;

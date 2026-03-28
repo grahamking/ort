@@ -1,6 +1,6 @@
 [toolchain]
-channel = "nightly-2026-01-07"
-components = ["rust-src", "rust-analyzer"]
+channel = "nightly-2026-03-25"
+components = ["rust-analyzer"]
 
 # Ideal for `cargo install`
 #profile = "minimal"

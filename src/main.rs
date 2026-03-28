@@ -10,8 +10,8 @@
 
 #![cfg_attr(not(debug_assertions), no_std)]
 #![cfg_attr(not(debug_assertions), no_main)]
+#![cfg_attr(not(debug_assertions), feature(lang_items))]
 #![allow(internal_features)]
-#![feature(lang_items)]
 
 use ort_openrouter_cli::{StdoutWriter, cli, libc};
 

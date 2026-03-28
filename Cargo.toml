@@ -3,7 +3,7 @@ cargo-features = ["profile-rustflags"]
 
 [package]
 name = "ort-openrouter-cli"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2024"
 description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]

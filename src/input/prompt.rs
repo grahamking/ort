@@ -185,7 +185,7 @@ pub fn run_continue(
     run(
         api_key,
         settings,
-        &Default::default(),
+        env,
         opts,
         site,
         last.messages,
