@@ -91,3 +91,47 @@ memcmp:
 	xor eax, eax		// return 0, arrays match
 	ret
 
+// fn memmove(dest: *mut u8, src: *const u8, n: usize) -> *mut u8
+// rdi = dest, rsi = src, rdx = n
+// we do not touch any callee save registers
+.global memmove
+memmove:
+	mov    rax, rdi		// save dest, we have to return it at end
+
+	// if src == dest
+	cmp    rdi, rsi
+	je     .Lmemmove_ret
+
+	// if n == 0
+	test   rdx, rdx
+	je     .Lmemmove_ret
+
+	// copy forward if dest < src
+	cmp rdi, rsi
+	jb .Lmemmove_forward		// jump if below
+
+	// copy forward if dest >= src but they don't overlap
+	// if dest - src >= n
+	mov rcx, rdi
+	sub rcx, rsi
+	cmp rcx, rdx
+	jae .Lmemmove_forward	// jump if above or equal
+
+	// they overlap, copy backwards
+	//
+	// move pointers to the end
+	lea    rdi, [rax+rdx*1-0x1]	// rdi = dest + n - 1
+	lea    rsi, [rsi+rdx*1-0x1]	// rsi = src + n - 1
+	mov    rcx, rdx				// rcx = n
+	std							// set direction flag, we copy backwards from end
+	rep movsb					// copy
+	cld							// clear direction flag
+	jmp    .Lmemmove_ret
+
+.Lmemmove_forward:
+	mov    rdi, rax	// restore rdi = dest
+	mov    rcx, rdx	// rcx = n
+	rep movsb		// copy
+.Lmemmove_ret:
+	// rax already has rdi, which we return
+	ret

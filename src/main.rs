@@ -35,8 +35,6 @@ use ort_openrouter_cli::ArenaAlloc;
 use ort_openrouter_cli::{StdoutWriter, cli, syscall};
 
 #[cfg(not(debug_assertions))]
-mod builtins;
-#[cfg(not(debug_assertions))]
 mod panic_handler;
 
 #[global_allocator]
