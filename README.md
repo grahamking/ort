@@ -1,7 +1,7 @@
 # Install
 
 1. Install rust from [rust-lang.org](https://rust-lang.org/) or your package manager, any version should work.
-2. Install the Rust version and component we need: `rustup toolchain install nightly-2026-03-25`
+2. Install the Rust version and component we need: `rustup toolchain install --profile minimal nightly-2026-03-25`
 3. Install `ort`:
 
 ```
