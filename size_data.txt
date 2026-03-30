@@ -1,0 +1,27 @@
+Biggest sections:
+  - .text: 144,771 bytes
+  - .rodata: 26,040 bytes
+  - .eh_frame: 8,780 bytes
+  - .gcc_except_table: 16 bytes
+  - .got + .data: 80 bytes
+  - standard ELF/section metadata + .comment/.shstrtab: about 1.4 KiB total
+
+  The 4 KiB page alignment cost between loadable segments is only 12 bytes + 5 bytes. So alignment is basically noise here.
+
+# .text segment
+
+By origin, the code breaks down roughly like this:
+  - ort_openrouter_cli::*: 111,368 bytes across 112 symbols
+  - core::*: 20,535 bytes across 72 symbols
+  - alloc::*: 2,690 bytes across 19 symbols
+  - compiler builtins / __*: 1,340 bytes across 10 symbols
+  - entry helpers (main, _start, memcpy, memset, memcmp): 2,292 bytes
+  - other: 6,165 bytes
+
+Biggest functions:
+  - input::cli::main about 25.4 KiB
+  - TlsStream::connect about 7.1 KiB
+  - PromptOpts::from_json about 5.8 KiB
+  - input::prompt::run about 4.8 KiB
+  - ActivePrompt::start about 4.5 KiB
+  - then JSON parsing, TLS crypto, and string/unicode helpers

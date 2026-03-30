@@ -27,9 +27,9 @@ use crate::common::utils::to_ascii;
 const ALIGN: usize = 16;
 
 // How much memory to allocate total. Don't exceed this!
-//const MEM_SIZE: usize = 2 * 1024 * 1024;
+const MEM_SIZE: usize = 2 * 1024 * 1024;
 // In debug mode to print panics, need > 8MiB
-const MEM_SIZE: usize = 16 * 1024 * 1024;
+//const MEM_SIZE: usize = 16 * 1024 * 1024;
 
 #[repr(align(16))]
 struct Heap(pub [u8; MEM_SIZE]);

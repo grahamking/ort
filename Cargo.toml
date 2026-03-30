@@ -34,5 +34,12 @@ codegen-units = 1
 # 3. does not work without libc AFAICT
 #panic = "immediate-abort"
 panic = "abort"
-lto = true
-rustflags = ["-Ctarget-cpu=native", "-Clink-args=-nostartfiles", "-Crelocation-model=static", "-Clink-args=-Wl,--no-dynamic-linker,--build-id=none,--no-eh-frame-hdr", "-Cforce-frame-pointers=yes"]
+lto = true # does not build without this, "unwdefined symbol: _Unwind_Resume"
+rustflags = [
+	"-Ctarget-cpu=native",
+	"-Clink-args=-nostartfiles",
+	"-Crelocation-model=static",
+	"-Clink-args=-Wl,--no-dynamic-linker,--build-id=none,--no-eh-frame-hdr",
+	"-Cforce-frame-pointers=yes",
+	"-Clink-arg=-fuse-ld=lld",
+]
