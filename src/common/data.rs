@@ -11,10 +11,13 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::common::base64;
+use crate::utils::filename_read_to_bytes;
 use crate::{ErrorKind, OrtError, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
+const IMAGE_EXT: [&str; 4] = ["png", "PNG", "jpg", "JPG"];
 
 // Keep in sync with src/lib.rs
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
@@ -84,6 +87,8 @@ pub struct PromptOpts {
     pub quiet: Option<bool>,
     /// Whether to merge in the default settings from config file
     pub merge_config: bool,
+    /// PDF files and images to attach to the request.
+    pub files: Vec<String>,
 }
 
 impl Default for PromptOpts {
@@ -98,6 +103,7 @@ impl Default for PromptOpts {
             show_reasoning: Some(false),
             quiet: Some(false),
             merge_config: true,
+            files: vec![],
         }
     }
 }
@@ -127,6 +133,7 @@ impl PromptOpts {
             .get_or_insert(o.reasoning.unwrap_or_default());
         self.show_reasoning
             .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+        self.files.extend(o.files);
     }
 }
 
@@ -202,15 +209,15 @@ impl ReasoningEffort {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Message {
     pub role: Role,
-    pub content: Option<String>,
+    pub content: Vec<Content>,
     pub reasoning: Option<String>,
 }
 
 impl Message {
-    pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
+    pub fn new(role: Role, content: Vec<Content>, reasoning: Option<String>) -> Self {
         Message {
             role,
             content,
@@ -218,23 +225,53 @@ impl Message {
         }
     }
     pub fn system(content: String) -> Self {
-        Self::new(Role::System, Some(content), None)
+        Self::new(Role::System, vec![Content::Text(content)], None)
     }
-    pub fn user(content: String) -> Self {
-        Self::new(Role::User, Some(content), None)
+    pub fn user(content: String, files: Vec<PromptFile>) -> Self {
+        let mut contents = Vec::with_capacity(files.len() + 1);
+        contents.push(Content::Text(content));
+        for f in files {
+            contents.push(f.into_content());
+        }
+        Self::new(Role::User, contents, None)
     }
     pub fn assistant(content: String) -> Self {
-        Self::new(Role::Assistant, Some(content), None)
+        Self::new(Role::Assistant, vec![Content::Text(content)], None)
     }
 
     /// Estimate size in bytes
     pub fn size(&self) -> u32 {
-        self.content
-            .as_ref()
-            .or(self.reasoning.as_ref())
-            .map(|c| c.len())
-            .unwrap_or(0) as u32
-            + 10
+        if self.content.is_empty() {
+            return self.reasoning.as_ref().map(|c| c.len()).unwrap_or(0) as u32 + 10;
+        }
+        (self.content.iter().map(|c| c.len()).sum::<usize>() + 10) as u32
+    }
+}
+
+#[derive(Clone)]
+pub enum Content {
+    Text(String),
+    // Just the base64 encoded data
+    Image(String),
+    File(PromptFile),
+}
+
+impl Content {
+    pub fn len(&self) -> usize {
+        use Content::*;
+        match self {
+            Text(s) => s.len(),
+            Image(s) => s.len(),
+            File(f) => f.len(),
+        }
+    }
+    pub fn content(&self) -> &str {
+        use Content::*;
+        match self {
+            Text(s) => s.as_ref(),
+            Image(s) => s.as_ref(),
+            File(f) => f.base64.as_ref(),
+        }
     }
 }
 
@@ -289,4 +326,47 @@ pub enum ThinkEvent {
     Start,
     Content(String),
     Stop,
+}
+
+#[derive(Clone)]
+pub enum PromptFileKind {
+    Image,
+    // Typically a PDF
+    File,
+    //Audio,
+}
+
+#[derive(Clone)]
+pub struct PromptFile {
+    kind: PromptFileKind,
+    pub filename: String,
+    pub base64: String,
+}
+
+impl PromptFile {
+    /// Load disk file, identify, and base64 encode it
+    pub fn load(filename: &str) -> Result<Self, &'static str> {
+        let kind = if IMAGE_EXT.iter().any(|ext| filename.ends_with(ext)) {
+            PromptFileKind::Image
+        } else {
+            PromptFileKind::File
+        };
+        let data = filename_read_to_bytes(filename)?;
+        Ok(PromptFile {
+            kind,
+            filename: filename.split('/').next_back().unwrap().to_string(),
+            base64: base64::encode(&data),
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.base64.len()
+    }
+
+    pub fn into_content(self) -> Content {
+        match self.kind {
+            PromptFileKind::Image => Content::Image(self.base64),
+            PromptFileKind::File => Content::File(self),
+        }
+    }
 }

@@ -65,7 +65,7 @@ impl OutputWriter for LastWriter {
                     if i != 0 {
                         self.w.write_char(',')?;
                     }
-                    crate::input::to_json::write_json(msg, &mut self.w)?;
+                    crate::input::to_json::write_json_message(msg, &mut self.w)?;
                 }
 
                 // Setup streaming for the response message
@@ -146,7 +146,7 @@ mod tests {
         let opts = PromptOpts::default();
         let messages = vec![
             Message::system("system prompt".to_string()),
-            Message::user("user prompt".to_string()),
+            Message::user("user prompt".to_string(), vec![]),
         ];
         let file = match unsafe { file::File::create(TEST_PATH_C) } {
             Ok(file) => file,
@@ -193,9 +193,10 @@ mod tests {
 
         assert_eq!(data.opts.provider.as_deref(), Some("openrouter-ai"));
         assert_eq!(data.messages.len(), 3);
-        assert_eq!(data.messages[0].content.as_deref(), Some("system prompt"));
-        assert_eq!(data.messages[1].content.as_deref(), Some("user prompt"));
-        let Some(content) = &data.messages[2].content else {
+        assert_eq!(data.messages[0].content[0].content(), "system prompt");
+        assert_eq!(data.messages[1].content[0].content(), "user prompt");
+        let content = data.messages[2].content[0].content();
+        if content.is_empty() {
             panic!("Assistant message is empty");
         };
         assert!(content.starts_with("Hello world 1. "));

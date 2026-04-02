@@ -187,7 +187,8 @@ pub fn chat_completions(
     req[start..end].copy_from_slice(CRLF);
 
     //let end_str = utils::num_to_string(end);
-    //utils::print_string(c"REQ LEN ", &end_str);
+    //utils::print_string(c"REQ: ", unsafe { str::from_utf8_unchecked(&req[..end]) });
+    //utils::print_string(c"BODY: ", unsafe { str::from_utf8_unchecked(body) });
 
     tls.write_all(&req[..end])
         .context("write chat_completions header")?;

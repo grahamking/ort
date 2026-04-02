@@ -180,7 +180,7 @@ pub fn run_continue(
 
     opts.merge(last.opts);
     last.messages
-        .push(crate::Message::user(opts.prompt.take().unwrap()));
+        .push(crate::Message::user(opts.prompt.take().unwrap(), vec![]));
 
     run(
         api_key,
@@ -396,6 +396,7 @@ impl ActivePrompt {
                 return Err(ort_error(ErrorKind::Other, "build body"));
             }
         };
+
         self.start = Some(time::Ticks::now());
         let addr = if self.dns.is_empty() {
             let ip = match unsafe { resolver::resolve(self.site.dns_label) } {
@@ -467,7 +468,7 @@ impl ActivePrompt {
                 }
             }
             let line = self.line_buf.trim();
-            //utils::print_string(c"LINE: ", &line_buf);
+            //utils::print_string(c"LINE: ", line);
 
             if self.is_start {
                 // Very first message from server, usually
@@ -512,12 +513,7 @@ impl ActivePrompt {
                         .as_ref()
                         .map(|x| !x.is_empty())
                         .unwrap_or(false);
-                    let has_content = delta
-                        .content
-                        .as_ref()
-                        .map(|x| !x.is_empty())
-                        .unwrap_or(false);
-
+                    let has_content = !delta.content.is_empty();
                     if !(has_reasoning || has_content) {
                         continue;
                     }
@@ -552,10 +548,11 @@ impl ActivePrompt {
                     }
 
                     // Handle regular content
-                    if let Some(content) = delta.content.as_ref()
-                        && !content.is_empty()
+                    if let Some(content) = delta.content.first()
+                        && content.len() != 0
                     {
                         self.num_tokens += 1;
+                        let content = content.content();
                         if self.is_first_content && content.trim().is_empty() {
                             // Don't allow starting with carriage return or blank space, that messes up the display
                             if queue.is_empty() {

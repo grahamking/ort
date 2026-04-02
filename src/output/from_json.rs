@@ -13,6 +13,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::config;
+use crate::common::data::Content;
 use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -360,7 +361,7 @@ impl Message {
         Ok(Message::new(
             // NVIDIA doesn't always send it. sus.
             role.unwrap_or(Role::Assistant),
-            content,
+            vec![Content::Text(content.unwrap())],
             reasoning,
         ))
     }
@@ -506,6 +507,8 @@ impl PromptOpts {
                 show_reasoning,
                 quiet,
                 merge_config,
+                // TODO: store files in last json, so resume works with files
+                files: vec![],
             });
         }
 
@@ -600,6 +603,7 @@ impl PromptOpts {
             show_reasoning,
             quiet,
             merge_config,
+            files: vec![],
         })
     }
 }
@@ -1523,7 +1527,7 @@ mod tests {
     fn test_choice() {
         let s = r#"{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}"#;
         let choice = Choice::from_json(s).unwrap();
-        assert_eq!(choice.delta.content.as_deref(), Some("Hello"));
+        assert_eq!(choice.delta.content[0].content(), "Hello");
     }
 
     #[test]
@@ -1570,7 +1574,7 @@ mod tests {
     fn test_nvidia_misc() {
         let s = r#"{"id":"8f20d6699e194a0abed38c671384d32d","object":"chat.completion.chunk","created":1770582573,"model":"qwen/qwen3-next-80b-a3b-instruct","choices":[{"index":0,"delta":{"role":null,"content":"Ta","reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}"#;
         let ccr = ChatCompletionsResponse::from_json(s).unwrap();
-        assert_eq!(ccr.choices[0].delta.content.as_deref(), Some("Ta"));
+        assert_eq!(ccr.choices[0].delta.content[0].content(), "Ta");
     }
 
     #[test]

@@ -14,6 +14,7 @@ use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
 use crate::common::config;
+use crate::common::data::PromptFile;
 use crate::common::{buf_read, site};
 use crate::input::args;
 use crate::list;
@@ -123,6 +124,12 @@ pub fn main(
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
+            let prompt_files: Vec<_> = cli_opts
+                .files
+                .iter()
+                .map(|filename| PromptFile::load(filename))
+                .collect::<Result<Vec<_>, &str>>()
+                .map_err(|err| ort_error(ErrorKind::Other, err))?;
             // A Message is quite small, an enum and two Option<String>.
             // Capacity 3 for:
             // - System message (optiona)
@@ -132,8 +139,9 @@ pub fn main(
             if let Some(sys) = cli_opts.system.take() {
                 messages.push(crate::Message::system(sys));
             };
-            let user_message = crate::Message::user(cli_opts.prompt.take().unwrap());
+            let user_message = crate::Message::user(cli_opts.prompt.take().unwrap(), prompt_files);
             messages.push(user_message);
+
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,

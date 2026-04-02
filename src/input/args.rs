@@ -46,6 +46,7 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     let mut provider: Option<String> = None;
     let mut continue_conversation = false;
     let mut merge_config = true;
+    let mut files: Vec<String> = vec![];
 
     let mut i = 1usize;
     while i < args.len() {
@@ -157,6 +158,14 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
                 merge_config = false;
                 i += 1;
             }
+            "-f" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -f"));
+                }
+                files.push(args[i].clone());
+                i += 1;
+            }
             s if s.starts_with('-') => {
                 return Err(ArgParseError::new("Unknown flag: ".to_string() + s));
             }
@@ -192,6 +201,7 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
         show_reasoning,
         quiet,
         merge_config,
+        files,
     };
     if !continue_conversation {
         Ok(Cmd::Prompt(prompt_opts))

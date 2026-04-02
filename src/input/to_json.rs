@@ -7,7 +7,7 @@
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{ErrorKind, Message, OrtResult, PromptOpts, Write, ort_error};
+use crate::{Message, OrtResult, PromptOpts, Write, common::data::Content};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -16,7 +16,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     let mut string_buf = String::with_capacity(capacity as usize);
     let mut w = unsafe { string_buf.as_mut_vec() };
 
-    w.write_str("{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
+    w.write_str("{\"stream\": true, \"model\": ")?;
     write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
 
     if opts.priority.is_some() || opts.provider.is_some() {
@@ -66,6 +66,10 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
 
     w.write_str(", \"messages\":")?;
     Message::write_json_array(messages, &mut w)?;
+
+    // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
+    // This disables that parsing. Experimental, does not help.
+    // w.write_str(", \"plugins\": [{\"id\": \"file-parser\", \"pdf\": { \"engine\": \"native\" } }]")?;
 
     w.write_char('}')?;
 
@@ -205,16 +209,31 @@ impl Message {
             if i != 0 {
                 w.write_char(',')?;
             }
-            write_json(msg, w)?;
+            write_json_message(msg, w)?;
         }
         w.write_char(']')?;
         Ok(())
     }
 }
 
-pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
+pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
     w.write_str("{\"role\":")?;
     write_json_str_simple(w, data.role.as_str())?;
+    if let Some(reasoning) = &data.reasoning {
+        w.write_str(",\"reasoning\":")?;
+        write_json_str(w, reasoning)?;
+    } else {
+        w.write_str(",\"content\": [")?;
+        for (pos, content) in data.content.iter().enumerate() {
+            content.to_json(w)?;
+            if pos != data.content.len() - 1 {
+                w.write_char(',')?;
+            }
+        }
+        w.write_char(']')?;
+    }
+
+    /*
     match (&data.content, &data.reasoning) {
         (Some(_), Some(_)) | (None, None) => {
             return Err(ort_error(
@@ -231,8 +250,41 @@ pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
             write_json_str(w, reasoning)?;
         }
     }
+    */
     w.write_char('}')?;
     Ok(())
+}
+
+impl Content {
+    pub fn to_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
+        w.write_str("{\"type\":")?;
+        use Content::*;
+        match self {
+            Text(s) => {
+                write_json_str(w, "text")?;
+                w.write_str(", \"text\": ")?;
+                write_json_str(w, s.as_str())?;
+            }
+            Image(s) => {
+                write_json_str(w, "image_url")?;
+                // TODO: PNG support
+                w.write_str(", \"image_url\": { \"url\": \"data:image/jpeg;base64,")?;
+                w.write_str(s.as_str())?;
+                w.write_str("\"}")?;
+            }
+            File(f) => {
+                write_json_str(w, "file")?;
+                w.write_str(", \"file\": {\"filename\": ")?;
+                write_json_str(w, &f.filename)?;
+                // TODO: Support non-PDF, or restrict -f to PDF
+                w.write_str(", \"file_data\": \"data:application/pdf;base64,")?;
+                w.write_str(&f.base64)?;
+                w.write_str("\"}")?;
+            }
+        }
+        w.write_char('}')?;
+        Ok(())
+    }
 }
 
 /// No escapes or special characters, just write the bytes
@@ -317,9 +369,10 @@ mod tests {
             show_reasoning: Some(false),
             quiet: None,
             merge_config: false,
+            files: vec![], // TODO
         };
         let messages = vec![
-            Message::user("Hello".to_string()),
+            Message::user("Hello".to_string(), vec![]),
             Message::assistant("Hello there!".to_string()),
         ];
         let got = match build_body(0, &opts, &messages) {
@@ -329,7 +382,7 @@ mod tests {
             }
         };
 
-        let expected = r#"{"stream": true, "usage": {"include": true}, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content": [{"type":"text", "text": "Hello"}]},{"role":"assistant","content": [{"type":"text", "text": "Hello there!"}]}]}"#;
 
         assert_eq!(got, expected);
     }
