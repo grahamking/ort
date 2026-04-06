@@ -7,7 +7,7 @@
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{ErrorKind, Message, OrtResult, PromptOpts, Write, ort_error};
+use crate::{ErrorKind, Message, OrtResult, PromptOpts, Write, common::data::Content, ort_error};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
@@ -66,6 +66,10 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
 
     w.write_str(", \"messages\":")?;
     Message::write_json_array(messages, &mut w)?;
+
+    // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
+    // This disables that parsing. Experimental, does not help.
+    // w.write_str(", \"plugins\": [{\"id\": \"file-parser\", \"pdf\": { \"engine\": \"native\" } }]")?;
 
     w.write_char('}')?;
 
@@ -235,6 +239,39 @@ pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
     Ok(())
 }
 
+impl Content {
+    #[allow(dead_code)]
+    pub fn to_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
+        w.write_str("{\"type\":")?;
+        use Content::*;
+        match self {
+            Text(s) => {
+                write_json_str(w, "text")?;
+                w.write_str(", \"text\": ")?;
+                write_json_str(w, s.as_str())?;
+            }
+            Image(s) => {
+                write_json_str(w, "image_url")?;
+                // TODO: PNG support
+                w.write_str(", \"image_url\": { \"url\": \"data:image/jpeg;base64,")?;
+                w.write_str(s.as_str())?;
+                w.write_str("\"}")?;
+            }
+            File(f) => {
+                write_json_str(w, "file")?;
+                w.write_str(", \"file\": {\"filename\": ")?;
+                write_json_str(w, &f.filename)?;
+                // TODO: Support non-PDF, or restrict -f to PDF
+                w.write_str(", \"file_data\": \"data:application/pdf;base64,")?;
+                w.write_str(&f.base64)?;
+                w.write_str("\"}")?;
+            }
+        }
+        w.write_char('}')?;
+        Ok(())
+    }
+}
+
 /// No escapes or special characters, just write the bytes
 pub(crate) fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     w.write_char('"')?;
@@ -317,6 +354,7 @@ mod tests {
             show_reasoning: Some(false),
             quiet: None,
             merge_config: false,
+            files: vec![], // TODO
         };
         let messages = vec![
             Message::user("Hello".to_string()),

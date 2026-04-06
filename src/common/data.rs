@@ -4,6 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+#![allow(dead_code)]
+
 use core::str::FromStr;
 
 extern crate alloc;
@@ -11,10 +13,14 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::common::base64;
+use crate::utils::filename_read_to_bytes;
 use crate::{ErrorKind, OrtError, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
+// TODO: Add PNG. Change mime-type in to_json
+const IMAGE_EXT: [&str; 2] = ["jpg", "JPG"];
 
 // Keep in sync with src/lib.rs
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
@@ -84,6 +90,8 @@ pub struct PromptOpts {
     pub quiet: Option<bool>,
     /// Whether to merge in the default settings from config file
     pub merge_config: bool,
+    /// Images to attach to the request.
+    pub files: Vec<String>,
 }
 
 impl Default for PromptOpts {
@@ -98,6 +106,7 @@ impl Default for PromptOpts {
             show_reasoning: Some(false),
             quiet: Some(false),
             merge_config: true,
+            files: vec![],
         }
     }
 }
@@ -127,6 +136,7 @@ impl PromptOpts {
             .get_or_insert(o.reasoning.unwrap_or_default());
         self.show_reasoning
             .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+        self.files.extend(o.files);
     }
 }
 
@@ -238,6 +248,33 @@ impl Message {
     }
 }
 
+#[derive(Clone)]
+pub enum Content {
+    Text(String),
+    // Just the base64 encoded data
+    Image(String),
+    File(PromptFile),
+}
+
+impl Content {
+    pub fn len(&self) -> usize {
+        use Content::*;
+        match self {
+            Text(s) => s.len(),
+            Image(s) => s.len(),
+            File(f) => f.len(),
+        }
+    }
+    pub fn content(&self) -> &str {
+        use Content::*;
+        match self {
+            Text(s) => s.as_ref(),
+            Image(s) => s.as_ref(),
+            File(f) => f.base64.as_ref(),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum Role {
     System,
@@ -289,4 +326,47 @@ pub enum ThinkEvent {
     Start,
     Content(String),
     Stop,
+}
+
+#[derive(Clone)]
+pub enum PromptFileKind {
+    Image,
+    // Typically a PDF
+    File,
+    //Audio,
+}
+
+#[derive(Clone)]
+pub struct PromptFile {
+    kind: PromptFileKind,
+    pub filename: String,
+    pub base64: String,
+}
+
+impl PromptFile {
+    /// Load disk file, identify, and base64 encode it
+    pub fn load(filename: &str) -> Result<Self, &'static str> {
+        let kind = if IMAGE_EXT.iter().any(|ext| filename.ends_with(ext)) {
+            PromptFileKind::Image
+        } else {
+            PromptFileKind::File
+        };
+        let data = filename_read_to_bytes(filename)?;
+        Ok(PromptFile {
+            kind,
+            filename: filename.split('/').next_back().unwrap().to_string(),
+            base64: base64::encode(&data),
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.base64.len()
+    }
+
+    pub fn into_content(self) -> Content {
+        match self.kind {
+            PromptFileKind::Image => Content::Image(self.base64),
+            PromptFileKind::File => Content::File(self),
+        }
+    }
 }

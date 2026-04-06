@@ -4,8 +4,6 @@
 //! MIT License
 //! Copyright (c) 2026 Graham King
 
-#![allow(dead_code)]
-
 extern crate alloc;
 
 use alloc::string::String;
