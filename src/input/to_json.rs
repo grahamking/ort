@@ -16,7 +16,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     let mut string_buf = String::with_capacity(capacity as usize);
     let mut w = unsafe { string_buf.as_mut_vec() };
 
-    w.write_str("{\"stream\": true, \"usage\": {\"include\": true}, \"model\": ")?;
+    w.write_str("{\"stream\": true, \"model\": ")?;
     write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
 
     if opts.priority.is_some() || opts.provider.is_some() {
@@ -329,7 +329,7 @@ mod tests {
             }
         };
 
-        let expected = r#"{"stream": true, "usage": {"include": true}, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
 
         assert_eq!(got, expected);
     }
