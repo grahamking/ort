@@ -220,7 +220,7 @@ pub(crate) fn path_exists(path: &CStr) -> bool {
 }
 
 /// Read a file into memory
-pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
+pub(crate) fn filename_read_to_bytes(filename: &str) -> Result<Vec<u8>, &'static str> {
     let cs = CString::new(filename).unwrap();
     let fd = match syscall::open(cs.as_ptr(), syscall::O_RDONLY, 0) {
         Ok(fd) => fd,
@@ -249,6 +249,12 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
         content.extend_from_slice(&buffer[..bytes_read]);
     }
 
+    Ok(content)
+}
+
+/// Read a text file into memory
+pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
+    let content = filename_read_to_bytes(filename)?;
     let out = String::from_utf8_lossy(&content);
     Ok(out.into_owned().to_string())
 }
