@@ -4,16 +4,17 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 //!
-//! Arena allocator. No heap allocations for entire program run.
-//! We statically allocate a large chunk of memory (`.bss` segment),
-//! and use that to fill allocation requests. This avoids doing
-//! any syscalls to get memory.
+//! Arena allocator.
+//! We map anonymous memory in arena-sized chunks and fill allocation
+//! requests from the current chunk. This reduces syscalls to one per chunk,
+//! often one per whole program. We never munmap old sections, memory stays
+//! alive for duration of run.
 
 #![allow(static_mut_refs)]
 
 use core::alloc::Layout;
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::ptr;
 
 use crate::syscall;
 
@@ -26,18 +27,48 @@ use crate::common::utils::to_ascii;
 /// All allocated memory locations will have this alignment, max_align_t
 const ALIGN: usize = 16;
 
-// How much memory to allocate total. Don't exceed this!
-const MEM_SIZE: usize = 2 * 1024 * 1024;
-// In debug mode to print panics, need > 8MiB
-//const MEM_SIZE: usize = 16 * 1024 * 1024;
+/// Allocate a minimum of one MiB at a time.
+const ARENA_SIZE: usize = 1024 * 1024;
+const PAGE_SIZE: usize = 4096;
 
-#[repr(align(16))]
-struct Heap(pub [u8; MEM_SIZE]);
+struct Arena {
+    base: *mut u8,
+    size: usize,
+    offset: usize,
+}
 
-static mut HEAP: Heap = Heap([0u8; MEM_SIZE]);
-static mut OFFSET: AtomicUsize = AtomicUsize::new(0);
+static mut ARENA: Arena = Arena {
+    base: ptr::null_mut(),
+    size: 0,
+    offset: 0,
+};
 
 pub struct ArenaAlloc;
+
+#[inline]
+unsafe fn map_chunk(min_size: usize) -> Arena {
+    let size = min_size.max(ARENA_SIZE).next_multiple_of(PAGE_SIZE);
+    let base = syscall::mmap(
+        ptr::null_mut(),
+        size,
+        syscall::PROT_READ | syscall::PROT_WRITE,
+        syscall::MAP_PRIVATE | syscall::MAP_ANONYMOUS,
+        -1,
+        0,
+    ) as *mut u8;
+
+    if base.is_null() {
+        let msg = c"mmap failed in common/alloc.rs\n";
+        syscall::write(2, msg.as_ptr() as *const c_void, msg.count_bytes());
+        syscall::exit(1);
+    }
+
+    Arena {
+        base,
+        size,
+        offset: 0,
+    }
+}
 
 // In case you were wondering, yes all three methods get used. Rust does
 // a bnuch of alloc_zeroed and realloc.
@@ -68,20 +99,16 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
             //unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
 
-        // Allocate in multiples of 16 bytes so that we stay aligned for next alloc.
         let alloc_size = layout.size().next_multiple_of(ALIGN);
 
         unsafe {
-            // Read current offset, for this allocation, and move it by alloc_size for next
-            // allocation. fetch_add returns the value before addition.
-            let current_offset = OFFSET.fetch_add(alloc_size, Ordering::Relaxed);
-
-            if OFFSET.load(Ordering::Relaxed) > MEM_SIZE {
-                let msg = c"Out of memory, common/alloc.rs MEM_SIZE\n";
-                syscall::write(2, msg.as_ptr() as *const c_void, msg.count_bytes());
-                syscall::exit(1);
+            if ARENA.base.is_null() || ARENA.offset + alloc_size > ARENA.size {
+                ARENA = map_chunk(alloc_size);
             }
-            HEAP.0.as_mut_ptr().add(current_offset)
+
+            let ptr = ARENA.base.add(ARENA.offset);
+            ARENA.offset += alloc_size;
+            ptr
         }
     }
 
@@ -100,7 +127,7 @@ unsafe impl core::alloc::GlobalAlloc for ArenaAlloc {
             //unsafe { crate::libc::write(2, buf.as_ptr().cast(), len) };
         }
 
-        // .bss segment is already zeroed
+        // Anonymous mmap memory is zeroed by the kernel
         unsafe { self.alloc(layout) }
     }
 
