@@ -28,6 +28,9 @@ mod sha2;
 #[allow(unused)]
 const DEBUG_LOG: bool = false;
 
+/// RFC 8445 5.1, "carrying data in chunks of 2^14 bytes or less"
+const MAX_PLAINTEXT_SIZE: usize = 16 * 1024;
+
 const REC_TYPE_CHANGE_CIPHER_SPEC: u8 = 20; // 0x14
 const REC_TYPE_ALERT: u8 = 21; // 0x15
 const REC_TYPE_HANDSHAKE: u8 = 22; // 0x16
@@ -592,15 +595,19 @@ impl<T: Read + Write> TlsStream<T> {
 
 impl<T: Read + Write> Write for TlsStream<T> {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        write_record_cipher(
-            &mut self.io,
-            REC_TYPE_APPDATA,
-            buf,
-            &self.aead_enc,
-            &self.iv_enc,
-            &mut self.seq_enc,
-        )
-        .map(|_| buf.len())
+        let mut bytes_sent = 0;
+        for chunk in buf.chunks(MAX_PLAINTEXT_SIZE) {
+            write_record_cipher(
+                &mut self.io,
+                REC_TYPE_APPDATA,
+                chunk,
+                &self.aead_enc,
+                &self.iv_enc,
+                &mut self.seq_enc,
+            )?;
+            bytes_sent += chunk.len();
+        }
+        Ok(bytes_sent)
     }
     fn flush(&mut self) -> OrtResult<()> {
         self.io.flush()
