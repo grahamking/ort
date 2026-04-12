@@ -132,7 +132,11 @@ pub fn main(
             if let Some(sys) = cli_opts.system.take() {
                 messages.push(crate::Message::system(sys));
             };
-            let user_message = crate::Message::user(cli_opts.prompt.take().unwrap());
+            let user_message = if cli_opts.files.is_empty() {
+                crate::Message::user(cli_opts.prompt.take().unwrap())
+            } else {
+                crate::Message::with_files(cli_opts.prompt.take().unwrap(), &cli_opts.files)?
+            };
             messages.push(user_message);
             if cli_opts.models.len() == 1 {
                 prompt::run(

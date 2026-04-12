@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 
 use crate::common::base64;
 use crate::utils::filename_read_to_bytes;
-use crate::{ErrorKind, OrtError, ort_error};
+use crate::{ErrorKind, OrtError, OrtResult, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
@@ -240,6 +240,17 @@ impl Message {
     }
     pub fn assistant(content: String) -> Self {
         Self::new(Role::Assistant, Some(content), None)
+    }
+
+    pub fn with_files(prompt: String, filenames: &[String]) -> OrtResult<Self> {
+        // First message is the user's prompt as Text
+        let mut m = Self::user(prompt);
+        // Then the files as Image
+        for f in filenames {
+            let pf = PromptFile::load(f).map_err(|err| ort_error(ErrorKind::Other, err))?;
+            m.content.push(pf.into_content());
+        }
+        Ok(m)
     }
 
     pub fn text(&self) -> Option<&str> {
