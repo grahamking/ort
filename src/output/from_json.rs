@@ -13,6 +13,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::config;
+use crate::common::data::{Content, PromptFile, PromptFileKind};
 use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -291,7 +292,8 @@ impl Message {
         p.expect(b'{')?;
 
         let mut role = None;
-        let mut content = None;
+        let mut content = vec![];
+        let mut content_seen = false;
         let mut reasoning = None;
 
         loop {
@@ -321,14 +323,31 @@ impl Message {
                     }
                 }
                 "content" => {
-                    if content.is_some() {
+                    if content_seen {
                         return Err("duplicate field: content".into());
                     }
+                    content_seen = true;
                     if p.peek_is_null() {
                         p.parse_null()?;
-                        content = None;
+                    } else if p.peek() == Some(b'[') {
+                        p.expect(b'[')?;
+                        p.skip_ws();
+                        if !p.try_consume(b']') {
+                            loop {
+                                let j = p.value_slice()?;
+                                content.push(Content::from_json(j)?);
+                                p.skip_ws();
+                                if p.try_consume(b',') {
+                                    continue;
+                                }
+                                p.skip_ws();
+                                if p.try_consume(b']') {
+                                    break;
+                                }
+                            }
+                        }
                     } else {
-                        content = Some(p.parse_string()?);
+                        content.push(Content::Text(p.parse_string()?));
                     }
                 }
                 "reasoning" => {
@@ -357,13 +376,180 @@ impl Message {
             }
         }
 
-        Ok(Message::new(
+        Ok(Message::with_content(
             // NVIDIA doesn't always send it. sus.
             role.unwrap_or(Role::Assistant),
             content,
             reasoning,
         ))
     }
+}
+
+impl Content {
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut kind = None;
+        let mut text = None;
+        let mut image = None;
+        let mut file = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "Content parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "type" => {
+                    kind = Some(p.parse_simple_str()?.to_string());
+                }
+                "text" => {
+                    text = Some(p.parse_string()?);
+                }
+                "image_url" => {
+                    let j = p.value_slice()?;
+                    image = Some(parse_image_url(j)?);
+                }
+                "file" => {
+                    let j = p.value_slice()?;
+                    file = Some(PromptFile::from_json(j)?);
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        match kind.as_deref() {
+            Some("text") => Ok(Content::Text(text.ok_or("missing text")?)),
+            Some("image_url") => Ok(Content::Image(image.ok_or("missing image_url")?)),
+            Some("file") => Ok(Content::File(file.ok_or("missing file")?)),
+            Some(other) => Err("unsupported content type: ".to_string() + other),
+            None => Err("missing content type".to_string()),
+        }
+    }
+}
+
+impl PromptFile {
+    fn from_json(json: &str) -> Result<Self, String> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut filename = None;
+        let mut base64 = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "PromptFile parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "filename" => filename = Some(p.parse_string()?),
+                "file_data" => {
+                    let data = p.parse_string()?;
+                    base64 = Some(
+                        data.strip_prefix("data:application/pdf;base64,")
+                            .unwrap_or(data.as_str())
+                            .to_string(),
+                    );
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(PromptFile::from_parts(
+            PromptFileKind::File,
+            filename.ok_or("missing filename")?,
+            base64.ok_or("missing file_data")?,
+        ))
+    }
+}
+
+fn parse_image_url(json: &str) -> Result<String, String> {
+    let mut p = Parser::new(json);
+    p.skip_ws();
+    p.expect(b'{')?;
+
+    let mut url = None;
+
+    loop {
+        p.skip_ws();
+        if p.try_consume(b'}') {
+            break;
+        }
+
+        let key = p
+            .parse_simple_str()
+            .map_err(|err| "Image parsing key: ".to_string() + err)?;
+        p.skip_ws();
+        p.expect(b':')?;
+        p.skip_ws();
+
+        match key {
+            "url" => {
+                let data = p.parse_string()?;
+                url = Some(
+                    data.strip_prefix("data:image/jpeg;base64,")
+                        .or_else(|| data.strip_prefix("data:image/jpg;base64,"))
+                        .unwrap_or(data.as_str())
+                        .to_string(),
+                );
+            }
+            _ => {
+                p.skip_value()?;
+            }
+        }
+
+        p.skip_ws();
+        if p.try_consume(b',') {
+            continue;
+        }
+        p.skip_ws();
+        if p.try_consume(b'}') {
+            break;
+        }
+    }
+
+    url.ok_or("missing image url".to_string())
 }
 
 impl ReasoningConfig {
@@ -1526,7 +1712,7 @@ mod tests {
     fn test_choice() {
         let s = r#"{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}"#;
         let choice = Choice::from_json(s).unwrap();
-        assert_eq!(choice.delta.content.as_deref(), Some("Hello"));
+        assert_eq!(choice.delta.text(), Some("Hello"));
     }
 
     #[test]
@@ -1573,7 +1759,16 @@ mod tests {
     fn test_nvidia_misc() {
         let s = r#"{"id":"8f20d6699e194a0abed38c671384d32d","object":"chat.completion.chunk","created":1770582573,"model":"qwen/qwen3-next-80b-a3b-instruct","choices":[{"index":0,"delta":{"role":null,"content":"Ta","reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}"#;
         let ccr = ChatCompletionsResponse::from_json(s).unwrap();
-        assert_eq!(ccr.choices[0].delta.content.as_deref(), Some("Ta"));
+        assert_eq!(ccr.choices[0].delta.text(), Some("Ta"));
+    }
+
+    #[test]
+    fn message_content_array() {
+        let s = r#"{"role":"user","content":[{"type":"text","text":"Hello"},{"type":"text","text":" there"}]}"#;
+        let msg = Message::from_json(s).unwrap();
+        assert_eq!(msg.content.len(), 2);
+        assert_eq!(msg.content[0].text(), Some("Hello"));
+        assert_eq!(msg.content[1].text(), Some(" there"));
     }
 
     #[test]

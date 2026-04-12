@@ -512,11 +512,8 @@ impl ActivePrompt {
                         .as_ref()
                         .map(|x| !x.is_empty())
                         .unwrap_or(false);
-                    let has_content = delta
-                        .content
-                        .as_ref()
-                        .map(|x| !x.is_empty())
-                        .unwrap_or(false);
+                    let content = delta.text();
+                    let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
 
                     if !(has_reasoning || has_content) {
                         continue;
@@ -552,7 +549,7 @@ impl ActivePrompt {
                     }
 
                     // Handle regular content
-                    if let Some(content) = delta.content.as_ref()
+                    if let Some(content) = content
                         && !content.is_empty()
                     {
                         self.num_tokens += 1;

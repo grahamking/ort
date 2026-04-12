@@ -220,19 +220,37 @@ pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
     w.write_str("{\"role\":")?;
     write_json_str_simple(w, data.role.as_str())?;
     match (&data.content, &data.reasoning) {
-        (Some(_), Some(_)) | (None, None) => {
+        (content, Some(_)) if !content.is_empty() => {
             return Err(ort_error(
                 ErrorKind::InvalidMessageSchema,
                 "Message must have exactly one of 'content' or 'reasoning'.",
             ));
         }
-        (Some(content), _) => {
-            w.write_str(",\"content\":")?;
-            write_json_str(w, content)?;
+        (content, None) if content.is_empty() => {
+            return Err(ort_error(
+                ErrorKind::InvalidMessageSchema,
+                "Message must have exactly one of 'content' or 'reasoning'.",
+            ));
         }
         (_, Some(reasoning)) => {
             w.write_str(",\"reasoning\":")?;
             write_json_str(w, reasoning)?;
+        }
+        (content, _) => {
+            w.write_str(",\"content\":")?;
+            match content.as_slice() {
+                [Content::Text(text)] => write_json_str(w, text)?,
+                _ => {
+                    w.write_char('[')?;
+                    for (i, item) in content.iter().enumerate() {
+                        if i != 0 {
+                            w.write_char(',')?;
+                        }
+                        item.to_json(w)?;
+                    }
+                    w.write_char(']')?;
+                }
+            }
         }
     }
     w.write_char('}')?;

@@ -215,12 +215,17 @@ impl ReasoningEffort {
 #[derive(Debug, Clone)]
 pub struct Message {
     pub role: Role,
-    pub content: Option<String>,
+    pub content: Vec<Content>,
     pub reasoning: Option<String>,
 }
 
 impl Message {
     pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
+        let content = content.map_or_else(Vec::new, |content| vec![Content::Text(content)]);
+        Self::with_content(role, content, reasoning)
+    }
+
+    pub fn with_content(role: Role, content: Vec<Content>, reasoning: Option<String>) -> Self {
         Message {
             role,
             content,
@@ -237,18 +242,22 @@ impl Message {
         Self::new(Role::Assistant, Some(content), None)
     }
 
+    pub fn text(&self) -> Option<&str> {
+        match self.content.as_slice() {
+            [Content::Text(text)] => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
     /// Estimate size in bytes
     pub fn size(&self) -> u32 {
-        self.content
-            .as_ref()
-            .or(self.reasoning.as_ref())
-            .map(|c| c.len())
-            .unwrap_or(0) as u32
-            + 10
+        let content_len: usize = self.content.iter().map(Content::len).sum();
+        let reasoning_len = self.reasoning.as_ref().map(|c| c.len()).unwrap_or(0);
+        (content_len.max(reasoning_len) + 10) as u32
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Content {
     Text(String),
     // Just the base64 encoded data
@@ -265,6 +274,14 @@ impl Content {
             File(f) => f.len(),
         }
     }
+
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Content::Text(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
     pub fn content(&self) -> &str {
         use Content::*;
         match self {
@@ -328,7 +345,7 @@ pub enum ThinkEvent {
     Stop,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum PromptFileKind {
     Image,
     // Typically a PDF
@@ -336,7 +353,7 @@ pub enum PromptFileKind {
     //Audio,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PromptFile {
     kind: PromptFileKind,
     pub filename: String,
@@ -361,6 +378,14 @@ impl PromptFile {
 
     pub fn len(&self) -> usize {
         self.base64.len()
+    }
+
+    pub(crate) fn from_parts(kind: PromptFileKind, filename: String, base64: String) -> Self {
+        Self {
+            kind,
+            filename,
+            base64,
+        }
     }
 
     pub fn into_content(self) -> Content {

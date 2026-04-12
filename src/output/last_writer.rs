@@ -193,9 +193,9 @@ mod tests {
 
         assert_eq!(data.opts.provider.as_deref(), Some("openrouter-ai"));
         assert_eq!(data.messages.len(), 3);
-        assert_eq!(data.messages[0].content.as_deref(), Some("system prompt"));
-        assert_eq!(data.messages[1].content.as_deref(), Some("user prompt"));
-        let Some(content) = &data.messages[2].content else {
+        assert_eq!(data.messages[0].text(), Some("system prompt"));
+        assert_eq!(data.messages[1].text(), Some("user prompt"));
+        let Some(content) = data.messages[2].text() else {
             panic!("Assistant message is empty");
         };
         assert!(content.starts_with("Hello world 1. "));
