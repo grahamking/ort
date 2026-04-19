@@ -395,6 +395,7 @@ impl Content {
         let mut text = None;
         let mut base64_data = None;
         let mut mime_type = None;
+        let mut image_url = None;
         let mut file = None;
 
         loop {
@@ -419,9 +420,13 @@ impl Content {
                 }
                 "image_url" => {
                     let j = p.value_slice()?;
-                    let (base64, mt) = parse_image_url(j)?;
-                    base64_data = Some(base64);
-                    mime_type = Some(mt);
+                    if j.starts_with("http") {
+                        image_url = Some(j);
+                    } else {
+                        let (base64, mt) = parse_image_url(j)?;
+                        base64_data = Some(base64);
+                        mime_type = Some(mt);
+                    }
                 }
                 "file" => {
                     let j = p.value_slice()?;
@@ -444,10 +449,16 @@ impl Content {
 
         match kind.as_deref() {
             Some("text") => Ok(Content::Text(text.ok_or("missing text")?)),
-            Some("image_url") => Ok(Content::Image {
-                base64: base64_data.ok_or("missing image_url")?,
-                mime_type: mime_type.unwrap(),
-            }),
+            Some("image_url") => {
+                if let Some(image_url) = image_url {
+                    Ok(Content::ImageUrl(image_url.to_string()))
+                } else {
+                    Ok(Content::Image {
+                        base64: base64_data.ok_or("missing image_url")?,
+                        mime_type: mime_type.unwrap(),
+                    })
+                }
+            }
             Some("file") => Ok(Content::File(file.ok_or("missing file")?)),
             Some(other) => Err("unsupported content type: ".to_string() + other),
             None => Err("missing content type".to_string()),

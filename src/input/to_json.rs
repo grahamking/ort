@@ -276,6 +276,12 @@ impl Content {
                 w.write_str(base64.as_str())?;
                 w.write_str("\"}")?;
             }
+            ImageUrl(url) => {
+                write_json_str(w, "image_url")?;
+                w.write_str(", \"image_url\": { \"url\": \"")?;
+                w.write_str(url)?;
+                w.write_str("\"}")?;
+            }
             File(f) => {
                 write_json_str(w, "file")?;
                 w.write_str(", \"file\": {\"filename\": ")?;

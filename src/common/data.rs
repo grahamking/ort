@@ -248,8 +248,12 @@ impl Message {
         let mut m = Self::user(prompt);
         // Then the files as Image
         for f in filenames {
-            let pf = PromptFile::load(f).map_err(|err| ort_error(ErrorKind::Other, err))?;
-            m.content.push(pf.into_content());
+            if f.starts_with("http") {
+                m.content.push(Content::ImageUrl(f.clone()));
+            } else {
+                let pf = PromptFile::load(f).map_err(|err| ort_error(ErrorKind::Other, err))?;
+                m.content.push(pf.into_content());
+            }
         }
         Ok(m)
     }
@@ -277,6 +281,7 @@ pub enum Content {
         mime_type: &'static str,
         base64: String,
     },
+    ImageUrl(String),
     File(PromptFile),
 }
 
@@ -286,6 +291,7 @@ impl Content {
         match self {
             Text(s) => s.len(),
             Image { base64, .. } => base64.len(),
+            ImageUrl(s) => s.len(),
             File(f) => f.len(),
         }
     }
@@ -302,6 +308,7 @@ impl Content {
         match self {
             Text(s) => s.as_ref(),
             Image { base64, .. } => base64.as_ref(),
+            ImageUrl(s) => s.as_ref(),
             File(f) => f.base64.as_ref(),
         }
     }

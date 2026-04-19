@@ -18,7 +18,7 @@ If you consider your online activity very high risk (don't use Open Router then!
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~180 KiB ELF binary. It does not use the Rust std library or any external Rust crates, not even libc. It is statically linked.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~190 KiB ELF binary. It does not use the Rust std library or any external Rust crates, not even libc. It is statically linked.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -30,7 +30,7 @@ It is from a time when we countered bad arguments with good arguments, so it wil
 
 Like a good friend, it remembers. `-c` will continue a conversation. And like a real friend, it accepts you how you are. In a **tmux** pane? It continues that conversation, not the one happening in the pane next door.
 
-It sees things your way. `-f <filename.jpg>` sends a multi-modal model an image to look at.
+It sees things your way. `-f <filename.[jpg|png] | URL>` sends a multi-modal model an image to look at.
 
 As an honest CLI, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
 
@@ -62,7 +62,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 - -q Quiet. Do not show Stats at end.
 - -c Continue. Add a new prompt to the previous conversation, e.g. `ort -c "Are you sure?"`. All the fields default to the previous message (model, priority, provider, system prompt, etc, but you can override them here, for example continuing the conversation but with a different model, or a higher reasoning effort. The provider of the previous message is set as the first choice, to benefit from caching.
 - -nc No config. Do not merge the default prompt options from the config into the command line prompt opts. Useful for disabling the default system prompt for example.
-- -f filename.[jpg|png] Send that image to the model. E.g.: `ort -r low -m qwen/qwen3.5-35b-a3b -f ~/Temp/firefighter-cat.jpg "Describe this image"`. Can be passed multiple times.
+- -f filename.[jpg|png] or -f <url> Send that image to the model. E.g.: `ort -r low -m qwen/qwen3.5-35b-a3b -f ~/Temp/firefighter-cat.jpg "Describe this image"`. Can be passed multiple times. Accepts local JPG and PNG images as well as an http(s) URL for a remote image.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 
