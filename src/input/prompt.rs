@@ -338,7 +338,7 @@ struct ActivePrompt {
     reader: Option<buf_read::OrtBufReader<TlsStream<TcpSocket>>>,
 
     stats: stats::Stats,
-    tsc_calibration: time::TscCalibration,
+    clock: time::Clock,
     token_stream_start: Option<time::Ticks>,
     start: Option<time::Ticks>,
     num_tokens: usize,
@@ -369,13 +369,7 @@ impl ActivePrompt {
                 provider: params.site.name.to_string(),
                 ..Default::default()
             },
-            tsc_calibration: match time::tsc_calibration() {
-                Ok(tc) => tc,
-                Err(err) => {
-                    print_string(c"FATAL running tsc_calibration: ", &err.as_string());
-                    panic!("FATAL running tsc_calibration: {}", err.as_string());
-                }
-            },
+            clock: time::Clock::new(),
             opts: params.opts,
             token_stream_start: None,
             start: None,
@@ -396,7 +390,7 @@ impl ActivePrompt {
                 return Err(ort_error(ErrorKind::Other, "build body"));
             }
         };
-        self.start = Some(time::Ticks::now());
+        self.start = Some(self.clock.now());
         let addr = if self.dns.is_empty() {
             let ip = match unsafe { resolver::resolve(self.site.dns_label) } {
                 Ok(ip) => ip,
@@ -521,13 +515,10 @@ impl ActivePrompt {
 
                     // Record time to first token
                     if self.stats.time_to_first_token.is_none() {
-                        let first_token = time::Ticks::now();
-                        self.stats.time_to_first_token = Some(time::elapsed_duration(
-                            self.start.unwrap(),
-                            first_token,
-                            self.tsc_calibration,
-                        ));
-                        self.token_stream_start = Some(time::Ticks::now());
+                        let first_token = self.clock.now();
+                        self.stats.time_to_first_token =
+                            Some(self.clock.elapsed(self.start.unwrap(), first_token));
+                        self.token_stream_start = Some(self.clock.now());
                     }
 
                     // Handle reasoning content
@@ -582,11 +573,9 @@ impl ActivePrompt {
     }
 
     pub fn stop(&mut self) -> Stats {
-        let now = time::Ticks::now();
-        self.stats.elapsed_time =
-            time::elapsed_duration(self.start.take().unwrap(), now, self.tsc_calibration);
-        let stream_elapsed_time =
-            time::elapsed_duration(self.token_stream_start.unwrap(), now, self.tsc_calibration);
+        let now = self.clock.now();
+        self.stats.elapsed_time = self.clock.elapsed(self.start.take().unwrap(), now);
+        let stream_elapsed_time = self.clock.elapsed(self.token_stream_start.unwrap(), now);
         self.stats.inter_token_latency_ms =
             stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
 

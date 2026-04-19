@@ -48,6 +48,7 @@ const SYS_SETSOCKOPT: i32 = 54;
 const SYS_EXIT: i32 = 60;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
+const SYS_CLOCK_GETTIME: u32 = 228;
 const SYS_EPOLL_CREATE: i32 = 213;
 const SYS_EPOLL_WAIT: i32 = 232;
 const SYS_EPOLL_CTL: i32 = 233;
@@ -78,6 +79,7 @@ pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
 pub const EPOLL_CTL_ADD: c_int = 1;
+pub const CLOCK_MONOTONIC: c_int = 1;
 
 pub const DT_REG: u8 = 8;
 
@@ -150,6 +152,12 @@ pub struct Stat {
 pub struct epoll_event {
     pub events: u32,
     pub data: u64,
+}
+
+#[repr(C)]
+pub struct timespec {
+    pub tv_sec: time_t,
+    pub tv_nsec: i64,
 }
 
 // Fill buf with random numbers.
@@ -264,6 +272,21 @@ pub fn access(path: *const c_char, mode: c_int) -> c_int {
         );
     }
     if ret < 0 { -1 } else { ret as c_int }
+}
+
+pub fn clock_gettime(clockid: c_int, tp: *mut timespec) -> c_int {
+    let mut ret: c_long;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_CLOCK_GETTIME as c_long => ret,
+            in("edi") clockid,
+            in("rsi") tp,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack)
+        );
+    }
+    ret as c_int
 }
 
 pub fn isatty(fd: c_int) -> bool {

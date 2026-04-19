@@ -9,7 +9,7 @@ use core::ops::Sub;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
-use crate::{ErrorKind, OrtResult, ort_error, utils};
+use crate::{ErrorKind, OrtResult, ort_error, syscall, utils};
 
 static TSC_HZ_CACHE: AtomicU64 = AtomicU64::new(0);
 
@@ -23,28 +23,75 @@ impl Instant {
     pub fn new(secs: u64, nanos: u64) -> Self {
         Instant { secs, nanos }
     }
+
+    fn duration_since(self, rhs: Self) -> Duration {
+        let lhs_total_nanos =
+            u128::from(self.secs) * 1_000_000_000u128 + u128::from(self.nanos);
+        let rhs_total_nanos = u128::from(rhs.secs) * 1_000_000_000u128 + u128::from(rhs.nanos);
+        Duration::from_nanos(lhs_total_nanos.saturating_sub(rhs_total_nanos) as u64)
+    }
 }
 
 impl Sub for Instant {
     type Output = Duration;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let total_nanos =
-            self.secs as f64 * 1e9 + self.nanos as f64 - rhs.secs as f64 * 1e9 + rhs.nanos as f64;
-        Duration::from_nanos(total_nanos as u64)
+        self.duration_since(rhs)
     }
 }
 
 #[derive(Copy, Clone)]
-pub struct Ticks(u64);
+pub enum Ticks {
+    Tsc(u64),
+    Monotonic(Instant),
+}
 
-impl Ticks {
-    pub fn now() -> Self {
-        read_tsc()
+#[derive(Copy, Clone)]
+pub struct TscCalibration {
+    tsc_hz: u64,
+}
+
+#[derive(Copy, Clone)]
+pub enum Clock {
+    Tsc(TscCalibration),
+    Monotonic,
+}
+
+impl Clock {
+    pub fn new() -> Self {
+        match tsc_calibration() {
+            Ok(calibration) => Clock::Tsc(calibration),
+            Err(_) => Clock::Monotonic,
+        }
+    }
+
+    pub fn now(self) -> Ticks {
+        match self {
+            Clock::Tsc(_) => Ticks::Tsc(read_tsc()),
+            Clock::Monotonic => Ticks::Monotonic(read_monotonic()),
+        }
+    }
+
+    pub fn elapsed(self, start: Ticks, end: Ticks) -> Duration {
+        match (self, start, end) {
+            (Clock::Tsc(calibration), Ticks::Tsc(start), Ticks::Tsc(end)) => {
+                elapsed_tsc_duration(start, end, calibration)
+            }
+            (Clock::Monotonic, Ticks::Monotonic(start), Ticks::Monotonic(end)) => {
+                end.duration_since(start)
+            }
+            _ => Duration::default(),
+        }
     }
 }
 
-fn read_tsc() -> Ticks {
+impl TscCalibration {
+    fn tsc_hz(self) -> u64 {
+        self.tsc_hz
+    }
+}
+
+fn read_tsc() -> u64 {
     let low: u32;
     let high: u32;
 
@@ -57,18 +104,18 @@ fn read_tsc() -> Ticks {
         );
     }
 
-    Ticks((u64::from(high) << 32) | u64::from(low))
+    (u64::from(high) << 32) | u64::from(low)
 }
 
-#[derive(Copy, Clone)]
-pub struct TscCalibration {
-    tsc_hz: u64,
-}
+fn read_monotonic() -> Instant {
+    let mut ts = syscall::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let rc = syscall::clock_gettime(syscall::CLOCK_MONOTONIC, &mut ts);
+    debug_assert_eq!(rc, 0, "clock_gettime(CLOCK_MONOTONIC) failed");
 
-impl TscCalibration {
-    fn tsc_hz(self) -> u64 {
-        self.tsc_hz
-    }
+    Instant::new(ts.tv_sec as u64, ts.tv_nsec as u64)
 }
 
 fn cpuid_0x15_tsc_hz() -> Result<u64, ErrorKind> {
@@ -152,10 +199,24 @@ pub fn tsc_calibration() -> OrtResult<TscCalibration> {
     Ok(TscCalibration { tsc_hz })
 }
 
-pub fn elapsed_duration(start: Ticks, end: Ticks, calibration: TscCalibration) -> Duration {
-    let ticks = end.0.saturating_sub(start.0) as u128;
+fn elapsed_tsc_duration(start: u64, end: u64, calibration: TscCalibration) -> Duration {
+    let ticks = end.saturating_sub(start) as u128;
     let nanos = ticks * 1_000_000_000u128 / u128::from(calibration.tsc_hz());
     let secs = (nanos / 1_000_000_000u128) as u64;
     let subsec_nanos = (nanos % 1_000_000_000u128) as u32;
     Duration::new(secs, subsec_nanos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Instant;
+    use core::time::Duration;
+
+    #[test]
+    fn instant_subtracts_nanos_correctly() {
+        let start = Instant::new(3, 250_000_000);
+        let end = Instant::new(5, 100_000_000);
+
+        assert_eq!(end - start, Duration::from_millis(1850));
+    }
 }
