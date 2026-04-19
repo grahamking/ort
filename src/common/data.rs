@@ -19,11 +19,12 @@ use crate::{ErrorKind, OrtError, OrtResult, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
-// TODO: Add PNG. Change mime-type in to_json
-const IMAGE_EXT: [&str; 2] = ["jpg", "JPG"];
+const IMAGE_EXT: [&str; 4] = ["jpg", "JPG", "png", "PNG"];
 
 // Keep in sync with src/lib.rs
 pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
+
+const MIME_TYPES: [(&str, &str); 2] = [("jpg", "image/jpeg"), ("png", "image/png")];
 
 // {
 //  "id":"gen-1756743299-7ytIBcjALWQQShwMQfw9",
@@ -272,7 +273,10 @@ impl Message {
 pub enum Content {
     Text(String),
     // Just the base64 encoded data
-    Image(String),
+    Image {
+        mime_type: &'static str,
+        base64: String,
+    },
     File(PromptFile),
 }
 
@@ -281,7 +285,7 @@ impl Content {
         use Content::*;
         match self {
             Text(s) => s.len(),
-            Image(s) => s.len(),
+            Image { base64, .. } => base64.len(),
             File(f) => f.len(),
         }
     }
@@ -297,7 +301,7 @@ impl Content {
         use Content::*;
         match self {
             Text(s) => s.as_ref(),
-            Image(s) => s.as_ref(),
+            Image { base64, .. } => base64.as_ref(),
             File(f) => f.base64.as_ref(),
         }
     }
@@ -401,8 +405,20 @@ impl PromptFile {
 
     pub fn into_content(self) -> Content {
         match self.kind {
-            PromptFileKind::Image => Content::Image(self.base64),
+            PromptFileKind::Image => Content::Image {
+                mime_type: self.mime_type(),
+                base64: self.base64,
+            },
             PromptFileKind::File => Content::File(self),
         }
+    }
+
+    pub fn mime_type(&self) -> &'static str {
+        for (ext, mime) in MIME_TYPES {
+            if self.filename.to_lowercase().ends_with(ext) {
+                return mime;
+            }
+        }
+        "application/octet-stream"
     }
 }

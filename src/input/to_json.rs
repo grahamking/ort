@@ -268,11 +268,12 @@ impl Content {
                 w.write_str(", \"text\": ")?;
                 write_json_str(w, s.as_str())?;
             }
-            Image(s) => {
+            Image { base64, mime_type } => {
                 write_json_str(w, "image_url")?;
-                // TODO: PNG support
-                w.write_str(", \"image_url\": { \"url\": \"data:image/jpeg;base64,")?;
-                w.write_str(s.as_str())?;
+                w.write_str(", \"image_url\": { \"url\": \"data:")?;
+                w.write_str(mime_type)?;
+                w.write_str(";base64,")?; // end of the data: URL prefix
+                w.write_str(base64.as_str())?;
                 w.write_str("\"}")?;
             }
             File(f) => {

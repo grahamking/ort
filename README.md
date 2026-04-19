@@ -62,7 +62,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 - -q Quiet. Do not show Stats at end.
 - -c Continue. Add a new prompt to the previous conversation, e.g. `ort -c "Are you sure?"`. All the fields default to the previous message (model, priority, provider, system prompt, etc, but you can override them here, for example continuing the conversation but with a different model, or a higher reasoning effort. The provider of the previous message is set as the first choice, to benefit from caching.
 - -nc No config. Do not merge the default prompt options from the config into the command line prompt opts. Useful for disabling the default system prompt for example.
-- -f filename.jpg Send that image to the model. E.g.: `ort -r low -m qwen/qwen3.5-35b-a3b -f ~/Temp/firefighter-cat.jpg "Describe this image"`. JPG only right now.
+- -f filename.[jpg|png] Send that image to the model. E.g.: `ort -r low -m qwen/qwen3.5-35b-a3b -f ~/Temp/firefighter-cat.jpg "Describe this image"`. Can be passed multiple times.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 

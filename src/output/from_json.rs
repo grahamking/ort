@@ -393,7 +393,8 @@ impl Content {
 
         let mut kind = None;
         let mut text = None;
-        let mut image = None;
+        let mut base64_data = None;
+        let mut mime_type = None;
         let mut file = None;
 
         loop {
@@ -418,7 +419,9 @@ impl Content {
                 }
                 "image_url" => {
                     let j = p.value_slice()?;
-                    image = Some(parse_image_url(j)?);
+                    let (base64, mt) = parse_image_url(j)?;
+                    base64_data = Some(base64);
+                    mime_type = Some(mt);
                 }
                 "file" => {
                     let j = p.value_slice()?;
@@ -441,7 +444,10 @@ impl Content {
 
         match kind.as_deref() {
             Some("text") => Ok(Content::Text(text.ok_or("missing text")?)),
-            Some("image_url") => Ok(Content::Image(image.ok_or("missing image_url")?)),
+            Some("image_url") => Ok(Content::Image {
+                base64: base64_data.ok_or("missing image_url")?,
+                mime_type: mime_type.unwrap(),
+            }),
             Some("file") => Ok(Content::File(file.ok_or("missing file")?)),
             Some(other) => Err("unsupported content type: ".to_string() + other),
             None => Err("missing content type".to_string()),
@@ -504,12 +510,14 @@ impl PromptFile {
     }
 }
 
-fn parse_image_url(json: &str) -> Result<String, String> {
+/// Returns (base64_data, mime_type)
+fn parse_image_url(json: &str) -> Result<(String, &'static str), String> {
     let mut p = Parser::new(json);
     p.skip_ws();
     p.expect(b'{')?;
 
-    let mut url = None;
+    let mut base64 = None;
+    let mut mime_type = None;
 
     loop {
         p.skip_ws();
@@ -527,12 +535,23 @@ fn parse_image_url(json: &str) -> Result<String, String> {
         match key {
             "url" => {
                 let data = p.parse_string()?;
-                url = Some(
-                    data.strip_prefix("data:image/jpeg;base64,")
-                        .or_else(|| data.strip_prefix("data:image/jpg;base64,"))
-                        .unwrap_or(data.as_str())
-                        .to_string(),
-                );
+                if data.starts_with("data:image/jpeg") {
+                    mime_type = Some("image/jpeg");
+                    base64 = Some(
+                        data.strip_prefix("data:image/jpeg;base64,")
+                            .unwrap()
+                            .to_string(),
+                    );
+                } else if data.starts_with("data:image/png") {
+                    mime_type = Some("image/png");
+                    base64 = Some(
+                        data.strip_prefix("data:image/png;base64,")
+                            .unwrap()
+                            .to_string(),
+                    );
+                } else {
+                    return Err("Invalid mime type in saved image_url".to_string());
+                };
             }
             _ => {
                 p.skip_value()?;
@@ -549,7 +568,7 @@ fn parse_image_url(json: &str) -> Result<String, String> {
         }
     }
 
-    url.ok_or("missing image url".to_string())
+    Ok((base64.expect("Missing image URL"), mime_type.unwrap()))
 }
 
 impl ReasoningConfig {
