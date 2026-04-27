@@ -338,7 +338,7 @@ struct ActivePrompt {
     reader: Option<buf_read::OrtBufReader<TlsStream<TcpSocket>>>,
 
     stats: stats::Stats,
-    tsc_calibration: time::TscCalibration,
+    tsc_calibration: Option<time::TscCalibration>,
     token_stream_start: Option<time::Ticks>,
     start: Option<time::Ticks>,
     num_tokens: usize,
@@ -369,13 +369,9 @@ impl ActivePrompt {
                 provider: params.site.name.to_string(),
                 ..Default::default()
             },
-            tsc_calibration: match time::tsc_calibration() {
-                Ok(tc) => tc,
-                Err(err) => {
-                    print_string(c"FATAL running tsc_calibration: ", &err.as_string());
-                    panic!("FATAL running tsc_calibration: {}", err.as_string());
-                }
-            },
+            // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
+            //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
+            tsc_calibration: time::tsc_calibration().ok(),
             opts: params.opts,
             token_stream_start: None,
             start: None,
@@ -522,11 +518,9 @@ impl ActivePrompt {
                     // Record time to first token
                     if self.stats.time_to_first_token.is_none() {
                         let first_token = time::Ticks::now();
-                        self.stats.time_to_first_token = Some(time::elapsed_duration(
-                            self.start.unwrap(),
-                            first_token,
-                            self.tsc_calibration,
-                        ));
+                        self.stats.time_to_first_token = self
+                            .tsc_calibration
+                            .map(|tc| time::elapsed_duration(self.start.unwrap(), first_token, tc));
                         self.token_stream_start = Some(time::Ticks::now());
                     }
 
@@ -582,14 +576,14 @@ impl ActivePrompt {
     }
 
     pub fn stop(&mut self) -> Stats {
-        let now = time::Ticks::now();
-        self.stats.elapsed_time =
-            time::elapsed_duration(self.start.take().unwrap(), now, self.tsc_calibration);
-        let stream_elapsed_time =
-            time::elapsed_duration(self.token_stream_start.unwrap(), now, self.tsc_calibration);
-        self.stats.inter_token_latency_ms =
-            stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
-
+        if let Some(tc) = self.tsc_calibration {
+            let now = time::Ticks::now();
+            self.stats.elapsed_time = time::elapsed_duration(self.start.take().unwrap(), now, tc);
+            let stream_elapsed_time =
+                time::elapsed_duration(self.token_stream_start.unwrap(), now, tc);
+            self.stats.inter_token_latency_ms =
+                stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
+        };
         self.stats.clone()
     }
 

@@ -38,14 +38,17 @@ impl Stats {
             s.push_str(&utils::float_to_string(cost_in_cents, 4));
             s.push_str(" cents. ");
         }
-        s.push_str(&format_duration(self.elapsed_time));
-        s.push_str(" (");
-        s.push_str(&format_duration(
-            self.time_to_first_token.unwrap_or_default(),
-        ));
-        s.push_str(" TTFT, ");
-        s.push_str(&utils::num_to_string(self.inter_token_latency_ms as usize));
-        s.push_str("ms ITL)");
+        // We will either have all the timings or none, only need to check one of them
+        if self.time_to_first_token.is_some() {
+            s.push_str(&format_duration(self.elapsed_time));
+            s.push_str(" (");
+            s.push_str(&format_duration(
+                self.time_to_first_token.unwrap_or_default(),
+            ));
+            s.push_str(" TTFT, ");
+            s.push_str(&utils::num_to_string(self.inter_token_latency_ms as usize));
+            s.push_str("ms ITL)");
+        }
         s
     }
 }
