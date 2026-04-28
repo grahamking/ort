@@ -7,7 +7,6 @@
 //! Core pieces used by both input/request and output/response paths.
 //! Also general utlities even if only used by input or output.
 
-pub mod alloc;
 pub mod base64;
 pub mod buf_read;
 pub mod config;

@@ -5,11 +5,11 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
-use alloc::ffi::CString;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
+use std::io::Write as _;
 
-use crate::{ErrorKind, OrtResult, Read, common::buf_read, ort_error, syscall};
+use crate::{ErrorKind, OrtResult, Read, common::buf_read, ort_error};
 
 /// Read a transfer encoding chunked body, chunk by chunk.
 ///
@@ -67,9 +67,7 @@ impl<R: Read, const MAX_CHUNK_SIZE: usize> ChunkedIterator<R, MAX_CHUNK_SIZE> {
             let size = match usize::from_str_radix(size_str, 16) {
                 Ok(n) => n,
                 Err(_err) => {
-                    let c_s = CString::new("ERROR invalid chunked size: ".to_string() + size_str)
-                        .unwrap();
-                    syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                    let _ = writeln!(std::io::stderr(), "ERROR invalid chunked size: {size_str}");
                     return Some(Err(ort_error(ErrorKind::ChunkedInvalidSize, "")));
                 }
             };

@@ -8,8 +8,3 @@ pub mod chunked;
 pub mod http;
 pub mod socket;
 pub mod tls;
-
-/// The official one is in std
-pub trait AsFd {
-    fn as_fd(&self) -> i32;
-}

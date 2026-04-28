@@ -6,6 +6,9 @@
 
 use core::cmp::max;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::io::Write as _;
+use std::sync::mpsc;
+use std::thread;
 
 extern crate alloc;
 use alloc::boxed::Box;
@@ -15,8 +18,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
-use crate::net::AsFd;
-use crate::{Context as _, OrtError, TcpSocket, TlsStream};
+use crate::{Context as _, TcpSocket, TlsStream};
 
 use crate::ChatCompletionsResponse;
 use crate::OrtResult;
@@ -34,27 +36,10 @@ use crate::http;
 use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter, OutputWriter};
-use crate::syscall::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::utils::print_string;
 use crate::{ErrorKind, LastData};
 use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
-
-const EPOLL_WAIT_TIMEOUT_MS: i32 = 100;
-
-struct EpollFd(i32);
-
-impl EpollFd {
-    fn raw(&self) -> i32 {
-        self.0
-    }
-}
-
-impl Drop for EpollFd {
-    fn drop(&mut self) {
-        let _ = syscall::close(self.0);
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
@@ -165,12 +150,7 @@ pub fn run_continue(
             ));
         }
         Err(_e) => {
-            #[cfg(debug_assertions)]
-            {
-                // In debug build print the path.
-                let c_last_file = CString::new(last_file).unwrap();
-                syscall::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
-            }
+            let _ = writeln!(std::io::stderr(), "{last_file}");
             return Err(ort_error(
                 ErrorKind::HistoryReadFailed,
                 "Error reading last conversation file",
@@ -210,21 +190,10 @@ pub fn run_multi(
     let _ = w.write(msg.as_bytes());
     let _ = w.flush();
 
-    let epoll_fd = syscall::epoll_create(num_models as i32);
-    if epoll_fd < 0 {
-        return Err(ort_error(ErrorKind::Other, "epoll_create"));
-    }
-    let epoll_fd = EpollFd(epoll_fd);
-    let mut names = Vec::with_capacity(num_models); // debug
-    let mut active_prompts = Vec::with_capacity(num_models);
-    let mut active_writers = Vec::with_capacity(num_models);
-
-    // Start all the queries.
-    // We negotiate TLS one at a time, should start epoll earlier to do all at once.
+    let (tx, rx) = mpsc::channel();
+    let mut handles = Vec::with_capacity(num_models);
     for idx in 0..num_models {
-        let model_name = opts.models.get(idx).unwrap().clone();
-        names.push(model_name);
-
+        let tx = tx.clone();
         let params = PromptThreadParams {
             api_key: api_key.to_string(),
             dns: settings.dns.clone(),
@@ -233,87 +202,67 @@ pub fn run_multi(
             messages: messages.clone(),
             model_idx: idx,
         };
-        let mut active_prompt = ActivePrompt::new(params);
-        active_prompt.start()?;
-        let socket_fd = active_prompt.as_fd();
+        handles.push(
+            thread::Builder::new()
+                .name(format!("ort-model-{idx}"))
+                .spawn(move || {
+                    let result = run_model_collect(params);
+                    let _ = tx.send(result);
+                })
+                .map_err(|_| ort_error(ErrorKind::ThreadSpawnFailed, "spawn model thread"))?,
+        );
+    }
+    drop(tx);
 
-        active_prompts.push(active_prompt);
-        active_writers.push(CollectedWriter::new());
-
-        syscall::fcntl(socket_fd, F_SETFL, SOCK_STREAM | SOCK_CLOEXEC | O_NONBLOCK);
-        let mut event = syscall::epoll_event {
-            events: syscall::EPOLLIN,
-            data: active_prompts.len() as u64 - 1,
-        };
-        if syscall::epoll_ctl(
-            epoll_fd.raw(),
-            syscall::EPOLL_CTL_ADD,
-            socket_fd,
-            &mut event,
-        ) < 0
-        {
-            return Err(ort_error(ErrorKind::Other, "epoll_ctl"));
+    let mut first_err = None;
+    for result in rx {
+        match result {
+            Ok(output) => {
+                let _ = w.write(output.as_bytes());
+                let _ = w.write("\n\n".as_bytes());
+                let _ = w.flush();
+            }
+            Err(err) => {
+                utils::print_string(c"active_prompt.next: ", &err.as_string());
+                first_err.get_or_insert(err);
+            }
         }
     }
 
-    let mut ready_events = vec![syscall::epoll_event { events: 0, data: 0 }; active_prompts.len()];
-    while !ready_events.is_empty() {
-        let num_ready = syscall::epoll_wait(
-            epoll_fd.raw(),
-            ready_events.as_mut_ptr(),
-            ready_events.len() as i32,
-            EPOLL_WAIT_TIMEOUT_MS,
-        );
-        if num_ready < 0 {
-            // Ctrl-C
-            break;
+    for handle in handles {
+        if handle.join().is_err() {
+            first_err.get_or_insert(ort_error(
+                ErrorKind::ThreadSpawnFailed,
+                "model thread panic",
+            ));
         }
-        if num_ready == 0 {
-            continue;
-        }
+    }
 
-        let mut num_done = 0;
-        for evt in ready_events[..num_ready as usize].iter() {
-            let active_prompt = &mut active_prompts[evt.data as usize];
-            let output_writer = &mut active_writers[evt.data as usize];
-            //let name = &names[evt.data as usize];
+    first_err.map_or(Ok(()), Err)
+}
 
-            // TODO: loop until WouldBlock?
+fn run_model_collect(params: PromptThreadParams) -> OrtResult<String> {
+    let mut active_prompt = ActivePrompt::new(params);
+    let mut output_writer = CollectedWriter::new();
+    active_prompt.start()?;
 
-            match active_prompt.next() {
-                Ok(out) if out.is_empty() => {
-                    num_done += 1;
-
-                    let stats = active_prompt.stop();
-                    output_writer.write(Response::Stats(stats))?;
-                    output_writer.stop(true)?;
-
-                    let _ = w.write(output_writer.output.as_ref().unwrap().as_bytes());
-                    let _ = w.write("\n\n".as_bytes());
-                    let _ = w.flush();
-                }
-                Ok(out) => {
-                    for event in out {
-                        output_writer.write(event.clone())?;
-                    }
-                }
-                Err(OrtError {
-                    kind: ErrorKind::WouldBlock,
-                    ..
-                }) => {
-                    // we read all the data, back to epoll_wait
-                }
-                Err(err) => {
-                    utils::print_string(c"active_prompt.next: ", &err.as_string());
+    loop {
+        match active_prompt.next()? {
+            out if out.is_empty() => {
+                let stats = active_prompt.stop();
+                output_writer.write(Response::Stats(stats))?;
+                output_writer.stop(true)?;
+                return output_writer.output.take().ok_or_else(|| {
+                    ort_error(ErrorKind::ResponseStreamError, "missing collected output")
+                });
+            }
+            out => {
+                for event in out {
+                    output_writer.write(event)?;
                 }
             }
         }
-
-        for _ in 0..num_done {
-            let _ = ready_events.pop();
-        }
     }
-    Ok(())
 }
 
 struct PromptThreadParams {
@@ -394,7 +343,7 @@ impl ActivePrompt {
         };
         self.start = Some(time::Ticks::now());
         let addr = if self.dns.is_empty() {
-            let ip = match unsafe { resolver::resolve(self.site.dns_label) } {
+            let ip = match resolver::resolve(self.site.dns_label) {
                 Ok(ip) => ip,
                 Err(err) => {
                     print_string(c"FATAL: resolving host: ", &err.as_string());
@@ -595,12 +544,6 @@ impl ActivePrompt {
             .unwrap_or(false)
     }
     */
-}
-
-impl AsFd for ActivePrompt {
-    fn as_fd(&self) -> i32 {
-        self.reader.as_ref().unwrap().as_fd()
-    }
 }
 
 /// Find the most recent file in `dir` that starts with `filename_prefix`.

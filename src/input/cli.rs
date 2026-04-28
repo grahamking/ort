@@ -4,7 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025-2026 Graham King
 
-use core::ffi::{c_int, c_void};
+use core::ffi::c_int;
+use std::io::{IsTerminal, Read as _, Write as _};
 
 extern crate alloc;
 use alloc::string::{String, ToString};
@@ -14,15 +15,11 @@ use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
 use crate::common::config;
-use crate::common::{buf_read, site};
+use crate::common::site;
 use crate::input::args;
 use crate::list;
 use crate::prompt;
-use crate::syscall;
 use crate::{ErrorKind, ort_error};
-
-const STDIN_FILENO: i32 = 0;
-const STDERR_FILENO: i32 = 0;
 
 // Keep default mode in sync with lib.rs DEFAULT_MODEL
 const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
@@ -33,7 +30,7 @@ See https://github.com/grahamking/ort for full docs.
 ";
 
 pub fn print_usage() {
-    syscall::write(STDERR_FILENO, USAGE.as_ptr() as *const c_void, USAGE.len());
+    let _ = std::io::stderr().write_all(USAGE.as_bytes());
 }
 
 /// The environment variables we use
@@ -57,10 +54,10 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     if args[1].as_str() == "list" {
         args::parse_list_args(args)
     } else {
-        let is_pipe_input = !syscall::isatty(STDIN_FILENO);
+        let is_pipe_input = !std::io::stdin().is_terminal();
         let stdin = if is_pipe_input {
             let mut buffer = String::with_capacity(8 * 1024);
-            buf_read::fd_read_to_string(STDIN_FILENO, &mut buffer);
+            let _ = std::io::stdin().read_to_string(&mut buffer);
             Some(buffer)
         } else {
             None

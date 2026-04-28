@@ -5,14 +5,13 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
-use core::ffi::c_void;
 
-use alloc::ffi::CString;
-use alloc::string::{String, ToString};
+use alloc::string::String;
+use std::io::Write as _;
 
+use crate::ort_error;
 use crate::utils::zclean;
 use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats, common::utils};
-use crate::{ort_error, syscall};
 
 const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
 
@@ -214,8 +213,7 @@ impl<W: Write + Send> OutputWriter for FileWriter<W> {
                 if err_string.contains(ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
-                let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                let _ = writeln!(std::io::stderr(), "\nERROR: {}", zclean(&mut err_string));
                 return Err(ort_error(
                     ErrorKind::ResponseStreamError,
                     "OpenRouter returned an error",
@@ -308,15 +306,14 @@ pub struct StdoutWriter {}
 
 impl Write for StdoutWriter {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = syscall::write(1, buf.as_ptr() as *const c_void, buf.len());
-        if bytes_written >= 0 {
-            Ok(bytes_written as usize)
-        } else {
-            Err(ort_error(ErrorKind::StdoutWriteFailed, ""))
-        }
+        std::io::stdout()
+            .write(buf)
+            .map_err(|_| ort_error(ErrorKind::StdoutWriteFailed, ""))
     }
 
     fn flush(&mut self) -> OrtResult<()> {
-        Ok(())
+        std::io::stdout()
+            .flush()
+            .map_err(|_| ort_error(ErrorKind::StdoutWriteFailed, ""))
     }
 }

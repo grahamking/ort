@@ -107,6 +107,9 @@ pub enum ErrorKind {
     TlsServerNotTls13,
     TlsMissingServerKey,
     TlsAes128GcmDecryptFailed,
+    TlsHandshakeFailed,
+    TlsReadFailed,
+    TlsWriteFailed,
 
     // Time
     TscCpuidLeafUnavailable,
@@ -179,6 +182,9 @@ impl ErrorKind {
             ErrorKind::TlsServerNotTls13 => "TlsServerNotTls13",
             ErrorKind::TlsMissingServerKey => "TlsMissingServerKey",
             ErrorKind::TlsAes128GcmDecryptFailed => "TlsAes128GcmDecryptFailed",
+            ErrorKind::TlsHandshakeFailed => "TlsHandshakeFailed",
+            ErrorKind::TlsReadFailed => "TlsReadFailed",
+            ErrorKind::TlsWriteFailed => "TlsWriteFailed",
 
             ErrorKind::TscCpuidLeafUnavailable => "TscCpuidLeafUnavailable",
             ErrorKind::TscInvalidCalibration => "TscInvalidCalibration",
@@ -215,11 +221,10 @@ impl OrtError {
 
     #[cfg(debug_assertions)]
     pub fn debug_print(&self) {
-        use crate::{syscall, utils::zclean};
-        use alloc::ffi::CString;
+        use std::io::Write as _;
+
         let mut s = self.as_string();
-        let c_s = CString::new(zclean(&mut s)).unwrap();
-        syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+        let _ = writeln!(std::io::stderr(), "{}", crate::utils::zclean(&mut s));
     }
 
     #[cfg(not(debug_assertions))]

@@ -1,16 +1,15 @@
 # Install
 
-1. Install rust from [rust-lang.org](https://rust-lang.org/) or your package manager, any version should work.
-2. Install the Rust version and component we need: `rustup toolchain install --profile minimal nightly-2026-03-25`
-3. Install `ort`:
+1. Install Rust from [rust-lang.org](https://rust-lang.org/) or your package manager.
+2. Install `ort`:
 
 ```
-cargo +nightly-2026-03-25 install --locked ort-openrouter-cli
+cargo install --locked ort-openrouter-cli
 ```
 
 The binary is called `ort`.
 
-Linux / x86_64 only. Uses Linux specific syscalls and x86_64 specific instrinsics.
+Supported on platforms supported by Rust, rustls, and the system certificate loader, including Linux and macOS.
 
 If you consider your online activity very high risk (don't use Open Router then!) please review [SECURITY.md](SECURITY.md).
 
@@ -18,7 +17,7 @@ If you consider your online activity very high risk (don't use Open Router then!
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~190 KiB ELF binary. It does not use the Rust std library or any external Rust crates, not even libc. It is statically linked.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -34,7 +33,7 @@ It sees things your way. `-f <filename.[jpg|png] | URL>` sends a multi-modal mod
 
 As an honest CLI, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
 
-Harking from a time when we trusted each other, it doesn't check TLS certificates, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up.
+It uses rustls for TLS with the system certificate store. If you set `dns` in the config file it connects to that IP address directly while still using the service hostname for TLS verification.
 
 In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
@@ -68,9 +67,9 @@ Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/
 
 ## Build
 
-`ort` has both a debug and a release build. The debug build and the tests are normal: `cargo build` and `cargo test` from workspace root.
+`ort` has normal debug and release builds: `cargo build`, `cargo test`, and `cargo build --release --locked` from the workspace root.
 
-To build in release mode use `./build_release.sh`. This tries to make the smallest binary possible. It uses immediate abort panic, and specific RUSTFLAGS. Running `cargo build --release` alone will not work.
+The release build uses the standard Rust runtime and rustls for TLS.
 
 ## tmux
 
@@ -242,7 +241,7 @@ Orginal version written by GPT-5 to my spec.
 
 ## Development
 
-We do our own DNS resolution (of course!). Currently that's an A query to 127.0.0.53, so a resolver will need to be running there (Modern Linux will have `systemd-resolved` there). We do not check `/etc/hosts`, and do not support IPv6.
+DNS uses the system resolver unless `settings.dns` is set in the config file. The `dns` setting is still an IPv4 address override for the selected service.
 
 MIT Licence.
 
@@ -278,4 +277,3 @@ Example `nrt.json`:
 ```
 
 List all available models: `nrt list`
-

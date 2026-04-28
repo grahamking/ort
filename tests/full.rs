@@ -28,6 +28,10 @@ fn test_invalid_model_name() {
 
 #[test]
 fn test_hello() {
+    if should_skip_live_tests() {
+        return;
+    }
+
     const MODEL: &str = "openai/gpt-oss-20b";
     let mut out = Vec::new();
 
@@ -60,6 +64,10 @@ fn test_hello() {
 
 #[test]
 fn test_list() {
+    if should_skip_live_tests() {
+        return;
+    }
+
     let mut out = Vec::new();
 
     let args: Vec<String> = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
@@ -86,6 +94,10 @@ fn test_list() {
     // List is ordered alphabetically, "m" should have many before
     assert!(count > 20, "Too few lines: {count}");
     panic!("List did not include Llama 3 70B");
+}
+
+fn should_skip_live_tests() -> bool {
+    std::env::var("OPENROUTER_API_KEY").is_err() && std::env::var("ORT_RUN_LIVE_TESTS").is_err()
 }
 
 fn env() -> Env {

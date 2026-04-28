@@ -29,7 +29,7 @@ pub fn run(
     mut w: impl Write,
 ) -> OrtResult<()> {
     let addr = if settings.dns.is_empty() {
-        let ip = unsafe { resolver::resolve(site.dns_label)? };
+        let ip = resolver::resolve(site.dns_label)?;
         SocketAddr::new(IpAddr::V4(ip), site.port)
     } else {
         settings
@@ -143,7 +143,7 @@ pub fn run(
         }
         let out_len = unsafe { ptr_out.offset_from(out.as_ptr()) as usize };
 
-        let _ = w.write(&out[..out_len]); // one syscall
+        let _ = w.write(&out[..out_len]);
     }
     Ok(())
 }

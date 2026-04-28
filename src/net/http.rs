@@ -7,15 +7,15 @@
 use core::net::SocketAddr;
 
 extern crate alloc;
-use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use std::io::Write as _;
 
+use crate::utils;
 use crate::{
     Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
     ort_error,
 };
-use crate::{syscall, utils};
 
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
@@ -228,8 +228,11 @@ impl HttpError {
 
 impl From<HttpError> for OrtError {
     fn from(err: HttpError) -> OrtError {
-        let c_s = unsafe { CString::from_vec_with_nul_unchecked(err.as_string().into_bytes()) };
-        syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}",
+            err.as_string().trim_end_matches('\0')
+        );
         ort_error(ErrorKind::HttpStatusError, "")
     }
 }
@@ -309,37 +312,14 @@ pub fn skip_header<T: Read + Write>(
 /// The addreses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
 fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
-    // TODO: Erorr handling, don't just try the first
-
-    //let mut errs = vec![];
-    //let addrs: Vec<_> = addrs.to_socket_addrs().unwrap().collect();
     for addr in addrs {
-        let addr_v4 = match addr {
-            SocketAddr::V4(v4) => v4,
-            _ => continue,
-        };
-        let sock = TcpSocket::new()?;
-        sock.connect(&addr_v4)?;
-        return Ok(sock);
-        /*
-        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
-            Ok(tcp) => {
-                set_tcp_fastopen(&tcp);
-                return Ok(tcp);
-            }
-            Err(err) => {
-                errs.push((addr, err));
-            }
+        match TcpSocket::connect(addr) {
+            Ok(sock) => return Ok(sock),
+            Err(_) => continue,
         }
-        */
     }
-    //let err_msg: Vec<String> = errs
-    //    .into_iter()
-    //    .map(|(addr, err)| format!("Failed connecting to {addr:?}: {err}"))
-    //    .collect();
-    //Err(io::Error::other(err_msg.join("; ")))
     Err(ort_error(
         ErrorKind::HttpConnectError,
-        "connect error handling TODO",
+        "failed to connect to all addresses",
     ))
 }

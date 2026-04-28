@@ -4,17 +4,11 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-#![no_std]
-// feature(test) for benchmarking
-#![cfg_attr(test, feature(test))]
-
 mod common;
 mod input;
 mod net;
 mod output;
-pub mod syscall;
 
-pub use common::alloc::ArenaAlloc;
 pub use common::data::{
     ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
     ReasoningConfig, ReasoningEffort, Response, Role, ThinkEvent, Usage,

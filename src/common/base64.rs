@@ -69,9 +69,6 @@ pub fn encode(data: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    extern crate test;
-    use test::Bencher;
-
     use super::encode;
 
     #[test]
@@ -95,23 +92,5 @@ mod tests {
     fn encodes_binary_bytes() {
         let input = [0x00, 0x01, 0x02, 0xfd, 0xfe, 0xff];
         assert_eq!(encode(&input), "AAEC/f7/");
-    }
-
-    #[bench]
-    fn bench_encode_short(b: &mut Bencher) {
-        let input = b"Hello";
-        b.iter(|| {
-            let _ = encode(input);
-        });
-    }
-
-    #[bench]
-    fn bench_encode_1k(b: &mut Bencher) {
-        let mut input = [0u8; 1024];
-        crate::syscall::getrandom(&mut input);
-
-        b.iter(|| {
-            let _ = encode(&input);
-        });
     }
 }

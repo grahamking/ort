@@ -4,14 +4,11 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::cmp::min;
-use core::ffi::c_int;
-
 extern crate alloc;
 use alloc::string::String;
 use core::cmp;
 
-use crate::{ErrorKind, OrtResult, Read, net::AsFd, ort_error};
+use crate::{ErrorKind, OrtResult, Read, ort_error};
 
 const BUF_SIZE: usize = 8 * 1024;
 
@@ -20,12 +17,6 @@ pub struct OrtBufReader<R: Read> {
     buf: [u8; BUF_SIZE],
     pos: usize, // index of next unread byte in `buf`
     cap: usize, // number of bytes currently in `buf`
-}
-
-impl<T: Read + AsFd> AsFd for OrtBufReader<T> {
-    fn as_fd(&self) -> i32 {
-        self.inner.as_fd()
-    }
 }
 
 impl<R: Read> Read for OrtBufReader<R> {
@@ -171,52 +162,5 @@ impl<R: Read> OrtBufReader<R> {
         }
 
         Ok(())
-    }
-}
-
-/*
-impl<T: Read + Write> OrtBufReader<TlsStream<T>> {
-    pub fn has_pending_data(&self) -> bool {
-        !self.buffer_consumed() || self.inner.has_buffered_data()
-    }
-}
-*/
-
-pub fn fd_read_to_string(fd: c_int, buffer: &mut String) {
-    const READ_CHUNK: usize = 64 * 1024;
-
-    // Write bytes directly into String's backing Vec<u8> for speed.
-    let v = unsafe { buffer.as_mut_vec() };
-
-    loop {
-        let len = v.len();
-        if v.capacity() == len {
-            v.reserve(READ_CHUNK);
-        }
-
-        let avail = v.capacity() - len;
-        let to_read = min(avail, READ_CHUNK);
-
-        let n = unsafe {
-            crate::syscall::read(
-                fd,
-                v.as_mut_ptr().add(len) as *mut _,
-                to_read as crate::syscall::size_t,
-            )
-        };
-        if n == 0 {
-            break; // EOF
-        }
-        if n < 0 {
-            break;
-        }
-        unsafe {
-            v.set_len(len + n as usize);
-        }
-    }
-
-    // Maintain String's UTF-8 invariant. On invalid UTF-8, clear to a valid value.
-    if core::str::from_utf8(v.as_slice()).is_err() {
-        v.clear();
     }
 }
