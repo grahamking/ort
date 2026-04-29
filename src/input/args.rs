@@ -122,6 +122,11 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
                         effort: Some(ReasoningEffort::High),
                         ..Default::default()
                     },
+                    "xhigh" => ReasoningConfig {
+                        enabled: true,
+                        effort: Some(ReasoningEffort::XHigh),
+                        ..Default::default()
+                    },
                     n_str => match n_str.parse::<u32>() {
                         Ok(n) => ReasoningConfig {
                             enabled: true,
@@ -130,7 +135,7 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
                         },
                         Err(_) => {
                             return Err(ArgParseError::new_str(
-                                "Invalid -r value. Must be off|low|medium|high|<num-tokens>",
+                                "Invalid -r value. Must be off|low|medium|high|xhigh|<num-tokens>",
                             ));
                         }
                     },
