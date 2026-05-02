@@ -22,6 +22,10 @@ use crate::{ErrorKind, ort_error};
 
 const MAX_CONCURRENT_MODELS: usize = 10;
 
+/// Prefixing the system prompt or user prompt with this byte means it's a filename, read the
+/// contents.
+const FILE_INDICATOR: u8 = b'@';
+
 pub struct ListOpts {
     pub is_json: bool,
 }
@@ -186,7 +190,6 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     if !prompt_parts.is_empty() {
         prompt = prompt_parts.join(" ");
     };
-
     // If a prompt was piped in use it
     if let Some(stdin) = stdin {
         prompt.push_str("\n\n");
@@ -196,6 +199,19 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     if prompt.is_empty() {
         return Err(ArgParseError::new_str("Missing prompt."));
     };
+
+    // Read system and user prompt from a file
+    if prompt.bytes().next() == Some(FILE_INDICATOR) {
+        prompt = utils::filename_read_to_string(&prompt[1..]).map_err(ArgParseError::new_str)?;
+    }
+    if let Some(system_prompt) = system.as_ref()
+        && system_prompt.bytes().next() == Some(FILE_INDICATOR)
+    {
+        system = Some(
+            utils::filename_read_to_string(&system_prompt[1..]).map_err(ArgParseError::new_str)?,
+        );
+    }
+
     let prompt_opts = PromptOpts {
         prompt: Some(prompt),
         models,

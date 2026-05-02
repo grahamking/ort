@@ -26,7 +26,7 @@ If you're new here in town, it'll introduce you: `ort list [-json]`. Everyone's 
 
 You like to know who you're talking to so `-m <model>` selects your conversation partner, and it knows you don't want to impose more then necessary so `-r off|none|low|medium|high|<toks>` sets reasoning effort. But you have your own priorities, we all do. Use `-p price|throughput|latency` for that.
 
-It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning with `-rr`. As long as you're clear about what you want, it will respect your system prompt `-s "<system prompt>"`. We all got to live here together, and we're the better for it.
+It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning with `-rr`. As long as you're clear about what you want, it will respect your system prompt `-s "<system prompt>"`. We all got to live here together, and we're the better for it. Longer system prompts can be in a file: `-s @<filename>`.
 
 Like a good friend, it remembers. `-c` will continue a conversation. And like a real friend, it accepts you how you are. In a **tmux** pane? It continues that conversation, not the one happening in the pane next door.
 
@@ -55,6 +55,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 ## Flags
 
 - -m Model. This is the openrouter model ID. Can be provided multiple times to query multiple models at once (in which case the output does not stream).
+- -s System Prompt. Either as a string `-s "Respond like a priate"` or a filename prefixed with '@' `-s @/data/system_prompts/the_pirate_one.txt`.
 - -p Provider sort. `price` is lowest price, `throughput` is lowest inter-token latency, `latency` is lowest time to first token.
 - -pr Provider choice. Pass the slug or name or a provider, and that will be get priority. If that provider is unavailable a different one will be chosen as if you had not provided one.
 - -r Enable reasoning. Only certain models. Takes an effort level of "off" (equivalent to not passing -r, but can override config file), "none", "low", "medium" or "high". Default is off. "none" is only for GPT 5.1 so far. Can also take a number, which is max number of thinking tokens to use. Whether to use effort or max_tokens depends on the model. See reasoning model notes later.
@@ -65,6 +66,8 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 - -f filename.[jpg|png] or -f <url> Send that image to the model. E.g.: `ort -r low -m qwen/qwen3.5-35b-a3b -f ~/Temp/firefighter-cat.jpg "Describe this image"`. Can be passed multiple times. Accepts local JPG and PNG images as well as an http(s) URL for a remote image.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
+
+The prompt itself can be text `ort Say hello` or come from a file `ort @/data/prompts/test1.txt`.
 
 ## Build
 
