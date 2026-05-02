@@ -49,9 +49,11 @@ const SYS_EXIT: i32 = 60;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
 const SYS_EPOLL_CREATE: i32 = 213;
+const SYS_INOTIFY_ADD_WATCH: i32 = 254;
 const SYS_EPOLL_WAIT: i32 = 232;
 const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
+const SYS_INOTIFY_INIT1: i32 = 294;
 
 pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EACCES: i32 = -13; // Permission denied
@@ -78,6 +80,8 @@ pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
 pub const EPOLL_CTL_ADD: c_int = 1;
+pub const IN_MOVED_TO: u32 = 0x00000080;
+const IN_MASK_CREATE: u32 = 0x10000000;
 
 pub const DT_REG: u8 = 8;
 
@@ -440,6 +444,36 @@ pub fn fcntl(fd: c_int, op: c_int, flags: c_int) -> c_int {
             in("edi") fd,
             in("esi") op,
             in("edx") flags,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn inotify_init1(flags: c_int) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_INOTIFY_INIT1 => ret,
+            in("edi") flags,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn inotify_add_watch(fd: c_int, path: *const c_char, mask: u32) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_INOTIFY_ADD_WATCH => ret,
+            in("edi") fd,
+            in("rsi") path,
+            in("edx") mask | IN_MASK_CREATE,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
