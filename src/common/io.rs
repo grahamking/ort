@@ -67,7 +67,7 @@ pub trait Write {
     */
 }
 
-impl Write for &mut Vec<u8> {
+impl Write for Vec<u8> {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
         self.extend(buf);
         Ok(buf.len())

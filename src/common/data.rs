@@ -93,6 +93,8 @@ pub struct PromptOpts {
     pub merge_config: bool,
     /// Images to attach to the request.
     pub files: Vec<String>,
+    // If the prompt is '@<filename>' we save filename in here
+    pub prompt_filename: Option<String>,
 }
 
 impl Default for PromptOpts {
@@ -108,6 +110,7 @@ impl Default for PromptOpts {
             quiet: Some(false),
             merge_config: true,
             files: vec![],
+            prompt_filename: None,
         }
     }
 }
@@ -138,6 +141,25 @@ impl PromptOpts {
         self.show_reasoning
             .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
         self.files.extend(o.files);
+    }
+
+    pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
+        // A Message is quite small, an enum and two Option<String>.
+        // Capacity 3 for:
+        // - System message (optional)
+        // - User message (required)
+        // - and the assistant message that LastWriter appends, to save a realloc.
+        let mut messages = Vec::with_capacity(3);
+        if let Some(sys) = self.system.take() {
+            messages.push(crate::Message::system(sys));
+        };
+        let user_message = if self.files.is_empty() {
+            crate::Message::user(self.prompt.take().unwrap())
+        } else {
+            crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
+        };
+        messages.push(user_message);
+        Ok(messages)
     }
 }
 

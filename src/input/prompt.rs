@@ -59,13 +59,13 @@ impl Drop for EpollFd {
 #[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
     api_key: &str,
-    settings: config::Settings,
+    settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
     site: &'static Site,
     messages: Vec<crate::Message>,
     is_pipe_output: bool, // Are we redirecting stdout?
-    w_core: W,
+    w_core: &mut W,
 ) -> OrtResult<()> {
     let show_reasoning = opts.show_reasoning.unwrap();
     let is_quiet = opts.quiet.unwrap_or_default();
@@ -85,7 +85,7 @@ pub fn run<W: Write + Send>(
 
     let params = PromptThreadParams {
         api_key: api_key.to_string(),
-        dns: settings.dns,
+        dns: settings.dns.clone(),
         opts,
         messages,
         model_idx: 0,
@@ -130,14 +130,14 @@ pub fn run<W: Write + Send>(
 
 /// The `-c` continue operation. Load the most recent conversation for this
 /// pane to populate the context, then run with the new prompt.
-pub fn run_continue(
+pub fn run_continue<W: Write + Send>(
     api_key: &str,
-    settings: config::Settings,
+    settings: &config::Settings,
     env: &Env,
     mut opts: crate::PromptOpts,
     site: &'static Site,
     is_pipe_output: bool,
-    w: impl Write + Send,
+    w: &mut W,
 ) -> OrtResult<()> {
     let mut last_path = [0u8; 128];
     let cache_dir_end = config::cache_dir(env, &mut last_path)?;
@@ -194,13 +194,13 @@ pub fn run_continue(
     )
 }
 
-pub fn run_multi(
+pub fn run_multi<W: Write + Send>(
     api_key: &str,
-    settings: config::Settings,
+    settings: &config::Settings,
     opts: PromptOpts,
     site: &'static Site,
     messages: Vec<crate::Message>,
-    mut w: impl Write + Send,
+    w: &mut W,
 ) -> OrtResult<()> {
     let num_models = opts.models.len();
     let mut msg = String::with_capacity(32);

@@ -722,6 +722,7 @@ impl PromptOpts {
                 show_reasoning,
                 quiet,
                 merge_config,
+                prompt_filename: None,
                 // TODO: store files in last json, so resume works with files
                 files: vec![],
             });
@@ -818,6 +819,7 @@ impl PromptOpts {
             show_reasoning,
             quiet,
             merge_config,
+            prompt_filename: None,
             files: vec![],
         })
     }

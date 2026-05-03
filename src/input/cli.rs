@@ -8,16 +8,16 @@ use core::ffi::{c_int, c_void};
 
 extern crate alloc;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
 use crate::common::config;
 use crate::common::{buf_read, site};
+use crate::input::agent;
 use crate::input::args;
-use crate::list;
-use crate::prompt;
+use crate::input::list;
+use crate::input::prompt;
 use crate::syscall;
 use crate::{ErrorKind, ort_error};
 
@@ -69,11 +69,11 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     }
 }
 
-pub fn main(
+pub fn main<W: Write + Send>(
     args: &[String],
     env: Env,
     is_terminal: bool,
-    w: impl Write + Send,
+    w: &mut W,
 ) -> OrtResult<c_int> {
     let site = match args[0].split('/').next_back().unwrap() {
         "nrt" => site::NVIDIA,
@@ -123,25 +123,11 @@ pub fn main(
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
-            // A Message is quite small, an enum and two Option<String>.
-            // Capacity 3 for:
-            // - System message (optiona)
-            // - User message (required)
-            // - and the assistant message that LastWriter appends, to save a realloc.
-            let mut messages = Vec::with_capacity(3);
-            if let Some(sys) = cli_opts.system.take() {
-                messages.push(crate::Message::system(sys));
-            };
-            let user_message = if cli_opts.files.is_empty() {
-                crate::Message::user(cli_opts.prompt.take().unwrap())
-            } else {
-                crate::Message::with_files(cli_opts.prompt.take().unwrap(), &cli_opts.files)?
-            };
-            messages.push(user_message);
+            let messages = cli_opts.messages()?;
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
-                    cfg.settings.unwrap_or_default(),
+                    &cfg.settings.unwrap_or_default(),
                     &env,
                     cli_opts,
                     site,
@@ -152,7 +138,7 @@ pub fn main(
             } else {
                 prompt::run_multi(
                     &api_key,
-                    cfg.settings.unwrap_or_default(),
+                    &cfg.settings.unwrap_or_default(),
                     cli_opts,
                     site,
                     messages,
@@ -160,9 +146,26 @@ pub fn main(
                 )
             }
         }
+        args::Cmd::Agent(mut cli_opts) => {
+            if cli_opts.merge_config {
+                cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+            } else {
+                cli_opts.merge(PromptOpts::default());
+            }
+            let messages = cli_opts.messages()?;
+            agent::run(
+                &api_key,
+                &cfg.settings.unwrap_or_default(),
+                &env,
+                cli_opts,
+                site,
+                messages,
+                w,
+            )
+        }
         args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
-            cfg.settings.unwrap_or_default(),
+            &cfg.settings.unwrap_or_default(),
             &env,
             cli_opts,
             site,

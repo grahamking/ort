@@ -24,8 +24,6 @@ pub use common::utils;
 pub use common::{io::Read, io::Write};
 
 pub use input::cli;
-pub use input::list;
-pub use input::prompt;
 pub use input::to_json::build_body;
 
 pub use net::socket::TcpSocket;

@@ -33,6 +33,7 @@ pub struct ListOpts {
 pub enum Cmd {
     List(ListOpts),
     Prompt(crate::PromptOpts),
+    Agent(crate::PromptOpts),
     ContinueConversation(crate::PromptOpts),
 }
 
@@ -51,8 +52,19 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     let mut continue_conversation = false;
     let mut merge_config = true;
     let mut files: Vec<String> = vec![];
+    // If the prompt is '@<filename>' we save filename in here
+    // Agent mode needs it
+    let mut prompt_filename: Option<String> = None;
 
     let mut i = 1usize;
+
+    let is_agent = if args[i] == "agent" {
+        i += 1;
+        true
+    } else {
+        false
+    };
+
     while i < args.len() {
         let arg = &args[i];
         match arg.as_str() {
@@ -202,7 +214,9 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
 
     // Read system and user prompt from a file
     if prompt.bytes().next() == Some(FILE_INDICATOR) {
-        prompt = utils::filename_read_to_string(&prompt[1..]).map_err(ArgParseError::new_str)?;
+        let filename = &prompt[1..];
+        prompt_filename = Some(filename.to_string());
+        prompt = utils::filename_read_to_string(filename).map_err(ArgParseError::new_str)?;
     }
     if let Some(system_prompt) = system.as_ref()
         && system_prompt.bytes().next() == Some(FILE_INDICATOR)
@@ -223,11 +237,14 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
         quiet,
         merge_config,
         files,
+        prompt_filename,
     };
-    if !continue_conversation {
-        Ok(Cmd::Prompt(prompt_opts))
-    } else {
+    if continue_conversation {
         Ok(Cmd::ContinueConversation(prompt_opts))
+    } else if is_agent {
+        Ok(Cmd::Agent(prompt_opts))
+    } else {
+        Ok(Cmd::Prompt(prompt_opts))
     }
 }
 

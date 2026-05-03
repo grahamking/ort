@@ -50,8 +50,8 @@ pub trait OutputWriter {
     fn stop(&mut self, include_stats: bool) -> OrtResult<()>;
 }
 
-pub struct ConsoleWriter<W: Write + Send> {
-    pub writer: W, // Must handle ANSI control chars
+pub struct ConsoleWriter<'a, W: Write + Send> {
+    pub writer: &'a mut W, // Must handle ANSI control chars
     pub show_reasoning: bool,
     pub is_quiet: bool,
     pub is_running: bool,
@@ -60,8 +60,8 @@ pub struct ConsoleWriter<W: Write + Send> {
     pub stats_out: Option<stats::Stats>,
 }
 
-impl<W: Write + Send> ConsoleWriter<W> {
-    pub fn new(writer: W, show_reasoning: bool, is_quiet: bool) -> ConsoleWriter<W> {
+impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
+    pub fn new(writer: &'a mut W, show_reasoning: bool, is_quiet: bool) -> ConsoleWriter<'a, W> {
         ConsoleWriter {
             writer,
             show_reasoning,
@@ -74,7 +74,7 @@ impl<W: Write + Send> ConsoleWriter<W> {
     }
 }
 
-impl<W: Write + Send> OutputWriter for ConsoleWriter<W> {
+impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
     fn stop(&mut self, include_stats: bool) -> OrtResult<()> {
         let _ = self.writer.write(CURSOR_ON);
         let _ = self.writer.write(b"\n");
@@ -167,15 +167,15 @@ impl<W: Write + Send> OutputWriter for ConsoleWriter<W> {
     }
 }
 
-pub struct FileWriter<W: Write + Send> {
-    pub writer: W,
+pub struct FileWriter<'a, W: Write + Send> {
+    pub writer: &'a mut W,
     pub show_reasoning: bool,
     pub is_quiet: bool,
     pub stats_out: Option<stats::Stats>,
 }
 
-impl<W: Write + Send> FileWriter<W> {
-    pub fn new(writer: W, show_reasoning: bool, is_quiet: bool) -> FileWriter<W> {
+impl<'a, W: Write + Send> FileWriter<'a, W> {
+    pub fn new(writer: &'a mut W, show_reasoning: bool, is_quiet: bool) -> FileWriter<'a, W> {
         FileWriter {
             writer,
             show_reasoning,
@@ -185,7 +185,7 @@ impl<W: Write + Send> FileWriter<W> {
     }
 }
 
-impl<W: Write + Send> OutputWriter for FileWriter<W> {
+impl<'a, W: Write + Send> OutputWriter for FileWriter<'a, W> {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
             Response::Start => {}

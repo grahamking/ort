@@ -66,7 +66,7 @@ pub unsafe extern "C" fn main(
     // Check stdout for redirection
     let is_terminal = syscall::isatty(1);
 
-    match cli::main(&args, env, is_terminal, StdoutWriter {}) {
+    match cli::main(&args, env, is_terminal, &mut StdoutWriter {}) {
         Ok(exit_code) => exit_code as c_int,
         Err(err) => {
             let err_msg = CString::new(err.as_string()).unwrap();
@@ -112,7 +112,7 @@ fn main() -> std::process::ExitCode {
     // Check stdout for redirection
     let is_terminal = syscall::isatty(1);
 
-    match cli::main(&args, env, is_terminal, StdoutWriter {}) {
+    match cli::main(&args, env, is_terminal, &mut StdoutWriter {}) {
         Ok(exit_code) => (exit_code as u8).into(),
         Err(err) => {
             let err_msg = CString::new(err.as_string()).unwrap();

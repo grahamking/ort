@@ -21,12 +21,12 @@ use crate::{
 // As of Feb 18 2026 output takes just over 8k
 const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
 
-pub fn run(
+pub fn run<W: Write + Send>(
     api_key: &str,
     settings: config::Settings,
     opts: args::ListOpts,
     site: &'static Site,
-    mut w: impl Write,
+    w: &mut W,
 ) -> OrtResult<()> {
     let addr = if settings.dns.is_empty() {
         let ip = unsafe { resolver::resolve(site.dns_label)? };

@@ -4,6 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+pub mod agent;
 pub mod args;
 pub mod cli;
 pub mod list;

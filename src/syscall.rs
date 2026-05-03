@@ -32,6 +32,9 @@ pub type sa_family_t = u16;
 pub type in_addr_t = u32;
 pub type in_port_t = u16;
 
+// /usr/include/linux/limits.h
+const NAME_MAX: usize = 255;
+
 // /usr/include/asm/unistd_64.h
 const SYS_READ: u32 = 0;
 const SYS_WRITE: u32 = 1;
@@ -81,6 +84,8 @@ pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
 pub const EPOLL_CTL_ADD: c_int = 1;
 pub const IN_MOVED_TO: u32 = 0x00000080;
+//pub const IN_MODIFY: u32 = 0x00000002; // File was modified
+pub const IN_CLOSE_WRITE: u32 = 0x00000008; // Writable file was closed
 const IN_MASK_CREATE: u32 = 0x10000000;
 
 pub const DT_REG: u8 = 8;
@@ -154,6 +159,15 @@ pub struct Stat {
 pub struct epoll_event {
     pub events: u32,
     pub data: u64,
+}
+
+#[repr(C)]
+pub struct inotify_event {
+    pub wd: c_int,                // Watch descriptor
+    pub mask: u32,                // Mask describing event
+    pub cookie: u32,              // Unique cookie associating related events (for rename(2))
+    pub len: u32,                 // Size of name field
+    pub name: [c_char; NAME_MAX], // Optional null-terminated name
 }
 
 // Fill buf with random numbers.

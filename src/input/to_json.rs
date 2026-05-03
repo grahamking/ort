@@ -14,17 +14,17 @@ use crate::{ErrorKind, Message, OrtResult, PromptOpts, Write, common::data::Cont
 pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
     let capacity: u32 = 1024 + messages.iter().map(|m| m.size()).sum::<u32>();
     let mut string_buf = String::with_capacity(capacity as usize);
-    let mut w = unsafe { string_buf.as_mut_vec() };
+    let w = unsafe { string_buf.as_mut_vec() };
 
     w.write_str("{\"stream\": true, \"model\": ")?;
-    write_json_str(&mut w, opts.models.get(idx).expect("Missing model"))?;
+    write_json_str(w, opts.models.get(idx).expect("Missing model"))?;
 
     if opts.priority.is_some() || opts.provider.is_some() {
         w.write_str(", \"provider\": {")?;
         let mut is_first = true;
         if let Some(p) = opts.priority {
             w.write_str("\"sort\":")?;
-            write_json_str_simple(&mut w, p.as_str())?;
+            write_json_str_simple(w, p.as_str())?;
             is_first = false;
         }
         if let Some(pr) = &opts.provider {
@@ -32,7 +32,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
                 w.write_str(", ")?;
             }
             w.write_str("\"order\": [")?;
-            write_json_str(&mut w, pr)?;
+            write_json_str(w, pr)?;
             w.write_char(']')?;
         }
         w.write_char('}')?;
@@ -52,12 +52,12 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
         Some(r_cfg) => match (r_cfg.effort, r_cfg.tokens) {
             (Some(effort), _) => {
                 w.write_str("{\"exclude\": false, \"enabled\": true, \"effort\":")?;
-                write_json_str_simple(&mut w, effort.as_str())?;
+                write_json_str_simple(w, effort.as_str())?;
                 w.write_char('}')?;
             }
             (_, Some(tokens)) => {
                 w.write_str("{\"exclude\": false, \"enabled\": true, \"max_tokens\":")?;
-                write_u32(&mut w, tokens)?;
+                write_u32(w, tokens)?;
                 w.write_char('}')?;
             }
             _ => unreachable!("Reasoning effort and tokens cannot both be null"),
@@ -65,7 +65,7 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
     };
 
     w.write_str(", \"messages\":")?;
-    Message::write_json_array(messages, &mut w)?;
+    Message::write_json_array(messages, w)?;
 
     // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
     // This disables that parsing. Experimental, does not help.
@@ -379,6 +379,7 @@ mod tests {
             show_reasoning: Some(false),
             quiet: None,
             merge_config: false,
+            prompt_filename: None,
             files: vec![], // TODO
         };
         let messages = vec![
