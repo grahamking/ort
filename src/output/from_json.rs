@@ -13,7 +13,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::config;
-use crate::common::data::{Content, PromptFile, PromptFileKind};
+use crate::common::data::{Content, PromptFile, PromptFileKind, Tool, ToolParameter};
 use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -222,6 +222,7 @@ impl LastData {
 
         let mut opts = None;
         let mut messages = vec![];
+        let mut tools = vec![];
 
         loop {
             p.skip_ws();
@@ -265,6 +266,27 @@ impl LastData {
                         }
                     }
                 }
+                "tools" => {
+                    if !tools.is_empty() {
+                        return Err("duplicate field: tools".into());
+                    }
+                    if !p.try_consume(b'[') {
+                        return Err("tools: Expected array".into());
+                    }
+                    loop {
+                        let j = p.value_slice()?;
+                        let tool = Tool::from_json(j)?;
+                        tools.push(tool);
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b']') {
+                            break;
+                        }
+                    }
+                }
                 _ => return Err("unknown field".into()),
             }
 
@@ -281,6 +303,7 @@ impl LastData {
         Ok(LastData {
             opts: opts.expect("Missing prompt opts"),
             messages,
+            tools,
         })
     }
 }
@@ -821,6 +844,146 @@ impl PromptOpts {
             merge_config,
             prompt_filename: None,
             files: vec![],
+        })
+    }
+}
+
+impl Tool {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+
+        // Skip:
+        // {"type": "function", "function": {
+        p.expect(b'{')?;
+        p.skip_ws();
+        p.skip_value()?; // skip "type"
+        p.expect(b':')?;
+        p.skip_ws();
+        p.skip_value()?; // skip "function" from type:function
+        p.expect(b',')?;
+        p.skip_ws();
+        p.skip_value()?; // skip "function" as key
+        p.expect(b':')?;
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut name = String::new();
+        let mut description = String::new();
+        let mut parameters = vec![];
+        let mut required_parameters = vec![];
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "Message parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "name" => {
+                    name = p.parse_simple_str()?.to_string();
+                }
+                "description" => {
+                    description = p.parse_string()?;
+                }
+                "parameters" => {
+                    // Skip
+                    // {"type": "object", "properties": {
+                    p.expect(b'{')?;
+                    p.skip_value()?; // skip "type"
+                    p.expect(b':')?;
+                    p.skip_ws();
+                    p.skip_value()?; // skip "object"
+                    p.expect(b',')?;
+                    p.skip_ws();
+                    p.skip_value()?; // skip "properties"
+                    p.expect(b':')?;
+                    p.skip_ws();
+                    p.expect(b'{')?;
+
+                    let param_name = p.parse_simple_str()?.to_string();
+                    p.skip_ws();
+                    p.expect(b':')?;
+                    p.skip_ws();
+                    p.expect(b'{')?;
+                    p.skip_ws();
+
+                    let mut param_type = None;
+                    let mut description = None;
+                    loop {
+                        let param_key = p.parse_simple_str()?;
+                        p.skip_ws();
+                        p.expect(b':')?;
+                        p.skip_ws();
+
+                        match param_key {
+                            "type" => {
+                                param_type = Some(p.parse_simple_str()?.to_string());
+                            }
+                            "description" => {
+                                description = Some(p.parse_simple_str()?.to_string());
+                            }
+                            _ => {}
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        } else {
+                            p.expect(b'}')?;
+                            break;
+                        }
+                    }
+
+                    // TODO: description can be optional. and no unwrap
+                    parameters.push(ToolParameter {
+                        name: param_name,
+                        param_type: param_type.unwrap(),
+                        description: description.unwrap(),
+                    });
+                }
+                "required" => {
+                    p.expect(b'[')?;
+                    p.skip_ws();
+                    if !p.try_consume(b']') {
+                        loop {
+                            let param_name = p.parse_simple_str()?;
+                            required_parameters.push(param_name.to_string());
+                            p.skip_ws();
+                            if p.try_consume(b',') {
+                                continue;
+                            }
+                            p.skip_ws();
+                            if p.try_consume(b']') {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            } else {
+                p.expect(b'}')?;
+                break;
+            }
+        }
+
+        Ok(Tool {
+            name,
+            description,
+            parameters,
+            required_parameters,
         })
     }
 }

@@ -132,6 +132,7 @@ pub fn main<W: Write + Send>(
                     cli_opts,
                     site,
                     messages,
+                    alloc::vec![],
                     !is_terminal,
                     w,
                 )

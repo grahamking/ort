@@ -9,6 +9,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
+use crate::common::data::Tool;
 use crate::output::writer::OutputWriter;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, Write, common::config,
@@ -30,7 +31,12 @@ pub struct LastWriter {
 }
 
 impl LastWriter {
-    pub fn new(opts: PromptOpts, messages: Vec<Message>, env: &Env) -> OrtResult<Self> {
+    pub fn new(
+        opts: PromptOpts,
+        messages: Vec<Message>,
+        tools: Vec<Tool>,
+        env: &Env,
+    ) -> OrtResult<Self> {
         let mut last_path = [0u8; 128];
         let idx = config::cache_dir(env, &mut last_path)?;
         last_path[idx] = b'/';
@@ -41,7 +47,11 @@ impl LastWriter {
         // end + 1 to add a null byte on the end
         let last_file =
             unsafe { file::File::create(&last_path[..end + 1]).context("create last file")? };
-        let data = LastData { opts, messages };
+        let data = LastData {
+            opts,
+            messages,
+            tools,
+        };
         Ok(LastWriter {
             data,
             w: last_file,
@@ -56,8 +66,11 @@ impl OutputWriter for LastWriter {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
             Response::Start => {
-                // Includes opening '{' for whole object
-                self.w.write_str("{\"messages\":")?;
+                self.w.write_char('{')?;
+                self.w.write_str(r#""tools": "#)?;
+                Tool::write_json_array(&self.data.tools, &mut self.w)?;
+
+                self.w.write_str(r#", "messages":"#)?;
 
                 // Write the initial messages (system, user)
                 self.w.write_char('[')?;
@@ -65,7 +78,7 @@ impl OutputWriter for LastWriter {
                     if i != 0 {
                         self.w.write_char(',')?;
                     }
-                    crate::input::to_json::write_json(msg, &mut self.w)?;
+                    crate::input::to_json::write_json_message(msg, &mut self.w)?;
                 }
 
                 // Setup streaming for the response message
@@ -136,7 +149,14 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{LastData, ThinkEvent, common::stats, utils::num_to_string};
+    use crate::{
+        LastData, ThinkEvent,
+        common::{
+            data::{Tool, ToolParameter},
+            stats,
+        },
+        utils::num_to_string,
+    };
 
     #[test]
     fn test_run_success() {
@@ -148,11 +168,25 @@ mod tests {
             Message::system("system prompt".to_string()),
             Message::user("user prompt".to_string()),
         ];
+        let tools = vec![Tool {
+            name: "read".to_string(),
+            description: "Read the contents of a text file.".to_string(),
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                param_type: "string".to_string(),
+                description: "Path to the file to read (relative or absolute)".to_string(),
+            }],
+            required_parameters: vec!["path".to_string()],
+        }];
         let file = match unsafe { file::File::create(TEST_PATH_C) } {
             Ok(file) => file,
             Err(err) => panic!("{}", err.as_string()),
         };
-        let data = LastData { opts, messages };
+        let data = LastData {
+            opts,
+            messages,
+            tools,
+        };
         let mut writer = LastWriter {
             w: file,
             data,
@@ -200,5 +234,6 @@ mod tests {
         };
         assert!(content.starts_with("Hello world 1. "));
         assert!(content.ends_with("Hello world 99. "));
+        assert_eq!(data.tools.len(), 1);
     }
 }

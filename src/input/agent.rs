@@ -14,7 +14,12 @@ use core::{ffi::c_void, mem::MaybeUninit};
 use crate::{
     ErrorKind, OrtResult, PromptOpts, Write,
     cli::Env,
-    common::{config, error, site::Site},
+    common::{
+        config,
+        data::{Tool, ToolParameter},
+        error,
+        site::Site,
+    },
     input::prompt,
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
     utils,
@@ -34,6 +39,8 @@ pub fn run<W: Write + Send>(
     w_core: &mut W,
 ) -> OrtResult<()> {
     opts.quiet = Some(true);
+    let tools = agent_tools();
+
     let mut separator = "—".repeat(20); // TODO: width of terminal, maybe with sides
     separator.push('\n');
 
@@ -68,6 +75,7 @@ pub fn run<W: Write + Send>(
         opts.clone(),
         site,
         messages.clone(),
+        tools.clone(),
         false,
         w_core,
     )?;
@@ -109,4 +117,30 @@ pub fn run<W: Write + Send>(
     }
 
     Ok(())
+}
+
+// TODO: make const
+fn agent_tools() -> Vec<Tool> {
+    alloc::vec![Tool {
+        name: "read".to_string(),
+        description: "Read the contents of a text file.".to_string(),
+        parameters: alloc::vec![
+            ToolParameter {
+                name: "path".to_string(),
+                param_type: "string".to_string(),
+                description: "Path to the file to read (relative or absolute)".to_string(),
+            },
+            ToolParameter {
+                name: "offset".to_string(),
+                param_type: "number".to_string(),
+                description: "Line number to start reading from (1-indexed)".to_string(),
+            },
+            ToolParameter {
+                name: "limit".to_string(),
+                param_type: "number".to_string(),
+                description: "Maximum number of lines to read".to_string(),
+            },
+        ],
+        required_parameters: alloc::vec!["path".to_string()],
+    }]
 }

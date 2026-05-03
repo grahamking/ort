@@ -15,6 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
+use crate::common::data::Tool;
 use crate::net::AsFd;
 use crate::{Context as _, OrtError, TcpSocket, TlsStream};
 
@@ -63,7 +64,8 @@ pub fn run<W: Write + Send>(
     env: &Env,
     opts: PromptOpts,
     site: &'static Site,
-    messages: Vec<crate::Message>,
+    messages: Vec<Message>,
+    tools: Vec<Tool>,
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: &mut W,
 ) -> OrtResult<()> {
@@ -78,7 +80,12 @@ pub fn run<W: Write + Send>(
     };
 
     let mut last_writer = if settings.save_to_file {
-        Some(LastWriter::new(opts.clone(), messages.clone(), env)?)
+        Some(LastWriter::new(
+            opts.clone(),
+            messages.clone(),
+            tools.clone(),
+            env,
+        )?)
     } else {
         None
     };
@@ -88,6 +95,7 @@ pub fn run<W: Write + Send>(
         dns: settings.dns.clone(),
         opts,
         messages,
+        tools,
         model_idx: 0,
         site,
     };
@@ -189,6 +197,7 @@ pub fn run_continue<W: Write + Send>(
         opts,
         site,
         last.messages,
+        last.tools,
         is_pipe_output,
         w,
     )
@@ -231,6 +240,7 @@ pub fn run_multi<W: Write + Send>(
             site,
             opts: opts.clone(),
             messages: messages.clone(),
+            tools: vec![],
             model_idx: idx,
         };
         let mut active_prompt = ActivePrompt::new(params);
@@ -321,6 +331,7 @@ struct PromptThreadParams {
     dns: Vec<String>,
     opts: PromptOpts,
     messages: Vec<Message>,
+    tools: Vec<Tool>,
     model_idx: usize,
     site: &'static Site,
 }
@@ -332,6 +343,8 @@ struct ActivePrompt {
     opts: PromptOpts,
     site: &'static Site,
     messages: Vec<Message>,
+    tools: Vec<Tool>,
+
     // When running multiple models, this thread should use this one
     model_idx: usize,
 
@@ -355,6 +368,7 @@ impl ActivePrompt {
             dns: params.dns,
             site: params.site,
             messages: params.messages,
+            tools: params.tools,
             model_idx: params.model_idx,
             reader: None,
             stats: Stats {
@@ -385,7 +399,7 @@ impl ActivePrompt {
 
     /// Start the HTTP request
     pub fn start(&mut self) -> OrtResult<()> {
-        let body = match build_body(self.model_idx, &self.opts, &self.messages) {
+        let body = match build_body(self.model_idx, &self.opts, &self.messages, &self.tools) {
             Ok(b) => b,
             Err(err) => {
                 print_string(c"FATAL: build_body: ", &err.as_string());

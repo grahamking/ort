@@ -7,11 +7,21 @@
 extern crate alloc;
 use alloc::string::String;
 
-use crate::{ErrorKind, Message, OrtResult, PromptOpts, Write, common::data::Content, ort_error};
+use crate::{
+    ErrorKind, Message, OrtResult, PromptOpts, Write,
+    common::data::{Content, Tool, ToolParameter},
+    ort_error,
+};
 
 /// Build the POST body
 /// The system and user prompts must already by in messages.
-pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtResult<String> {
+pub fn build_body(
+    idx: usize,
+    opts: &PromptOpts,
+    messages: &[Message],
+    tools: &[Tool],
+) -> OrtResult<String> {
+    // TODO: Add tools encoded byte size to avoid realloc
     let capacity: u32 = 1024 + messages.iter().map(|m| m.size()).sum::<u32>();
     let mut string_buf = String::with_capacity(capacity as usize);
     let w = unsafe { string_buf.as_mut_vec() };
@@ -66,6 +76,9 @@ pub fn build_body(idx: usize, opts: &PromptOpts, messages: &[Message]) -> OrtRes
 
     w.write_str(", \"messages\":")?;
     Message::write_json_array(messages, w)?;
+
+    w.write_str(", \"tools\":")?;
+    Tool::write_json_array(tools, w)?;
 
     // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
     // This disables that parsing. Experimental, does not help.
@@ -209,14 +222,72 @@ impl Message {
             if i != 0 {
                 w.write_char(',')?;
             }
-            write_json(msg, w)?;
+            write_json_message(msg, w)?;
         }
         w.write_char(']')?;
         Ok(())
     }
 }
 
-pub fn write_json<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
+impl Tool {
+    pub fn write_json_array<W: Write>(tools: &[Tool], w: &mut W) -> OrtResult<()> {
+        w.write_char('[')?;
+        for (i, tool) in tools.iter().enumerate() {
+            if i != 0 {
+                w.write_char(',')?;
+            }
+            tool.write_json(w)?;
+        }
+        w.write_char(']')?;
+        Ok(())
+    }
+
+    pub fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
+        w.write_str(r#"{"type": "function", "function": {"name": "#)?;
+        write_json_str_simple(w, self.name.as_str())?;
+
+        w.write_str(r#", "description": "#)?;
+        write_json_str(w, self.description.as_str())?;
+
+        w.write_str(r#", "parameters": {"type": "object", "properties": {"#)?;
+        for (idx, param) in self.parameters.iter().enumerate() {
+            if idx != 0 {
+                w.write_char(',')?;
+            }
+            param.write_json(w)?;
+        }
+
+        w.write_str(r#"}, "required": ["#)?;
+        for (idx, req) in self.required_parameters.iter().enumerate() {
+            if idx != 0 {
+                w.write_char(',')?;
+            }
+            write_json_str_simple(w, req)?;
+        }
+        // Close the required params array,
+        // the 'properties' object,
+        // the 'function' object,
+        // and the tool object.
+        w.write_str("]}}}")?;
+        Ok(())
+    }
+}
+
+impl ToolParameter {
+    fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
+        write_json_str_simple(w, self.name.as_str())?;
+        w.write_str(r#": {"type": "#)?;
+        write_json_str_simple(w, self.param_type.as_str())?;
+        // TODO: support arrays. They need
+        // "items": {"type": "string"},
+        w.write_str(r#", "description": "#)?;
+        write_json_str(w, self.description.as_str())?;
+        w.write_char('}')?;
+        Ok(())
+    }
+}
+
+pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
     w.write_str("{\"role\":")?;
     write_json_str_simple(w, data.role.as_str())?;
     match (&data.content, &data.reasoning) {
@@ -386,14 +457,36 @@ mod tests {
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let got = match build_body(0, &opts, &messages) {
+        let tools = vec![Tool {
+            name: "read".to_string(),
+            description: "Read the contents of a text file.".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "path".to_string(),
+                    param_type: "string".to_string(),
+                    description: "Path to the file to read (relative or absolute)".to_string(),
+                },
+                ToolParameter {
+                    name: "offset".to_string(),
+                    param_type: "number".to_string(),
+                    description: "Line number to start reading from (1-indexed)".to_string(),
+                },
+                ToolParameter {
+                    name: "limit".to_string(),
+                    param_type: "number".to_string(),
+                    description: "Maximum number of lines to read".to_string(),
+                },
+            ],
+            required_parameters: vec!["path".to_string()],
+        }];
+        let got = match build_body(0, &opts, &messages, &tools) {
             Ok(got) => got,
             Err(err) => {
                 panic!("{}", err.as_string());
             }
         };
 
-        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "function", "function": {"name": "read", "description": "Read the contents of a text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},"offset": {"type": "number", "description": "Line number to start reading from (1-indexed)"},"limit": {"type": "number", "description": "Maximum number of lines to read"}}, "required": ["path"]}}}]}"#;
 
         assert_eq!(got, expected);
     }

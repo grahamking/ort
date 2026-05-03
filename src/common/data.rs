@@ -70,6 +70,7 @@ pub struct Usage {
 pub struct LastData {
     pub opts: PromptOpts,
     pub messages: Vec<Message>,
+    pub tools: Vec<Tool>,
 }
 
 #[derive(Clone)]
@@ -450,4 +451,19 @@ impl PromptFile {
         }
         "application/octet-stream"
     }
+}
+
+#[derive(Clone)]
+pub struct Tool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+    pub required_parameters: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct ToolParameter {
+    pub name: String,
+    pub param_type: String,
+    pub description: String,
 }
