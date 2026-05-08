@@ -61,6 +61,40 @@ pub struct ChatCompletionsResponse {
 
 pub struct Choice {
     pub delta: Message,
+    pub finish_reason: Option<String>,
+}
+
+impl Choice {
+    pub fn is_tool_call_finish(&self) -> bool {
+        matches!(self.finish_reason.as_deref(), Some("tool_calls"))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ToolCall {
+    pub index: u32,
+    pub id: Option<String>,
+    pub function: Function,
+}
+
+impl ToolCall {
+    /// Update the fields of this tool call from partial.
+    /// Some models send first the name of the function, and then
+    /// the arguments in a later message.
+    pub fn update_from(&mut self, partial: &ToolCall) {
+        if self.id.is_none() {
+            self.id = partial.id.clone();
+        }
+        if !partial.function.arguments.is_empty() {
+            self.function.arguments = partial.function.arguments.clone();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Function {
+    pub name: String,
+    pub arguments: String, // JSON
 }
 
 pub struct Usage {
@@ -241,19 +275,26 @@ pub struct Message {
     pub role: Role,
     pub content: Vec<Content>,
     pub reasoning: Option<String>,
+    pub tool_calls: Vec<ToolCall>,
 }
 
 impl Message {
     pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
         let content = content.map_or_else(Vec::new, |content| vec![Content::Text(content)]);
-        Self::with_content(role, content, reasoning)
+        Self::with_content(role, content, reasoning, vec![])
     }
 
-    pub fn with_content(role: Role, content: Vec<Content>, reasoning: Option<String>) -> Self {
+    pub fn with_content(
+        role: Role,
+        content: Vec<Content>,
+        reasoning: Option<String>,
+        tool_calls: Vec<ToolCall>,
+    ) -> Self {
         Message {
             role,
             content,
             reasoning,
+            tool_calls,
         }
     }
     pub fn system(content: String) -> Self {
@@ -374,6 +415,8 @@ pub enum Response {
     Think(ThinkEvent),
     /// The good stuff
     Content(String),
+    /// Let's do stuff
+    ToolCalls(Vec<ToolCall>),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
     /// Less good things. Often you mistyped the model name.

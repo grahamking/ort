@@ -105,6 +105,16 @@ impl OutputWriter for LastWriter {
                     self.buf_idx = 0;
                 }
             }
+            Response::ToolCalls(tool_calls) => {
+                self.w.write_str(", \"tool_calls\": [")?;
+                for (i, tool_call) in tool_calls.iter().enumerate() {
+                    if i != 0 {
+                        self.w.write_char(',')?;
+                    }
+                    tool_call.write_json(&mut self.w)?;
+                }
+                self.w.write_char(']')?;
+            }
             Response::Stats(stats) => {
                 self.data.opts.provider = Some(utils::slug(stats.provider()));
             }

@@ -9,7 +9,7 @@ use alloc::string::String;
 
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Write,
-    common::data::{Content, Tool, ToolParameter},
+    common::data::{Content, Tool, ToolCall, ToolParameter},
     ort_error,
 };
 
@@ -283,6 +283,32 @@ impl ToolParameter {
         w.write_str(r#", "description": "#)?;
         write_json_str(w, self.description.as_str())?;
         w.write_char('}')?;
+        Ok(())
+    }
+}
+
+impl ToolCall {
+    /// Write out a ToolCall as JSON. It looks like this:
+    ///    {
+    ///      "id": "call_abc123",
+    ///      "type": "function",
+    ///      "function": {
+    ///        "name": "search_gutenberg_books",
+    ///        "arguments": "{\"search_terms\": [\"James\", \"Joyce\"]}"
+    ///      }
+    ///    }
+    pub fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
+        w.write_str(r#"{"id": "#)?;
+        write_json_str_simple(w, self.id.as_deref().unwrap_or_default())?;
+
+        w.write_str(r#", "type": "function", "function": {"name": "#)?;
+        write_json_str_simple(w, &self.function.name)?;
+
+        w.write_str(r#", "arguments": "#)?;
+        write_json_str(w, &self.function.arguments)?;
+
+        w.write_str("}}")?;
+
         Ok(())
     }
 }
