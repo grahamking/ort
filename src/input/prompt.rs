@@ -164,8 +164,10 @@ pub fn run_continue<W: Write + Send>(
     };
 
     let mut last = match utils::filename_read_to_string(&last_file) {
-        Ok(hist_str) => LastData::from_json(&hist_str)
-            .map_err(|_err| ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last"))?,
+        Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
+            print_string(c"Failed parsing history: ", &err);
+            ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last")
+        })?,
         Err("NOT FOUND") => {
             return Err(ort_error(
                 ErrorKind::HistoryMissing,

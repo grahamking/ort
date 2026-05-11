@@ -273,17 +273,20 @@ impl LastData {
                     if !p.try_consume(b'[') {
                         return Err("tools: Expected array".into());
                     }
-                    loop {
-                        let j = p.value_slice()?;
-                        let tool = Tool::from_json(j)?;
-                        tools.push(tool);
-                        p.skip_ws();
-                        if p.try_consume(b',') {
-                            continue;
-                        }
-                        p.skip_ws();
-                        if p.try_consume(b']') {
-                            break;
+                    p.skip_ws();
+                    if !p.try_consume(b']') {
+                        loop {
+                            let j = p.value_slice()?;
+                            let tool = Tool::from_json(j)?;
+                            tools.push(tool);
+                            p.skip_ws();
+                            if p.try_consume(b',') {
+                                continue;
+                            }
+                            p.skip_ws();
+                            if p.try_consume(b']') {
+                                break;
+                            }
                         }
                     }
                 }
@@ -1696,7 +1699,7 @@ impl<'a> Parser<'a> {
             _t => {
                 //let t_str = crate::utils::num_to_string(t as usize);
                 //crate::utils::print_string(c"unexpected token: ", &t_str);
-                Err("unexpected token")
+                Err("unexpected token in find_value_end")
             }
         }
     }
