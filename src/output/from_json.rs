@@ -13,7 +13,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::config;
-use crate::common::data::{Content, PromptFile, PromptFileKind, Tool, ToolParameter};
+use crate::common::data::{
+    Content, Function, PromptFile, PromptFileKind, Tool, ToolCall, ToolParameter,
+};
 use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -121,8 +123,9 @@ impl Choice {
         p.expect(b'{')?;
 
         let mut delta = None;
+        let mut finish_reason = None;
 
-        'top: loop {
+        loop {
             p.skip_ws();
             if p.try_consume(b'}') {
                 break;
@@ -139,7 +142,15 @@ impl Choice {
                 "delta" => {
                     let j = p.value_slice()?;
                     delta = Some(Message::from_json(j)?);
-                    break 'top;
+                }
+                "finish_reason" => {
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        finish_reason = None;
+                    } else {
+                        let fr = p.parse_simple_str()?;
+                        finish_reason = Some(fr.to_string());
+                    }
                 }
                 _ => {
                     p.skip_value()?;
@@ -158,7 +169,113 @@ impl Choice {
 
         Ok(Choice {
             delta: delta.expect("Missing delta in message"),
+            finish_reason,
         })
+    }
+}
+
+impl ToolCall {
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut index = 0u32;
+        let mut id = None;
+        let mut function = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "ToolCall::from_json parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "index" => {
+                    index = p.parse_u32()?;
+                }
+                "id" => {
+                    id = Some(p.parse_simple_str()?.to_string());
+                }
+                "type" => {
+                    p.skip_value()?;
+                }
+                "function" => {
+                    let j = p.value_slice()?;
+                    function = Some(Function::from_json(j)?);
+                }
+                // TODO: Log that we don't support whatever this is yet
+                _ => {}
+            }
+
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(ToolCall {
+            index,
+            id,
+            function: function.expect("Missing function in tool call"),
+        })
+    }
+}
+
+impl Function {
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut name = String::new();
+        let mut arguments = String::new();
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "ToolCall::from_json parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "name" => {
+                    name = p.parse_simple_str()?.to_string();
+                }
+                "arguments" => {
+                    arguments = p.parse_string()?;
+                }
+                // TODO: Log that we don't support whatever this is yet
+                _ => {}
+            }
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            }
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+        }
+
+        Ok(Function { name, arguments })
     }
 }
 
@@ -270,22 +387,26 @@ impl LastData {
                     if !tools.is_empty() {
                         return Err("duplicate field: tools".into());
                     }
-                    if !p.try_consume(b'[') {
-                        return Err("tools: Expected array".into());
-                    }
-                    p.skip_ws();
-                    if !p.try_consume(b']') {
-                        loop {
-                            let j = p.value_slice()?;
-                            let tool = Tool::from_json(j)?;
-                            tools.push(tool);
-                            p.skip_ws();
-                            if p.try_consume(b',') {
-                                continue;
-                            }
-                            p.skip_ws();
-                            if p.try_consume(b']') {
-                                break;
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                    } else {
+                        if !p.try_consume(b'[') {
+                            return Err("tools: Expected array".into());
+                        }
+                        p.skip_ws();
+                        if !p.try_consume(b']') {
+                            loop {
+                                let j = p.value_slice()?;
+                                let tool = Tool::from_json(j)?;
+                                tools.push(tool);
+                                p.skip_ws();
+                                if p.try_consume(b',') {
+                                    continue;
+                                }
+                                p.skip_ws();
+                                if p.try_consume(b']') {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -321,6 +442,7 @@ impl Message {
         let mut content = vec![];
         let mut content_seen = false;
         let mut reasoning = None;
+        let mut tool_calls = vec![];
 
         loop {
             p.skip_ws();
@@ -387,6 +509,32 @@ impl Message {
                         reasoning = Some(p.parse_string()?);
                     }
                 }
+                "tool_calls" => {
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                    } else {
+                        if !p.try_consume(b'[') {
+                            return Err("tool_calls: Expected array".into());
+                        }
+                        p.skip_ws();
+                        // If the array isn't empty..
+                        if !p.try_consume(b']') {
+                            loop {
+                                let j = p.value_slice()?;
+                                let tool = ToolCall::from_json(j)?;
+                                tool_calls.push(tool);
+                                p.skip_ws();
+                                if p.try_consume(b',') {
+                                    continue;
+                                }
+                                p.skip_ws();
+                                if p.try_consume(b']') {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {
                     p.skip_value()?;
                 }
@@ -407,6 +555,7 @@ impl Message {
             role.unwrap_or(Role::Assistant),
             content,
             reasoning,
+            tool_calls,
         ))
     }
 }

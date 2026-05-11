@@ -15,7 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
-use crate::common::data::Tool;
+use crate::common::data::{Tool, ToolCall};
 use crate::net::AsFd;
 use crate::{Context as _, OrtError, TcpSocket, TlsStream};
 
@@ -361,6 +361,8 @@ struct ActivePrompt {
     is_first_reasoning: bool,
     is_first_content: bool,
     line_buf: String,
+
+    pending_tool_calls: Vec<ToolCall>,
 }
 
 impl ActivePrompt {
@@ -396,6 +398,7 @@ impl ActivePrompt {
             is_first_reasoning: true,
             is_first_content: true,
             line_buf: String::with_capacity(1024),
+            pending_tool_calls: vec![],
         }
     }
 
@@ -515,19 +518,22 @@ impl ActivePrompt {
                     }
 
                     // Standard OpenAI stream delta shape
-                    let Some(delta) = v.choices.pop().map(|c| c.delta) else {
+                    let Some(choice) = v.choices.pop() else {
                         continue;
                     };
 
-                    let has_reasoning = delta
+                    let has_reasoning = choice
+                        .delta
                         .reasoning
                         .as_ref()
                         .map(|x| !x.is_empty())
                         .unwrap_or(false);
-                    let content = delta.text();
+                    let content = choice.delta.text();
                     let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
+                    let has_tool_calls = !choice.delta.tool_calls.is_empty();
+                    let is_finished = choice.finish_reason.is_some();
 
-                    if !(has_reasoning || has_content) {
+                    if !(has_reasoning || has_content || has_tool_calls || is_finished) {
                         continue;
                     }
 
@@ -540,8 +546,23 @@ impl ActivePrompt {
                         self.token_stream_start = Some(time::Ticks::now());
                     }
 
+                    // Handle tool calls
+                    if has_tool_calls {
+                        // TODO: Think about ownership, reduce copying
+                        for tool_call in &choice.delta.tool_calls {
+                            match self.pending_tool_calls.get_mut(tool_call.index as usize) {
+                                Some(pending) => {
+                                    pending.update_from(tool_call);
+                                }
+                                None => {
+                                    self.pending_tool_calls.push(tool_call.clone());
+                                }
+                            }
+                        }
+                    }
+
                     // Handle reasoning content
-                    if let Some(reasoning_content) = delta.reasoning.as_ref()
+                    if let Some(reasoning_content) = choice.delta.reasoning.as_ref()
                         && !reasoning_content.is_empty()
                     {
                         self.num_tokens += 1;
@@ -581,10 +602,21 @@ impl ActivePrompt {
                         let r_event = Response::Content(content.to_string());
                         queue.push(r_event);
                     }
+
+                    if choice.is_tool_call_finish() {
+                        let event =
+                            Response::ToolCalls(core::mem::take(&mut self.pending_tool_calls));
+                        queue.push(event);
+                    }
                 }
                 Err(err) => {
                     utils::print_string(c"Malformed: ", &err);
                 }
+            }
+
+            if queue.is_empty() && !self.pending_tool_calls.is_empty() {
+                // Tool calls are sometimes spread over several messages
+                continue;
             }
 
             return Ok(queue);
@@ -594,11 +626,14 @@ impl ActivePrompt {
     pub fn stop(&mut self) -> Stats {
         if let Some(tc) = self.tsc_calibration {
             let now = time::Ticks::now();
-            self.stats.elapsed_time = time::elapsed_duration(self.start.take().unwrap(), now, tc);
-            let stream_elapsed_time =
-                time::elapsed_duration(self.token_stream_start.unwrap(), now, tc);
-            self.stats.inter_token_latency_ms =
-                stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
+            if let Some(start) = self.start.take() {
+                self.stats.elapsed_time = time::elapsed_duration(start, now, tc);
+            }
+            if let Some(token_stream_start) = self.token_stream_start {
+                let stream_elapsed_time = time::elapsed_duration(token_stream_start, now, tc);
+                self.stats.inter_token_latency_ms =
+                    stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
+            }
         };
         self.stats.clone()
     }

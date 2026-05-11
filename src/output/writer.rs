@@ -143,6 +143,11 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self.writer.write_all(content.as_bytes());
                 let _ = self.writer.flush();
             }
+            Response::ToolCalls(tool_calls) => {
+                for tool_call in &tool_calls {
+                    utils::print_string(c"Tool call: ", &tool_call.function.name);
+                }
+            }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
@@ -207,6 +212,9 @@ impl<'a, W: Write + Send> OutputWriter for FileWriter<'a, W> {
             Response::Content(content) => {
                 let _ = self.writer.write_all(content.as_bytes());
             }
+            Response::ToolCalls(_tool_calls) => {
+                // TODO
+            }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
@@ -270,6 +278,9 @@ impl OutputWriter for CollectedWriter {
             Response::Think(_) => {}
             Response::Content(content) => {
                 self.contents.push_str(&content);
+            }
+            Response::ToolCalls(_tool_calls) => {
+                // Agent mode won't use CollectedWriter
             }
             Response::Stats(stats) => {
                 self.got_stats = Some(stats);

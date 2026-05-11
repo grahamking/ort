@@ -58,6 +58,8 @@ pub fn run<W: Write + Send>(
 
     let _ = w_core.write_str(&separator);
 
+    // TODO: Replace with the actual prompt
+    // TODO: Change background color to indicate it's the prompt
     let c_prompt = CString::new("Initial prompt".to_string()).unwrap();
     let _ = w_core.write(BOLD_START.as_bytes());
     let _ = w_core.write(c_prompt.as_bytes());
@@ -68,6 +70,8 @@ pub fn run<W: Write + Send>(
     let _ = w_core.flush();
 
     // Run the initial query
+    // TODO: We need our own "run", it is very simple, can re-use
+    // so we can run tools
     prompt::run(
         api_key,
         settings,
@@ -79,6 +83,8 @@ pub fn run<W: Write + Send>(
         false,
         w_core,
     )?;
+
+    utils::print_string(c"\n Initial prompt run complete", "");
 
     loop {
         // Wait for a new prompt
