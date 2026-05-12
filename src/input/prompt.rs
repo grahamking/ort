@@ -482,7 +482,7 @@ impl ActivePrompt {
                 }
             }
             let line = self.line_buf.trim();
-            //utils::print_string(c"LINE: ", &line_buf);
+            //utils::print_string(c"LINE: ", line);
 
             if self.is_start {
                 // Very first message from server, usually

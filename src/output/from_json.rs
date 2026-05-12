@@ -1651,7 +1651,7 @@ impl<'a> Parser<'a> {
             }
             self.i += 1;
         }
-        Err("unterminated string")
+        Err("unterminated string in parse_simple_str")
     }
 
     fn parse_string(&mut self) -> Result<String, Cow<'static, str>> {
@@ -1682,7 +1682,7 @@ impl<'a> Parser<'a> {
             i += 1;
         }
         if !needs_unescape {
-            return Err("unterminated string".into());
+            return Err("unterminated string in parse_string escape scan".into());
         }
 
         // Second pass: build with unescape
@@ -1740,7 +1740,7 @@ impl<'a> Parser<'a> {
                 i += 1;
             }
         }
-        Err("unterminated string".into())
+        Err("unterminated string in parse_string".into())
     }
 
     // Parses \uXXXX (with surrogate-pair handling). Input index points at first hex digit after 'u'.
@@ -1874,7 +1874,7 @@ impl<'a> Parser<'a> {
             }
             i += 1;
         }
-        Err("unterminated string")
+        Err("unterminated string in scan_string_end")
     }
 
     fn scan_brace_block(&self, open: u8, close: u8) -> Result<usize, &'static str> {
