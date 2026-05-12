@@ -17,6 +17,7 @@ use alloc::vec::Vec;
 use crate::cli::Env;
 use crate::common::data::{Tool, ToolCall};
 use crate::net::AsFd;
+use crate::output::logger::Logger;
 use crate::{Context as _, OrtError, TcpSocket, TlsStream};
 
 use crate::ChatCompletionsResponse;
@@ -99,7 +100,7 @@ pub fn run<W: Write + Send>(
         model_idx: 0,
         site,
     };
-    let mut active_prompt = ActivePrompt::new(params);
+    let mut active_prompt = ActivePrompt::new(params, Some(env))?;
     active_prompt.start()?;
 
     loop {
@@ -245,7 +246,7 @@ pub fn run_multi<W: Write + Send>(
             tools: vec![],
             model_idx: idx,
         };
-        let mut active_prompt = ActivePrompt::new(params);
+        let mut active_prompt = ActivePrompt::new(params, None)?;
         active_prompt.start()?;
         let socket_fd = active_prompt.as_fd();
 
@@ -363,11 +364,12 @@ struct ActivePrompt {
     line_buf: String,
 
     pending_tool_calls: Vec<ToolCall>,
+    logger: Option<Logger>,
 }
 
 impl ActivePrompt {
-    pub fn new(params: PromptThreadParams) -> Self {
-        ActivePrompt {
+    pub fn new(params: PromptThreadParams, env: Option<&Env>) -> OrtResult<Self> {
+        Ok(ActivePrompt {
             api_key: params.api_key,
             dns: params.dns,
             site: params.site,
@@ -399,7 +401,12 @@ impl ActivePrompt {
             is_first_content: true,
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
-        }
+            logger: if let Some(env) = env {
+                Some(Logger::new(env)?)
+            } else {
+                None
+            },
+        })
     }
 
     /// Start the HTTP request
@@ -503,6 +510,11 @@ impl ActivePrompt {
             };
             if data == "[DONE]" {
                 return Ok(queue);
+            }
+
+            // Log now that it's interesting
+            if let Some(l) = self.logger.as_mut() {
+                l.log(data);
             }
 
             // Each data: line is a JSON chunk in OpenAI streaming format

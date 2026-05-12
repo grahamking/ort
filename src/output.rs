@@ -10,4 +10,5 @@
 
 pub mod from_json;
 pub mod last_writer;
+pub mod logger;
 pub mod writer;
