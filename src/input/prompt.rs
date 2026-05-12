@@ -105,10 +105,10 @@ pub fn run<W: Write + Send>(
 
     loop {
         match active_prompt.next() {
-            Ok(out) if out.is_empty() => {
+            Ok(None) => {
                 break;
             }
-            Ok(out) => {
+            Ok(Some(out)) => {
                 for event in out {
                     output_writer.write(event.clone())?;
                     if let Some(lw) = last_writer.as_mut() {
@@ -294,7 +294,7 @@ pub fn run_multi<W: Write + Send>(
             // TODO: loop until WouldBlock?
 
             match active_prompt.next() {
-                Ok(out) if out.is_empty() => {
+                Ok(None) => {
                     num_done += 1;
 
                     let stats = active_prompt.stop();
@@ -305,7 +305,7 @@ pub fn run_multi<W: Write + Send>(
                     let _ = w.write("\n\n".as_bytes());
                     let _ = w.flush();
                 }
-                Ok(out) => {
+                Ok(Some(out)) => {
                     for event in out {
                         output_writer.write(event.clone())?;
                     }
@@ -469,7 +469,7 @@ impl ActivePrompt {
         Ok(())
     }
 
-    pub fn next(&mut self) -> OrtResult<Vec<Response>> {
+    pub fn next(&mut self) -> OrtResult<Option<Vec<Response>>> {
         let mut queue = vec![];
 
         loop {
@@ -482,7 +482,7 @@ impl ActivePrompt {
             {
                 0 => {
                     // EOF
-                    return Ok(queue);
+                    return Ok(None);
                 }
                 _ => {
                     // success
@@ -496,7 +496,7 @@ impl ActivePrompt {
                 // : OPENROUTER PROCESSING
                 queue.push(Response::Start);
                 self.is_start = false;
-                return Ok(queue);
+                return Ok(Some(queue));
             }
 
             // SSE heartbeats and blank lines
@@ -509,7 +509,7 @@ impl ActivePrompt {
                 continue;
             };
             if data == "[DONE]" {
-                return Ok(queue);
+                return Ok(None);
             }
 
             // Log now that it's interesting
@@ -601,7 +601,7 @@ impl ActivePrompt {
                             if queue.is_empty() {
                                 continue;
                             } else {
-                                return Ok(queue);
+                                return Ok(Some(queue));
                             }
                         }
                         // If we signaled the open (!is_first_reasoning)
@@ -631,7 +631,7 @@ impl ActivePrompt {
                 continue;
             }
 
-            return Ok(queue);
+            return Ok(Some(queue));
         }
     }
 
