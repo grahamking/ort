@@ -524,9 +524,12 @@ impl ActivePrompt {
                     // Do this before getting choices because it's empty on last message.
                     if let Some(usage) = v.usage {
                         self.stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
-                        self.stats.provider =
-                            v.provider.expect("Last message was missing provider");
-                        self.stats.used_model = v.model.expect("Last message was missing model");
+                        if let Some(provider) = v.provider {
+                            self.stats.provider = provider;
+                        }
+                        if let Some(model) = v.model {
+                            self.stats.used_model = model;
+                        }
                     }
 
                     // Standard OpenAI stream delta shape
