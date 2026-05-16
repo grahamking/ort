@@ -137,6 +137,51 @@ pub fn run<W: Write + Send>(
     Ok(())
 }
 
+/// The full path of the file where we stored the last conversation
+fn last_file(env: &Env) -> OrtResult<String> {
+    let mut last_path = [0u8; 128];
+    let cache_dir_end = config::cache_dir(env, &mut last_path)?;
+    last_path[cache_dir_end] = b'/';
+    let last_filename = utils::last_filename(env);
+    let start = cache_dir_end + 1;
+    let end = start + last_filename.len();
+    last_path[start..end].copy_from_slice(last_filename.as_bytes());
+
+    let cs = CString::new(&last_path[..end]).expect("Null bytes in config cache dir");
+    if utils::path_exists(cs.as_ref()) {
+        Ok(unsafe { String::from_utf8_unchecked(last_path[..end].into()) })
+    } else {
+        let cache_dir = unsafe { str::from_utf8_unchecked(&last_path[..cache_dir_end]) };
+        most_recent(cache_dir, "last-").context("most_recent")
+    }
+}
+
+pub(crate) fn load_last_data(env: &Env) -> OrtResult<LastData> {
+    let last_file_path = last_file(env)?;
+    match utils::filename_read_to_string(&last_file_path) {
+        Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
+            print_string(c"Failed parsing history: ", &err);
+            ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last")
+        }),
+        Err("NOT FOUND") => Err(ort_error(
+            ErrorKind::HistoryMissing,
+            "No last conversation, cannot continue",
+        )),
+        Err(_e) => {
+            #[cfg(debug_assertions)]
+            {
+                // In debug build print the path.
+                let c_last_file = CString::new(last_file_path).unwrap();
+                syscall::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
+            }
+            Err(ort_error(
+                ErrorKind::HistoryReadFailed,
+                "Error reading last conversation file",
+            ))
+        }
+    }
+}
+
 /// The `-c` continue operation. Load the most recent conversation for this
 /// pane to populate the context, then run with the new prompt.
 pub fn run_continue<W: Write + Send>(
@@ -148,46 +193,7 @@ pub fn run_continue<W: Write + Send>(
     is_pipe_output: bool,
     w: &mut W,
 ) -> OrtResult<()> {
-    let mut last_path = [0u8; 128];
-    let cache_dir_end = config::cache_dir(env, &mut last_path)?;
-    last_path[cache_dir_end] = b'/';
-    let last_filename = utils::last_filename(env);
-    let start = cache_dir_end + 1;
-    let end = start + last_filename.len();
-    last_path[start..end].copy_from_slice(last_filename.as_bytes());
-
-    let cs = CString::new(&last_path[..end]).expect("Null bytes in config cache dir");
-    let last_file = if utils::path_exists(cs.as_ref()) {
-        unsafe { String::from_utf8_unchecked(last_path[..end].into()) }
-    } else {
-        let cache_dir = unsafe { str::from_utf8_unchecked(&last_path[..cache_dir_end]) };
-        most_recent(cache_dir, "last-").context("most_recent")?
-    };
-
-    let mut last = match utils::filename_read_to_string(&last_file) {
-        Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
-            print_string(c"Failed parsing history: ", &err);
-            ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last")
-        })?,
-        Err("NOT FOUND") => {
-            return Err(ort_error(
-                ErrorKind::HistoryMissing,
-                "No last conversation, cannot continue",
-            ));
-        }
-        Err(_e) => {
-            #[cfg(debug_assertions)]
-            {
-                // In debug build print the path.
-                let c_last_file = CString::new(last_file).unwrap();
-                syscall::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
-            }
-            return Err(ort_error(
-                ErrorKind::HistoryReadFailed,
-                "Error reading last conversation file",
-            ));
-        }
-    };
+    let mut last = load_last_data(env)?;
 
     opts.merge(last.opts);
     last.messages

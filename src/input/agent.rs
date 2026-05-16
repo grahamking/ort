@@ -45,7 +45,7 @@ pub fn run<W: Write + Send>(
     separator.push('\n');
 
     // Watch the file immediately
-    let filename = opts.prompt_filename.as_ref().unwrap().as_str();
+    let filename = opts.prompt_filename.as_ref().unwrap().to_string();
     let filename_ptr = CString::new(filename.to_string()).unwrap();
     let ifd = syscall::inotify_init1(0);
     let _wd = syscall::inotify_add_watch(
@@ -104,7 +104,7 @@ pub fn run<W: Write + Send>(
         // inotify watch
 
         // TODO: Make an ErrorKind
-        let next_prompt = utils::filename_read_to_string(filename)
+        let next_prompt = utils::filename_read_to_string(&filename)
             .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
         opts.prompt = Some(next_prompt);
 
@@ -119,7 +119,24 @@ pub fn run<W: Write + Send>(
         let _ = w_core.write_str(&separator);
         let _ = w_core.flush();
 
-        prompt::run_continue(api_key, settings, env, opts.clone(), site, false, w_core)?;
+        let mut last = prompt::load_last_data(env)?;
+        opts.merge(last.opts);
+
+        // Add the new prompt to the conversation
+        last.messages
+            .push(crate::Message::user(opts.prompt.take().unwrap()));
+
+        prompt::run(
+            api_key,
+            settings,
+            env,
+            opts.clone(),
+            site,
+            last.messages,
+            last.tools,
+            false,
+            w_core,
+        )?;
     }
 
     Ok(())
