@@ -156,7 +156,7 @@ fn last_file(env: &Env) -> OrtResult<String> {
     }
 }
 
-pub(crate) fn load_last_data(env: &Env) -> OrtResult<LastData> {
+pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
     let last_file_path = last_file(env)?;
     match utils::filename_read_to_string(&last_file_path) {
         Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
@@ -335,7 +335,7 @@ pub fn run_multi<W: Write + Send>(
     Ok(())
 }
 
-struct ActivePrompt {
+pub(in crate::input) struct ActivePrompt {
     api_key: String,
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now

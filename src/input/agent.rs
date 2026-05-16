@@ -21,6 +21,10 @@ use crate::{
         site::Site,
     },
     input::prompt,
+    output::{
+        last_writer::LastWriter,
+        writer::{ConsoleWriter, OutputWriter},
+    },
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
     utils,
 };
@@ -86,6 +90,9 @@ pub fn run<W: Write + Send>(
 
     utils::print_string(c"\n Initial prompt run complete", "");
 
+    // Show reasoning: false, quiet (dont' show stats): true
+    let mut output_writer = ConsoleWriter::new(w_core, false, true);
+
     loop {
         // Wait for a new prompt
         let res = syscall::read(
@@ -100,15 +107,18 @@ pub fn run<W: Write + Send>(
         //let ie_str = utils::num_to_string(ie.mask);
         //utils::print_string(c"mask: ", &ie_str);
 
-        // TODO: If it was IN_MOVED_TO (the rename-and-move case) we need to add another
+        // If it was IN_MOVED_TO (the rename-and-move case) we need to add another
         // inotify watch
 
-        // TODO: Make an ErrorKind
+        // todo: Make an ErrorKind
         let next_prompt = utils::filename_read_to_string(&filename)
             .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
         opts.prompt = Some(next_prompt);
 
-        // TODO: Single write syscall
+        // TODO: OutputWriter owns the writer. Send it an Event instead or writing directly. That
+        // moves output formatting back where it belongs
+        // todo 2: Single write syscall
+        /*
         let _ = w_core.write_str(&separator);
 
         let c_prompt = CString::new(opts.prompt.clone().unwrap()).unwrap();
@@ -118,6 +128,7 @@ pub fn run<W: Write + Send>(
 
         let _ = w_core.write_str(&separator);
         let _ = w_core.flush();
+        */
 
         let mut last = prompt::load_last_data(env)?;
         opts.merge(last.opts);
@@ -126,17 +137,42 @@ pub fn run<W: Write + Send>(
         last.messages
             .push(crate::Message::user(opts.prompt.take().unwrap()));
 
-        prompt::run(
-            api_key,
-            settings,
-            env,
+        let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.clone(), env)?;
+
+        let mut active_prompt = prompt::ActivePrompt::new(
+            api_key.to_string(),
+            settings.dns.clone(),
             opts.clone(),
+            messages.clone(),
+            tools.clone(),
+            0,
             site,
-            last.messages,
-            last.tools,
-            false,
-            w_core,
+            Some(env),
         )?;
+        active_prompt.start()?;
+
+        loop {
+            match active_prompt.next() {
+                Ok(None) => {
+                    break;
+                }
+                Ok(Some(out)) => {
+                    // TODO: Here is where we run the tools
+                    for event in out {
+                        output_writer.write(event.clone())?;
+                        last_writer.write(event)?;
+                    }
+                }
+                Err(err) => {
+                    // TODO? 429 is useful to know about
+                    // let err_str = err.as_string();
+                    // if err_str.contains("429 Too Many Requests") {
+                    utils::print_string(c"active_prompt.next: ", &err.as_string());
+                }
+            }
+        }
+        let _ = active_prompt.stop();
+        last_writer.stop(true)?;
     }
 
     Ok(())
