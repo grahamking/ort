@@ -91,16 +91,16 @@ pub fn run<W: Write + Send>(
         None
     };
 
-    let params = PromptThreadParams {
-        api_key: api_key.to_string(),
-        dns: settings.dns.clone(),
+    let mut active_prompt = ActivePrompt::new(
+        api_key.to_string(),
+        settings.dns.clone(),
         opts,
         messages,
         tools,
-        model_idx: 0,
+        0,
         site,
-    };
-    let mut active_prompt = ActivePrompt::new(params, Some(env))?;
+        Some(env),
+    )?;
     active_prompt.start()?;
 
     loop {
@@ -243,16 +243,16 @@ pub fn run_multi<W: Write + Send>(
         let model_name = opts.models.get(idx).unwrap().clone();
         names.push(model_name);
 
-        let params = PromptThreadParams {
-            api_key: api_key.to_string(),
-            dns: settings.dns.clone(),
+        let mut active_prompt = ActivePrompt::new(
+            api_key.to_string(),
+            settings.dns.clone(),
+            opts.clone(),
+            messages.clone(),
+            vec![],
+            idx,
             site,
-            opts: opts.clone(),
-            messages: messages.clone(),
-            tools: vec![],
-            model_idx: idx,
-        };
-        let mut active_prompt = ActivePrompt::new(params, None)?;
+            None,
+        )?;
         active_prompt.start()?;
         let socket_fd = active_prompt.as_fd();
 
@@ -335,16 +335,6 @@ pub fn run_multi<W: Write + Send>(
     Ok(())
 }
 
-struct PromptThreadParams {
-    api_key: String,
-    dns: Vec<String>,
-    opts: PromptOpts,
-    messages: Vec<Message>,
-    tools: Vec<Tool>,
-    model_idx: usize,
-    site: &'static Site,
-}
-
 struct ActivePrompt {
     api_key: String,
     dns: Vec<String>,
@@ -374,31 +364,40 @@ struct ActivePrompt {
 }
 
 impl ActivePrompt {
-    pub fn new(params: PromptThreadParams, env: Option<&Env>) -> OrtResult<Self> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        api_key: String,
+        dns: Vec<String>,
+        opts: PromptOpts,
+        messages: Vec<Message>,
+        tools: Vec<Tool>,
+        model_idx: usize,
+        site: &'static Site,
+        env: Option<&Env>,
+    ) -> OrtResult<Self> {
         Ok(ActivePrompt {
-            api_key: params.api_key,
-            dns: params.dns,
-            site: params.site,
-            messages: params.messages,
-            tools: params.tools,
-            model_idx: params.model_idx,
+            api_key,
+            dns,
+            site,
+            messages,
+            tools,
+            model_idx,
             reader: None,
             stats: Stats {
                 // Default the model to the passed one, in case provider stats don't include it
-                used_model: params
-                    .opts
+                used_model: opts
                     .models
-                    .get(params.model_idx)
+                    .get(model_idx)
                     .cloned()
                     .expect("Missing model name"),
                 // Provider doesn't make sense for build.nvidia.com
-                provider: params.site.name.to_string(),
+                provider: site.name.to_string(),
                 ..Default::default()
             },
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
             //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
             tsc_calibration: time::tsc_calibration().ok(),
-            opts: params.opts,
+            opts,
             token_stream_start: None,
             start: None,
             num_tokens: 0,
