@@ -16,6 +16,7 @@ use crate::common::config;
 use crate::common::data::{
     Content, Function, PromptFile, PromptFileKind, Tool, ToolCall, ToolParameter,
 };
+use crate::common::tools::ReadTool;
 use crate::{
     ChatCompletionsResponse, Choice, LastData, Message, Priority, PromptOpts, ReasoningConfig,
     ReasoningEffort, Role, Usage,
@@ -1357,6 +1358,81 @@ impl config::ApiKey {
             name.expect("Missing ApiKey name"),
             value.expect("Missing ApiKey value"),
         ))
+    }
+}
+
+impl ReadTool {
+    // Example JSON: { "path": "README.md", offset: 100, limit: 500 }
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut path = None;
+        let mut offset = None;
+        let mut limit = None;
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "ReadTool parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "path" => {
+                    if path.is_some() {
+                        return Err("duplicate field: path".into());
+                    }
+                    path = Some(
+                        p.parse_string()
+                            .map_err(|err| "Parsing path: ".to_string() + &err)?,
+                    );
+                }
+                "offset" => {
+                    if offset.is_some() {
+                        return Err("duplicate field: offset".into());
+                    }
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        offset = None;
+                    } else {
+                        offset = Some(p.parse_u32()?);
+                    }
+                }
+                "limit" => {
+                    if limit.is_some() {
+                        return Err("duplicate field: limit".into());
+                    }
+                    if p.peek_is_null() {
+                        p.parse_null()?;
+                        limit = None;
+                    } else {
+                        limit = Some(p.parse_u32()?);
+                    }
+                }
+                _ => return Err("unknown field".into()),
+            }
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            } else {
+                p.expect(b'}')?;
+                break;
+            }
+        }
+
+        Ok(ReadTool {
+            path: path.expect("Missing ApiKey name"),
+            offset,
+            limit,
+        })
     }
 }
 

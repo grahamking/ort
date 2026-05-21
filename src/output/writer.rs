@@ -43,6 +43,9 @@ const SPINNER: [&[u8]; 4] = [
     "\\\x1b[1D".as_bytes(),
 ];
 
+const BG_GRAY: &[u8] = "\x1b[48;5;8m".as_bytes();
+const RESET: &[u8] = "\x1b[49m".as_bytes();
+
 const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
 pub trait OutputWriter {
@@ -143,13 +146,18 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self.writer.write_all(content.as_bytes());
                 let _ = self.writer.flush();
             }
-            Response::ToolCalls(tool_calls) => {
-                for tool_call in &tool_calls {
-                    utils::print_string(c"Tool call: ", &tool_call.function.name);
-                }
+            Response::ToolCalls(_) => {
+                // No tool calls in chat mode
             }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
+            }
+            Response::Prompt(prompt) => {
+                let _ = self.writer.write(BG_GRAY);
+                let _ = self.writer.write(prompt.as_bytes());
+                let _ = self.writer.write(RESET);
+                let _ = self.writer.write(b"\n");
+                let _ = self.writer.flush();
             }
             Response::Error(err_string) => {
                 let _ = self.writer.write(CURSOR_ON);
@@ -218,6 +226,12 @@ impl<'a, W: Write + Send> OutputWriter for FileWriter<'a, W> {
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
+            Response::Prompt(prompt) => {
+                let _ = self.writer.write("> ".as_bytes());
+                let _ = self.writer.write(prompt.as_bytes());
+                let _ = self.writer.write(b"\n");
+                let _ = self.writer.flush();
+            }
             Response::Error(mut err_string) => {
                 if err_string.contains(ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
@@ -285,6 +299,7 @@ impl OutputWriter for CollectedWriter {
             Response::Stats(stats) => {
                 self.got_stats = Some(stats);
             }
+            Response::Prompt(_) => {}
             Response::Error(_err) => {
                 // Original message: CollectedWriter + err detail
                 return Err(ort_error(

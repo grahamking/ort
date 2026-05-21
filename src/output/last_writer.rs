@@ -118,6 +118,7 @@ impl OutputWriter for LastWriter {
             Response::Stats(stats) => {
                 self.data.opts.provider = Some(utils::slug(stats.provider()));
             }
+            Response::Prompt(_) => {}
             Response::Error(_err) => {
                 return Err(ort_error(
                     ErrorKind::LastWriterError,

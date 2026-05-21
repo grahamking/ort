@@ -6,13 +6,16 @@
 
 extern crate alloc;
 use alloc::ffi::CString;
+use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use core::{ffi::c_void, mem::MaybeUninit};
 
+use crate::common::tools::ReadTool;
+use crate::ort_error;
 use crate::{
-    ErrorKind, OrtResult, PromptOpts, Write,
+    ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
     common::{
         config,
@@ -20,7 +23,7 @@ use crate::{
         error,
         site::Site,
     },
-    input::prompt,
+    input::prompt::{self, ActivePrompt},
     output::{
         last_writer::LastWriter,
         writer::{ConsoleWriter, OutputWriter},
@@ -29,10 +32,6 @@ use crate::{
     utils,
 };
 
-const BOLD_START: &str = "\x1b[1m";
-const BOLD_END: &str = "\x1b[0m";
-
-// TODO: this mixes input and output
 pub fn run<W: Write + Send>(
     api_key: &str,
     settings: &config::Settings,
@@ -44,9 +43,6 @@ pub fn run<W: Write + Send>(
 ) -> OrtResult<()> {
     opts.quiet = Some(true);
     let tools = agent_tools();
-
-    let mut separator = "—".repeat(20); // TODO: width of terminal, maybe with sides
-    separator.push('\n');
 
     // Watch the file immediately
     let filename = opts.prompt_filename.as_ref().unwrap().to_string();
@@ -60,23 +56,17 @@ pub fn run<W: Write + Send>(
     );
     let mut ie = MaybeUninit::<syscall::inotify_event>::uninit();
 
-    let _ = w_core.write_str(&separator);
+    // Show reasoning: false, quiet (don't show stats): true
+    // TODO: We need an AgentWriter, needs to output differently
+    let mut output_writer = ConsoleWriter::new(w_core, false, true);
 
-    // TODO: Replace with the actual prompt
-    // TODO: Change background color to indicate it's the prompt
-    let c_prompt = CString::new("Initial prompt".to_string()).unwrap();
-    let _ = w_core.write(BOLD_START.as_bytes());
-    let _ = w_core.write(c_prompt.as_bytes());
-    let _ = w_core.write(BOLD_END.as_bytes());
-    let _ = w_core.write("\n".as_bytes());
-
-    let _ = w_core.write_str(&separator);
-    let _ = w_core.flush();
+    // Display the initial prompt
+    if let Some(prompt) = &opts.prompt {
+        output_writer.write(Response::Prompt(prompt.clone()))?;
+    }
 
     // Run the initial query
-    // TODO: We need our own "run", it is very simple, can re-use
-    // so we can run tools
-    prompt::run(
+    run_single(
         api_key,
         settings,
         env,
@@ -84,14 +74,8 @@ pub fn run<W: Write + Send>(
         site,
         messages.clone(),
         tools.clone(),
-        false,
-        w_core,
+        &mut output_writer,
     )?;
-
-    utils::print_string(c"\n Initial prompt run complete", "");
-
-    // Show reasoning: false, quiet (dont' show stats): true
-    let mut output_writer = ConsoleWriter::new(w_core, false, true);
 
     loop {
         // Wait for a new prompt
@@ -115,20 +99,9 @@ pub fn run<W: Write + Send>(
             .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
         opts.prompt = Some(next_prompt);
 
-        // TODO: OutputWriter owns the writer. Send it an Event instead or writing directly. That
-        // moves output formatting back where it belongs
-        // todo 2: Single write syscall
-        /*
-        let _ = w_core.write_str(&separator);
-
-        let c_prompt = CString::new(opts.prompt.clone().unwrap()).unwrap();
-        let _ = w_core.write(BOLD_START.as_bytes());
-        let _ = w_core.write(c_prompt.as_bytes());
-        let _ = w_core.write(BOLD_END.as_bytes());
-
-        let _ = w_core.write_str(&separator);
-        let _ = w_core.flush();
-        */
+        if let Some(prompt) = &opts.prompt {
+            output_writer.write(Response::Prompt(prompt.clone()))?;
+        }
 
         let mut last = prompt::load_last_data(env)?;
         opts.merge(last.opts);
@@ -137,44 +110,84 @@ pub fn run<W: Write + Send>(
         last.messages
             .push(crate::Message::user(opts.prompt.take().unwrap()));
 
-        let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.clone(), env)?;
-
-        let mut active_prompt = prompt::ActivePrompt::new(
-            api_key.to_string(),
-            settings.dns.clone(),
+        // run it
+        run_single(
+            api_key,
+            settings,
+            env,
             opts.clone(),
+            site,
             messages.clone(),
             tools.clone(),
-            0,
-            site,
-            Some(env),
+            &mut output_writer,
         )?;
-        active_prompt.start()?;
-
-        loop {
-            match active_prompt.next() {
-                Ok(None) => {
-                    break;
-                }
-                Ok(Some(out)) => {
-                    // TODO: Here is where we run the tools
-                    for event in out {
-                        output_writer.write(event.clone())?;
-                        last_writer.write(event)?;
-                    }
-                }
-                Err(err) => {
-                    // TODO? 429 is useful to know about
-                    // let err_str = err.as_string();
-                    // if err_str.contains("429 Too Many Requests") {
-                    utils::print_string(c"active_prompt.next: ", &err.as_string());
-                }
-            }
-        }
-        let _ = active_prompt.stop();
-        last_writer.stop(true)?;
     }
 
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_single<W: Write + Send>(
+    api_key: &str,
+    settings: &config::Settings,
+    env: &Env,
+    opts: PromptOpts,
+    site: &'static Site,
+    messages: Vec<Message>,
+    tools: Vec<Tool>,
+    output_writer: &mut ConsoleWriter<W>,
+) -> OrtResult<()> {
+    let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.clone(), env)?;
+    let mut active_prompt = ActivePrompt::new(
+        api_key.to_string(),
+        settings.dns.clone(),
+        opts,
+        messages,
+        tools,
+        0,
+        site,
+        Some(env),
+    )?;
+    active_prompt.start()?;
+
+    loop {
+        match active_prompt.next() {
+            Ok(None) => {
+                break;
+            }
+            Ok(Some(out)) => {
+                for event in out {
+                    match &event {
+                        Response::ToolCalls(tool_calls) => {
+                            for tool_call in tool_calls {
+                                utils::print_string(c"Tool call: ", &tool_call.function.name);
+
+                                match tool_call.function.name.as_ref() {
+                                    "read" => {
+                                        let res = tool_read(&tool_call.function.arguments)?;
+                                        utils::print_string(c"Tool result: ", &res);
+                                    }
+                                    "other" => {}
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Response::Stats(_) => {}
+                        _ => {}
+                    }
+                    output_writer.write(event.clone())?;
+                    last_writer.write(event)?;
+                }
+            }
+            Err(err) => {
+                utils::print_string(c"active_prompt.next: ", &err.as_string());
+            }
+        }
+    }
+
+    let _stats = active_prompt.stop();
+    output_writer.stop(true)?; // prints stats
+    last_writer.stop(true)?; // Finalize JSON
     Ok(())
 }
 
@@ -202,4 +215,13 @@ fn agent_tools() -> Vec<Tool> {
         ],
         required_parameters: alloc::vec!["path".to_string()],
     }]
+}
+
+/// Tool: Read a file
+/// Params is JSON
+fn tool_read(params: &str) -> OrtResult<String> {
+    // TODO: Specific error types
+    let params = ReadTool::from_json(params)
+        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing read tool params JSON"))?;
+    utils::filename_read_to_string(&params.path).map_err(|err| ort_error(ErrorKind::Other, err))
 }

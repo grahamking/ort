@@ -20,4 +20,5 @@ pub mod resolver;
 pub mod site;
 pub mod stats;
 pub mod time;
+pub mod tools;
 pub mod utils;

@@ -86,7 +86,9 @@ impl ToolCall {
             self.id = partial.id.clone();
         }
         if !partial.function.arguments.is_empty() {
-            self.function.arguments = partial.function.arguments.clone();
+            self.function
+                .arguments
+                .push_str(&partial.function.arguments);
         }
     }
 }
@@ -185,11 +187,11 @@ impl PromptOpts {
         // - User message (required)
         // - and the assistant message that LastWriter appends, to save a realloc.
         let mut messages = Vec::with_capacity(3);
-        if let Some(sys) = self.system.take() {
+        if let Some(sys) = self.system.clone() {
             messages.push(crate::Message::system(sys));
         };
         let user_message = if self.files.is_empty() {
-            crate::Message::user(self.prompt.take().unwrap())
+            crate::Message::user(self.prompt.clone().unwrap())
         } else {
             crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
         };
@@ -421,6 +423,8 @@ pub enum Response {
     Stats(super::stats::Stats),
     /// Less good things. Often you mistyped the model name.
     Error(String),
+    /// For agent mode, user prompt
+    Prompt(String),
     /// For default
     #[default]
     None,
