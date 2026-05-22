@@ -86,7 +86,7 @@ impl ChatCompletionsResponse {
                 }
                 "usage" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         usage = None;
                     } else {
                         let j = p.value_slice()?;
@@ -119,57 +119,17 @@ impl ChatCompletionsResponse {
 
 impl Choice {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        let mut delta = None;
-        let mut finish_reason = None;
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "Choice::from_json parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "delta" => {
-                    let j = p.value_slice()?;
-                    delta = Some(Message::from_json(j)?);
-                }
-                "finish_reason" => {
-                    if p.peek_is_null() {
-                        p.parse_null()?;
-                        finish_reason = None;
-                    } else {
-                        let fr = p.parse_simple_str()?;
-                        finish_reason = Some(fr.to_string());
-                    }
-                }
-                _ => {
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-        }
+        let mut fields = [
+            ("delta", value_raw()),
+            ("finish_reason", value_simple_string()),
+        ];
+        autoparser(json, &mut fields)?;
+        let delta_json = fields[0].1.get_raw().expect("Missing delta in message");
+        let delta = Message::from_json(&delta_json)?;
+        let finish_reason = fields[1].1.get_string();
 
         Ok(Choice {
-            delta: delta.expect("Missing delta in message"),
+            delta,
             finish_reason,
         })
     }
@@ -177,104 +137,37 @@ impl Choice {
 
 impl ToolCall {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
+        let mut fields = [
+            ("index", value_int()),
+            ("id", value_simple_string()),
+            ("function", value_raw()),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut index = 0u32;
-        let mut id = None;
-        let mut function = None;
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ToolCall::from_json parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "index" => {
-                    index = p.parse_u32()?;
-                }
-                "id" => {
-                    id = Some(p.parse_simple_str()?.to_string());
-                }
-                "type" => {
-                    p.skip_value()?;
-                }
-                "function" => {
-                    let j = p.value_slice()?;
-                    function = Some(Function::from_json(j)?);
-                }
-                // TODO: Log that we don't support whatever this is yet
-                _ => {}
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-        }
-
+        let index = fields[0].1.get_int().unwrap_or_default();
+        let id = fields[1].1.get_string();
+        let function_json = fields[2]
+            .1
+            .get_raw()
+            .expect("Missing function in tool call");
+        let function = Function::from_json(&function_json)?;
         Ok(ToolCall {
             index,
             id,
-            function: function.expect("Missing function in tool call"),
+            function,
         })
     }
 }
 
 impl Function {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        let mut name = String::new();
-        let mut arguments = String::new();
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ToolCall::from_json parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "name" => {
-                    name = p.parse_simple_str()?.to_string();
-                }
-                "arguments" => {
-                    arguments = p.parse_string()?;
-                }
-                // TODO: Log that we don't support whatever this is yet
-                _ => {}
-            }
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-        }
+        let mut fields = [
+            ("name", value_simple_string()),
+            ("arguments", value_string()),
+        ];
+        autoparser(json, &mut fields)?;
+        let name = fields[0].1.get_string().unwrap_or_default();
+        let arguments = fields[1].1.get_string().unwrap_or_default();
 
         Ok(Function { name, arguments })
     }
@@ -282,46 +175,9 @@ impl Function {
 
 impl Usage {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        // Currently we only extract cost
-        let mut cost = 0.0;
-
-        'top: loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "Usage parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "cost" => {
-                    cost = p.parse_f32()?;
-                    // As we only care about cost, we are done as soon as we have it
-                    break 'top;
-                }
-                _ => {
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-        }
+        let mut fields = [("cost", value_float())];
+        autoparser(json, &mut fields)?;
+        let cost = fields[0].1.get_float().unwrap_or_default();
 
         Ok(Usage { cost })
     }
@@ -389,7 +245,7 @@ impl LastData {
                         return Err("duplicate field: tools".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                     } else {
                         if !p.try_consume(b'[') {
                             return Err("tools: Expected array".into());
@@ -464,7 +320,7 @@ impl Message {
                         return Err("duplicate field: role".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         role = None;
                     } else {
                         let r = p.parse_simple_str()?;
@@ -477,7 +333,7 @@ impl Message {
                     }
                     content_seen = true;
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                     } else if p.peek() == Some(b'[') {
                         p.expect(b'[')?;
                         p.skip_ws();
@@ -504,7 +360,7 @@ impl Message {
                         return Err("duplicate field: reasoning".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         reasoning = None
                     } else {
                         reasoning = Some(p.parse_string()?);
@@ -512,7 +368,7 @@ impl Message {
                 }
                 "tool_calls" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                     } else {
                         if !p.try_consume(b'[') {
                             return Err("tool_calls: Expected array".into());
@@ -789,7 +645,7 @@ impl ReasoningConfig {
                         return Err("duplicate field: enabled".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         enabled = None;
                     } else {
                         enabled = Some(p.parse_bool()?);
@@ -800,7 +656,7 @@ impl ReasoningConfig {
                         return Err("duplicate field: effort".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         effort = None;
                     } else {
                         let v = p
@@ -827,7 +683,7 @@ impl ReasoningConfig {
                         return Err("duplicate field: tokens".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         tokens = None;
                     } else {
                         tokens = Some(p.parse_u32()?);
@@ -926,7 +782,7 @@ impl PromptOpts {
                 }
                 "priority" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         priority = None;
                     } else {
                         let s = p.parse_simple_str()?;
@@ -935,7 +791,7 @@ impl PromptOpts {
                 }
                 "reasoning" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         reasoning = None;
                     } else {
                         // Grab the exact object slice and delegate to ReasoningConfig::from_json
@@ -948,7 +804,7 @@ impl PromptOpts {
                 }
                 "show_reasoning" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         show_reasoning = None;
                     } else {
                         show_reasoning = Some(p.parse_bool()?);
@@ -956,7 +812,7 @@ impl PromptOpts {
                 }
                 "quiet" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         quiet = None;
                     } else {
                         quiet = Some(p.parse_bool()?);
@@ -964,7 +820,7 @@ impl PromptOpts {
                 }
                 "merge_config" => {
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         merge_config = true;
                     } else {
                         merge_config = p.parse_bool()?;
@@ -1248,7 +1104,7 @@ impl config::Settings {
                         return Err("duplicate field: save_to_file".into());
                     }
                     if p.peek_is_null() {
-                        p.parse_null()?;
+                        p.skip_null()?;
                         save_to_file = None;
                     } else {
                         save_to_file = Some(p.parse_bool()?);
@@ -1262,8 +1118,8 @@ impl config::Settings {
                         return Err("dns: Expected array".into());
                     }
                     loop {
-                        let addr = p.parse_string()?;
-                        dns.push(addr);
+                        let addr = p.parse_simple_str()?;
+                        dns.push(addr.to_string());
                         p.skip_ws();
                         if p.try_consume(b',') {
                             continue;
@@ -1304,59 +1160,14 @@ impl config::Settings {
 
 impl config::ApiKey {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        let mut name = None;
-        let mut value = None;
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ApiKey parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "name" => {
-                    if name.is_some() {
-                        return Err("duplicate field: name".into());
-                    }
-                    name = Some(
-                        p.parse_string()
-                            .map_err(|err| "Parsing name: ".to_string() + &err)?,
-                    );
-                }
-                "value" => {
-                    if value.is_some() {
-                        return Err("duplicate field: value".into());
-                    }
-                    value = Some(
-                        p.parse_string()
-                            .map_err(|err| "Parsing name: ".to_string() + &err)?,
-                    );
-                }
-                _ => return Err("unknown field".into()),
-            }
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            } else {
-                p.expect(b'}')?;
-                break;
-            }
-        }
+        let mut fields = [("name", value_simple_string()), ("value", value_string())];
+        autoparser(json, &mut fields)?;
+        let name = &mut fields[0].1.get_string();
+        let value = &mut fields[1].1.get_string();
 
         Ok(config::ApiKey::new(
-            name.expect("Missing ApiKey name"),
-            value.expect("Missing ApiKey value"),
+            name.take().expect("Missing ApiKey name"),
+            value.take().expect("Missing ApiKey value"),
         ))
     }
 }
@@ -1364,76 +1175,187 @@ impl config::ApiKey {
 impl ReadTool {
     // Example JSON: { "path": "README.md", offset: 100, limit: 500 }
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        let mut path = None;
-        let mut offset = None;
-        let mut limit = None;
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ReadTool parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "path" => {
-                    if path.is_some() {
-                        return Err("duplicate field: path".into());
-                    }
-                    path = Some(
-                        p.parse_string()
-                            .map_err(|err| "Parsing path: ".to_string() + &err)?,
-                    );
-                }
-                "offset" => {
-                    if offset.is_some() {
-                        return Err("duplicate field: offset".into());
-                    }
-                    if p.peek_is_null() {
-                        p.parse_null()?;
-                        offset = None;
-                    } else {
-                        offset = Some(p.parse_u32()?);
-                    }
-                }
-                "limit" => {
-                    if limit.is_some() {
-                        return Err("duplicate field: limit".into());
-                    }
-                    if p.peek_is_null() {
-                        p.parse_null()?;
-                        limit = None;
-                    } else {
-                        limit = Some(p.parse_u32()?);
-                    }
-                }
-                _ => return Err("unknown field".into()),
-            }
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            } else {
-                p.expect(b'}')?;
-                break;
-            }
-        }
-
+        let mut fields = [
+            ("path", value_simple_string()),
+            ("offset", value_int()),
+            ("limit", value_int()),
+        ];
+        autoparser(json, &mut fields)?;
+        let path = &mut fields[0].1.get_string();
+        let offset = fields[1].1.get_int();
+        let limit = fields[2].1.get_int();
         Ok(ReadTool {
-            path: path.expect("Missing ApiKey name"),
+            path: path.take().expect("Missing ReadTool path"),
             offset,
             limit,
         })
     }
+}
+
+// --------------------------------------------
+
+enum JsonValue {
+    /// A string with no escapes. Faster to parse.
+    SimpleString(Option<String>),
+    /// Any string
+    String(Option<String>),
+    /// An integer number
+    Int(Option<u32>),
+    /// A floating point number
+    Float(Option<f32>),
+    /// Something the caller will parse themselves
+    Raw(Option<String>),
+}
+
+impl JsonValue {
+    fn get_string(&mut self) -> Option<String> {
+        match self {
+            JsonValue::String(s) | JsonValue::SimpleString(s) => s.take(),
+            _ => None,
+        }
+    }
+
+    fn get_int(&mut self) -> Option<u32> {
+        match self {
+            JsonValue::Int(i) => i.take(),
+            _ => None,
+        }
+    }
+
+    fn get_float(&mut self) -> Option<f32> {
+        match self {
+            JsonValue::Float(f) => f.take(),
+            _ => None,
+        }
+    }
+
+    fn get_raw(&mut self) -> Option<String> {
+        match self {
+            JsonValue::Raw(s) => s.take(),
+            _ => None,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(
+            self,
+            JsonValue::String(None)
+                | JsonValue::SimpleString(None)
+                | JsonValue::Int(None)
+                | JsonValue::Float(None)
+                | JsonValue::Raw(None)
+        )
+    }
+}
+
+fn value_simple_string() -> JsonValue {
+    JsonValue::SimpleString(None)
+}
+
+fn value_string() -> JsonValue {
+    JsonValue::String(None)
+}
+
+fn value_int() -> JsonValue {
+    JsonValue::Int(None)
+}
+
+fn value_float() -> JsonValue {
+    JsonValue::Float(None)
+}
+
+fn value_raw() -> JsonValue {
+    JsonValue::Raw(None)
+}
+
+fn autoparser(
+    json: &str,
+    fields: &mut [(&'static str, JsonValue)],
+) -> Result<(), Cow<'static, str>> {
+    let mut p = Parser::new(json);
+    p.skip_ws();
+    p.expect(b'{')?;
+
+    loop {
+        p.skip_ws();
+        if p.try_consume(b'}') {
+            break;
+        }
+
+        let key = p
+            .parse_simple_str()
+            .map_err(|err| "parsing key: ".to_string() + err)?;
+        p.skip_ws();
+        p.expect(b':')?;
+        p.skip_ws();
+
+        let mut is_parsed = false;
+        for (name, value) in fields.iter_mut() {
+            if *name == key {
+                if !value.is_empty() {
+                    return Err(("duplicate field: ".to_string() + name).into());
+                }
+                if p.peek_is_null() {
+                    p.skip_null()?;
+                } else {
+                    match value {
+                        JsonValue::SimpleString(inner) => {
+                            let s = p
+                                .parse_simple_str()
+                                .map_err(|err| "Parsing field: ".to_string() + err)?;
+                            inner.replace(s.to_string());
+                        }
+                        JsonValue::String(inner) => {
+                            let s = p
+                                .parse_string()
+                                .map_err(|err| "Parsing field: ".to_string() + &err)?;
+                            inner.replace(s);
+                        }
+                        JsonValue::Int(inner) => {
+                            inner.replace(p.parse_u32()?);
+                        }
+                        JsonValue::Float(inner) => {
+                            inner.replace(p.parse_f32()?);
+                        }
+                        JsonValue::Raw(inner) => {
+                            let v = p.value_slice()?;
+                            // figure out lifetimes and keep as &str
+                            inner.replace(v.to_string());
+                        }
+                    }
+                }
+                is_parsed = true;
+                break;
+            }
+        }
+        if !is_parsed {
+            p.skip_value()?;
+        }
+        p.skip_ws();
+        if p.try_consume(b',') {
+            continue;
+        }
+        p.skip_ws();
+        if p.try_consume(b'}') {
+            break;
+        }
+    }
+
+    /*
+    crate::utils::print_string(c"-- After", "");
+    for (name, value) in fields.iter() {
+        crate::utils::print_string(c"\nName: ", name);
+        match value {
+            JsonValue::String(Some(s)) | JsonValue::SimpleString(Some(s)) => {
+                crate::utils::print_string(c"\nValue: ", s);
+            }
+            _ => {}
+        }
+    }
+    crate::utils::print_string(c"\n-- End After", "");
+    */
+
+    Ok(())
 }
 
 // --------------------------------------------
@@ -1497,7 +1419,7 @@ impl<'a> Parser<'a> {
         end <= self.b.len() && &self.b[self.i..end] == pat
     }
 
-    fn parse_null(&mut self) -> Result<(), &'static str> {
+    fn skip_null(&mut self) -> Result<(), &'static str> {
         if self.starts_with_bytes(b"null") {
             self.i += 4;
             Ok(())
@@ -1867,7 +1789,7 @@ impl<'a> Parser<'a> {
 
     fn parse_opt_string(&mut self) -> Result<Option<String>, Cow<'static, str>> {
         if self.peek_is_null() {
-            self.parse_null()?;
+            self.skip_null()?;
             Ok(None)
         } else {
             let s = self.parse_string()?;
