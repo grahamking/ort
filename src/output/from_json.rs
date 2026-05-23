@@ -24,96 +24,28 @@ use crate::{
 
 impl ChatCompletionsResponse {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        /*
         let mut fields = [
-            JsonField::new_string("provider"),
-            JsonField::new_string("model"),
-            JsonField::new
-        */
+            JsonField::new_simple_string("provider"),
+            JsonField::new_simple_string("model"),
+            JsonField::new_vec_raw("choices"),
+            JsonField::new_raw("usage"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        let mut provider = None;
-        let mut model = None;
+        let provider = fields[0].get_string();
+        let model = fields[1].get_string();
         let mut choices = vec![];
-        let mut usage = None;
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ChatCompletionsResponse parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "provider" => {
-                    if provider.is_some() {
-                        return Err("duplicate field: provider".into());
-                    }
-                    provider = Some(p.parse_string()?);
-                }
-                "model" => {
-                    if model.is_some() {
-                        return Err("duplicate field: model".into());
-                    }
-                    model = Some(p.parse_string()?);
-                }
-                "choices" => {
-                    if !choices.is_empty() {
-                        return Err("duplicate field: choices".into());
-                    }
-                    if !p.try_consume(b'[') {
-                        return Err("choices: Expected array".into());
-                    }
-                    p.skip_ws();
-                    // If the array isn't empty..
-                    if !p.try_consume(b']') {
-                        loop {
-                            let j = p.value_slice()?;
-                            let choice = Choice::from_json(j)?;
-                            choices.push(choice);
-                            p.skip_ws();
-                            if p.try_consume(b',') {
-                                continue;
-                            }
-                            p.skip_ws();
-                            if p.try_consume(b']') {
-                                break;
-                            }
-                        }
-                    }
-                }
-                "usage" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        usage = None;
-                    } else {
-                        let j = p.value_slice()?;
-                        usage = Some(Usage::from_json(j)?);
-                    }
-                }
-                _ => {
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
+        if let Some(v) = fields[2].get_vec_raw() {
+            for c in v {
+                choices.push(Choice::from_json(&c)?);
             }
         }
+
+        let usage = fields[3]
+            .get_raw()
+            .as_deref()
+            .map(Usage::from_json)
+            .transpose()?;
 
         Ok(ChatCompletionsResponse {
             provider,
@@ -170,10 +102,10 @@ impl Function {
             JsonField::new_string("arguments"),
         ];
         autoparser(json, &mut fields)?;
-        let name = fields[0].get_string().unwrap_or_default();
-        let arguments = fields[1].get_string().unwrap_or_default();
-
-        Ok(Function { name, arguments })
+        Ok(Function {
+            name: fields[0].get_string().unwrap_or_default(),
+            arguments: fields[1].get_string().unwrap_or_default(),
+        })
     }
 }
 
@@ -181,9 +113,9 @@ impl Usage {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut fields = [JsonField::new_float("cost")];
         autoparser(json, &mut fields)?;
-        let cost = fields[0].get_float().unwrap_or_default();
-
-        Ok(Usage { cost })
+        Ok(Usage {
+            cost: fields[0].get_float().unwrap_or_default(),
+        })
     }
 }
 
@@ -194,94 +126,31 @@ impl LastData {
                 "Cannot continue, last-<$TMUX_PANE>.json file is empty. Usually that mains previous run failed.".into(),
             );
         }
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
 
-        let mut opts = None;
+        let mut fields = [
+            JsonField::new_raw("opts"),
+            JsonField::new_vec_raw("messages"),
+            JsonField::new_vec_raw("tools"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let opts = fields[0]
+            .get_raw()
+            .as_deref()
+            .map(PromptOpts::from_json)
+            .transpose()?;
+
         let mut messages = vec![];
+        if let Some(msg_vec) = fields[1].get_vec_raw() {
+            for m in msg_vec {
+                messages.push(Message::from_json(&m)?);
+            }
+        }
+
         let mut tools = vec![];
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "LastData parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "opts" => {
-                    if opts.is_some() {
-                        return Err("duplicate field: opts".into());
-                    }
-                    let j = p.value_slice()?;
-                    opts = Some(PromptOpts::from_json(j)?);
-                }
-                "messages" => {
-                    if !messages.is_empty() {
-                        return Err("duplicate field: messages".into());
-                    }
-                    if !p.try_consume(b'[') {
-                        return Err("messages: Expected array".into());
-                    }
-                    loop {
-                        let j = p.value_slice()?;
-                        let msg = Message::from_json(j)?;
-                        messages.push(msg);
-                        p.skip_ws();
-                        if p.try_consume(b',') {
-                            continue;
-                        }
-                        p.skip_ws();
-                        if p.try_consume(b']') {
-                            break;
-                        }
-                    }
-                }
-                "tools" => {
-                    if !tools.is_empty() {
-                        return Err("duplicate field: tools".into());
-                    }
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                    } else {
-                        if !p.try_consume(b'[') {
-                            return Err("tools: Expected array".into());
-                        }
-                        p.skip_ws();
-                        if !p.try_consume(b']') {
-                            loop {
-                                let j = p.value_slice()?;
-                                let tool = Tool::from_json(j)?;
-                                tools.push(tool);
-                                p.skip_ws();
-                                if p.try_consume(b',') {
-                                    continue;
-                                }
-                                p.skip_ws();
-                                if p.try_consume(b']') {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => return Err("unknown field".into()),
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
+        if let Some(tools_vec) = fields[2].get_vec_raw() {
+            for t in tools_vec {
+                tools.push(Tool::from_json(&t)?);
             }
         }
 
@@ -447,10 +316,11 @@ impl Content {
             }
         }
 
-        let mut file = None;
-        if let Some(file_raw) = fields[3].get_raw() {
-            file = Some(PromptFile::from_json(&file_raw)?);
-        }
+        let file = fields[3]
+            .get_raw()
+            .as_deref()
+            .map(PromptFile::from_json)
+            .transpose()?;
 
         match kind.as_deref() {
             Some("text") => Ok(Content::Text(text.ok_or("missing text")?)),
@@ -565,10 +435,6 @@ impl ReasoningConfig {
         ];
         autoparser(json, &mut fields)?;
 
-        let enabled = fields[0]
-            .get_bool()
-            .ok_or("missing required field: enabled")?;
-
         let mut effort = None;
         if let Some(v) = fields[1].get_string() {
             let e = if v.eq_ignore_ascii_case("none") {
@@ -587,12 +453,12 @@ impl ReasoningConfig {
             effort = Some(e);
         }
 
-        let tokens = fields[2].get_int();
-
         Ok(ReasoningConfig {
-            enabled,
             effort,
-            tokens,
+            enabled: fields[0]
+                .get_bool()
+                .ok_or("missing required field: enabled")?,
+            tokens: fields[2].get_int(),
         })
     }
 }
@@ -1037,12 +903,9 @@ impl config::ApiKey {
             JsonField::new_string("value"),
         ];
         autoparser(json, &mut fields)?;
-        let name = &mut fields[0].get_string();
-        let value = &mut fields[1].get_string();
-
         Ok(config::ApiKey::new(
-            name.take().expect("Missing ApiKey name"),
-            value.take().expect("Missing ApiKey value"),
+            fields[0].get_string().expect("Missing ApiKey name"),
+            fields[1].get_string().expect("Missing ApiKey value"),
         ))
     }
 }
@@ -1056,13 +919,10 @@ impl ReadTool {
             JsonField::new_int("limit"),
         ];
         autoparser(json, &mut fields)?;
-        let path = &mut fields[0].get_string();
-        let offset = fields[1].get_int();
-        let limit = fields[2].get_int();
         Ok(ReadTool {
-            path: path.take().expect("Missing ReadTool path"),
-            offset,
-            limit,
+            path: fields[0].get_string().expect("Missing ReadTool path"),
+            offset: fields[1].get_int(),
+            limit: fields[2].get_int(),
         })
     }
 }
@@ -1117,6 +977,13 @@ impl JsonField {
         }
     }
 
+    fn new_vec_raw(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::VecRaw(None),
+        }
+    }
+
     fn parse(&mut self, p: &mut Parser) -> Result<(), Cow<'static, str>> {
         match &mut self.value {
             JsonValue::SimpleString(inner) => {
@@ -1144,6 +1011,29 @@ impl JsonField {
                 let v = p.value_slice()?;
                 // figure out lifetimes and keep as &str
                 inner.replace(v.to_string());
+            }
+            JsonValue::VecRaw(inner) => {
+                if !p.try_consume(b'[') {
+                    return Err("Expected array".into());
+                }
+                p.skip_ws();
+                let mut v = vec![];
+                // If the array isn't empty..
+                if !p.try_consume(b']') {
+                    loop {
+                        let j = p.value_slice()?;
+                        v.push(j.to_string());
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b']') {
+                            break;
+                        }
+                    }
+                }
+                inner.replace(v);
             }
         }
         Ok(())
@@ -1184,6 +1074,13 @@ impl JsonField {
         }
     }
 
+    fn get_vec_raw(&mut self) -> Option<Vec<String>> {
+        match &mut self.value {
+            JsonValue::VecRaw(v) => core::mem::take(v),
+            _ => None,
+        }
+    }
+
     fn is_empty(&self) -> bool {
         matches!(
             self.value,
@@ -1193,6 +1090,7 @@ impl JsonField {
                 | JsonValue::Float(None)
                 | JsonValue::Bool(None)
                 | JsonValue::Raw(None)
+                | JsonValue::VecRaw(None)
         )
     }
 }
@@ -1212,6 +1110,8 @@ enum JsonValue {
 
     /// Something the caller will parse themselves
     Raw(Option<String>),
+
+    VecRaw(Option<Vec<String>>),
 }
 
 impl JsonValue {}
@@ -1262,6 +1162,7 @@ fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'static, s
         }
     }
 
+    p.skip_ws();
     if !p.eof() {
         return Err("trailing characters after JSON object".into());
     }
