@@ -24,6 +24,13 @@ use crate::{
 
 impl ChatCompletionsResponse {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        /*
+        let mut fields = [
+            JsonField::new_string("provider"),
+            JsonField::new_string("model"),
+            JsonField::new
+        */
+
         let mut p = Parser::new(json);
         p.skip_ws();
         p.expect(b'{')?;
@@ -120,13 +127,13 @@ impl ChatCompletionsResponse {
 impl Choice {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut fields = [
-            ("delta", value_raw()),
-            ("finish_reason", value_simple_string()),
+            JsonField::new_raw("delta"),
+            JsonField::new_simple_string("finish_reason"),
         ];
         autoparser(json, &mut fields)?;
-        let delta_json = fields[0].1.get_raw().expect("Missing delta in message");
+        let delta_json = fields[0].get_raw().expect("Missing delta in message");
         let delta = Message::from_json(&delta_json)?;
-        let finish_reason = fields[1].1.get_string();
+        let finish_reason = fields[1].get_string();
 
         Ok(Choice {
             delta,
@@ -138,18 +145,15 @@ impl Choice {
 impl ToolCall {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut fields = [
-            ("index", value_int()),
-            ("id", value_simple_string()),
-            ("function", value_raw()),
+            JsonField::new_int("index"),
+            JsonField::new_simple_string("id"),
+            JsonField::new_raw("function"),
         ];
         autoparser(json, &mut fields)?;
 
-        let index = fields[0].1.get_int().unwrap_or_default();
-        let id = fields[1].1.get_string();
-        let function_json = fields[2]
-            .1
-            .get_raw()
-            .expect("Missing function in tool call");
+        let index = fields[0].get_int().unwrap_or_default();
+        let id = fields[1].get_string();
+        let function_json = fields[2].get_raw().expect("Missing function in tool call");
         let function = Function::from_json(&function_json)?;
         Ok(ToolCall {
             index,
@@ -162,12 +166,12 @@ impl ToolCall {
 impl Function {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut fields = [
-            ("name", value_simple_string()),
-            ("arguments", value_string()),
+            JsonField::new_simple_string("name"),
+            JsonField::new_string("arguments"),
         ];
         autoparser(json, &mut fields)?;
-        let name = fields[0].1.get_string().unwrap_or_default();
-        let arguments = fields[1].1.get_string().unwrap_or_default();
+        let name = fields[0].get_string().unwrap_or_default();
+        let arguments = fields[1].get_string().unwrap_or_default();
 
         Ok(Function { name, arguments })
     }
@@ -175,9 +179,9 @@ impl Function {
 
 impl Usage {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut fields = [("cost", value_float())];
+        let mut fields = [JsonField::new_float("cost")];
         autoparser(json, &mut fields)?;
-        let cost = fields[0].1.get_float().unwrap_or_default();
+        let cost = fields[0].get_float().unwrap_or_default();
 
         Ok(Usage { cost })
     }
@@ -419,64 +423,33 @@ impl Message {
 
 impl Content {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
+        let mut fields = [
+            JsonField::new_simple_string("type"),
+            JsonField::new_string("text"),
+            JsonField::new_raw("image_url"),
+            JsonField::new_raw("file"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut kind = None;
-        let mut text = None;
+        let kind = fields[0].get_string();
+        let text = fields[1].get_string();
+
         let mut base64_data = None;
         let mut mime_type = None;
         let mut image_url = None;
+        if let Some(image_url_str) = fields[2].get_raw() {
+            if image_url_str.starts_with("http") {
+                image_url = Some(image_url_str);
+            } else {
+                let (base64, mt) = parse_image_url(&image_url_str)?;
+                base64_data = Some(base64);
+                mime_type = Some(mt);
+            }
+        }
+
         let mut file = None;
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "Content parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "type" => {
-                    kind = Some(p.parse_simple_str()?.to_string());
-                }
-                "text" => {
-                    text = Some(p.parse_string()?);
-                }
-                "image_url" => {
-                    let j = p.value_slice()?;
-                    if j.starts_with("http") {
-                        image_url = Some(j);
-                    } else {
-                        let (base64, mt) = parse_image_url(j)?;
-                        base64_data = Some(base64);
-                        mime_type = Some(mt);
-                    }
-                }
-                "file" => {
-                    let j = p.value_slice()?;
-                    file = Some(PromptFile::from_json(j)?);
-                }
-                _ => {
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
+        if let Some(file_raw) = fields[3].get_raw() {
+            file = Some(PromptFile::from_json(&file_raw)?);
         }
 
         match kind.as_deref() {
@@ -500,50 +473,19 @@ impl Content {
 
 impl PromptFile {
     fn from_json(json: &str) -> Result<Self, String> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
+        let mut fields = [
+            JsonField::new_string("filename"),
+            JsonField::new_raw("file_data"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut filename = None;
-        let mut base64 = None;
+        let filename = fields[0].get_string();
 
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "PromptFile parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "filename" => filename = Some(p.parse_string()?),
-                "file_data" => {
-                    let data = p.parse_string()?;
-                    base64 = Some(
-                        data.strip_prefix("data:application/pdf;base64,")
-                            .unwrap_or(data.as_str())
-                            .to_string(),
-                    );
-                }
-                _ => {
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-        }
+        let base64 = fields[1].get_raw().map(|data| {
+            data.strip_prefix("data:application/pdf;base64,")
+                .unwrap_or(data.as_str())
+                .to_string()
+        });
 
         Ok(PromptFile::from_parts(
             PromptFileKind::File,
@@ -616,106 +558,36 @@ fn parse_image_url(json: &str) -> Result<(String, &'static str), String> {
 
 impl ReasoningConfig {
     pub fn from_json(json: &str) -> Result<ReasoningConfig, Cow<'static, str>> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
+        let mut fields = [
+            JsonField::new_bool("enabled"),
+            JsonField::new_string("effort"),
+            JsonField::new_int("tokens"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut enabled: Option<bool> = None;
-        let mut effort: Option<ReasoningEffort> = None;
-        let mut tokens: Option<u32> = None;
+        let enabled = fields[0]
+            .get_bool()
+            .ok_or("missing required field: enabled")?;
 
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            // Key
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ReasoningConfig parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            // Value by key
-            match key {
-                "enabled" => {
-                    if enabled.is_some() {
-                        return Err("duplicate field: enabled".into());
-                    }
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        enabled = None;
-                    } else {
-                        enabled = Some(p.parse_bool()?);
-                    }
-                }
-                "effort" => {
-                    if effort.is_some() {
-                        return Err("duplicate field: effort".into());
-                    }
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        effort = None;
-                    } else {
-                        let v = p
-                            .parse_simple_str()
-                            .map_err(|err| "Parsing effort: ".to_string() + err)?;
-                        let e = if v.eq_ignore_ascii_case("none") {
-                            ReasoningEffort::None
-                        } else if v.eq_ignore_ascii_case("low") {
-                            ReasoningEffort::Low
-                        } else if v.eq_ignore_ascii_case("medium") {
-                            ReasoningEffort::Medium
-                        } else if v.eq_ignore_ascii_case("high") {
-                            ReasoningEffort::High
-                        } else if v.eq_ignore_ascii_case("xhigh") {
-                            ReasoningEffort::XHigh
-                        } else {
-                            return Err("invalid effort".into());
-                        };
-                        effort = Some(e);
-                    }
-                }
-                "tokens" => {
-                    if tokens.is_some() {
-                        return Err("duplicate field: tokens".into());
-                    }
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        tokens = None;
-                    } else {
-                        tokens = Some(p.parse_u32()?);
-                    }
-                }
-                _ => return Err("unknown field".into()),
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            // If neither comma nor closing brace, it's malformed.
-            if !p.eof() {
-                return Err("expected ',' or '}'".into());
+        let mut effort = None;
+        if let Some(v) = fields[1].get_string() {
+            let e = if v.eq_ignore_ascii_case("none") {
+                ReasoningEffort::None
+            } else if v.eq_ignore_ascii_case("low") {
+                ReasoningEffort::Low
+            } else if v.eq_ignore_ascii_case("medium") {
+                ReasoningEffort::Medium
+            } else if v.eq_ignore_ascii_case("high") {
+                ReasoningEffort::High
+            } else if v.eq_ignore_ascii_case("xhigh") {
+                ReasoningEffort::XHigh
             } else {
-                return Err("unexpected end of input".into());
-            }
+                return Err("invalid effort".into());
+            };
+            effort = Some(e);
         }
 
-        p.skip_ws();
-        if !p.eof() {
-            return Err("trailing characters after JSON object".into());
-        }
-
-        let enabled = enabled.ok_or("missing required field: enabled")?;
+        let tokens = fields[2].get_int();
 
         Ok(ReasoningConfig {
             enabled,
@@ -1160,10 +1032,13 @@ impl config::Settings {
 
 impl config::ApiKey {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [("name", value_simple_string()), ("value", value_string())];
+        let mut fields = [
+            JsonField::new_simple_string("name"),
+            JsonField::new_string("value"),
+        ];
         autoparser(json, &mut fields)?;
-        let name = &mut fields[0].1.get_string();
-        let value = &mut fields[1].1.get_string();
+        let name = &mut fields[0].get_string();
+        let value = &mut fields[1].get_string();
 
         Ok(config::ApiKey::new(
             name.take().expect("Missing ApiKey name"),
@@ -1176,14 +1051,14 @@ impl ReadTool {
     // Example JSON: { "path": "README.md", offset: 100, limit: 500 }
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut fields = [
-            ("path", value_simple_string()),
-            ("offset", value_int()),
-            ("limit", value_int()),
+            JsonField::new_simple_string("path"),
+            JsonField::new_int("offset"),
+            JsonField::new_int("limit"),
         ];
         autoparser(json, &mut fields)?;
-        let path = &mut fields[0].1.get_string();
-        let offset = fields[1].1.get_int();
-        let limit = fields[2].1.get_int();
+        let path = &mut fields[0].get_string();
+        let offset = fields[1].get_int();
+        let limit = fields[2].get_int();
         Ok(ReadTool {
             path: path.take().expect("Missing ReadTool path"),
             offset,
@@ -1194,43 +1069,116 @@ impl ReadTool {
 
 // --------------------------------------------
 
-enum JsonValue {
-    /// A string with no escapes. Faster to parse.
-    SimpleString(Option<String>),
-    /// Any string
-    String(Option<String>),
-    /// An integer number
-    Int(Option<u32>),
-    /// A floating point number
-    Float(Option<f32>),
-    /// Something the caller will parse themselves
-    Raw(Option<String>),
+struct JsonField {
+    name: &'static str,
+    value: JsonValue,
 }
 
-impl JsonValue {
+impl JsonField {
+    fn new_simple_string(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::SimpleString(None),
+        }
+    }
+
+    fn new_string(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::String(None),
+        }
+    }
+
+    fn new_int(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::Int(None),
+        }
+    }
+
+    fn new_float(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::Float(None),
+        }
+    }
+
+    fn new_bool(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::Bool(None),
+        }
+    }
+
+    fn new_raw(name: &'static str) -> JsonField {
+        JsonField {
+            name,
+            value: JsonValue::Raw(None),
+        }
+    }
+
+    fn parse(&mut self, p: &mut Parser) -> Result<(), Cow<'static, str>> {
+        match &mut self.value {
+            JsonValue::SimpleString(inner) => {
+                let s = p
+                    .parse_simple_str()
+                    .map_err(|err| "Parsing field: ".to_string() + err)?;
+                inner.replace(s.to_string());
+            }
+            JsonValue::String(inner) => {
+                let s = p
+                    .parse_string()
+                    .map_err(|err| "Parsing field: ".to_string() + &err)?;
+                inner.replace(s);
+            }
+            JsonValue::Int(inner) => {
+                inner.replace(p.parse_u32()?);
+            }
+            JsonValue::Float(inner) => {
+                inner.replace(p.parse_f32()?);
+            }
+            JsonValue::Bool(inner) => {
+                inner.replace(p.parse_bool()?);
+            }
+            JsonValue::Raw(inner) => {
+                let v = p.value_slice()?;
+                // figure out lifetimes and keep as &str
+                inner.replace(v.to_string());
+            }
+        }
+        Ok(())
+    }
+
     fn get_string(&mut self) -> Option<String> {
-        match self {
+        match &mut self.value {
             JsonValue::String(s) | JsonValue::SimpleString(s) => s.take(),
             _ => None,
         }
     }
 
     fn get_int(&mut self) -> Option<u32> {
-        match self {
+        match &mut self.value {
             JsonValue::Int(i) => i.take(),
             _ => None,
         }
     }
 
     fn get_float(&mut self) -> Option<f32> {
-        match self {
+        match &mut self.value {
             JsonValue::Float(f) => f.take(),
             _ => None,
         }
     }
 
+    fn get_bool(&mut self) -> Option<bool> {
+        match &mut self.value {
+            JsonValue::Bool(b) => b.take(),
+            _ => None,
+        }
+    }
+
     fn get_raw(&mut self) -> Option<String> {
-        match self {
+        match &mut self.value {
             JsonValue::Raw(s) => s.take(),
             _ => None,
         }
@@ -1238,40 +1186,37 @@ impl JsonValue {
 
     fn is_empty(&self) -> bool {
         matches!(
-            self,
+            self.value,
             JsonValue::String(None)
                 | JsonValue::SimpleString(None)
                 | JsonValue::Int(None)
                 | JsonValue::Float(None)
+                | JsonValue::Bool(None)
                 | JsonValue::Raw(None)
         )
     }
 }
 
-fn value_simple_string() -> JsonValue {
-    JsonValue::SimpleString(None)
+enum JsonValue {
+    /// A string with no escapes. Faster to parse.
+    SimpleString(Option<String>),
+
+    /// Any string
+    String(Option<String>),
+
+    Int(Option<u32>),
+
+    Float(Option<f32>),
+
+    Bool(Option<bool>),
+
+    /// Something the caller will parse themselves
+    Raw(Option<String>),
 }
 
-fn value_string() -> JsonValue {
-    JsonValue::String(None)
-}
+impl JsonValue {}
 
-fn value_int() -> JsonValue {
-    JsonValue::Int(None)
-}
-
-fn value_float() -> JsonValue {
-    JsonValue::Float(None)
-}
-
-fn value_raw() -> JsonValue {
-    JsonValue::Raw(None)
-}
-
-fn autoparser(
-    json: &str,
-    fields: &mut [(&'static str, JsonValue)],
-) -> Result<(), Cow<'static, str>> {
+fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'static, str>> {
     let mut p = Parser::new(json);
     p.skip_ws();
     p.expect(b'{')?;
@@ -1290,39 +1235,15 @@ fn autoparser(
         p.skip_ws();
 
         let mut is_parsed = false;
-        for (name, value) in fields.iter_mut() {
-            if *name == key {
-                if !value.is_empty() {
-                    return Err(("duplicate field: ".to_string() + name).into());
+        for field in fields.iter_mut() {
+            if field.name == key {
+                if !field.is_empty() {
+                    return Err(("duplicate field: ".to_string() + field.name).into());
                 }
                 if p.peek_is_null() {
                     p.skip_null()?;
                 } else {
-                    match value {
-                        JsonValue::SimpleString(inner) => {
-                            let s = p
-                                .parse_simple_str()
-                                .map_err(|err| "Parsing field: ".to_string() + err)?;
-                            inner.replace(s.to_string());
-                        }
-                        JsonValue::String(inner) => {
-                            let s = p
-                                .parse_string()
-                                .map_err(|err| "Parsing field: ".to_string() + &err)?;
-                            inner.replace(s);
-                        }
-                        JsonValue::Int(inner) => {
-                            inner.replace(p.parse_u32()?);
-                        }
-                        JsonValue::Float(inner) => {
-                            inner.replace(p.parse_f32()?);
-                        }
-                        JsonValue::Raw(inner) => {
-                            let v = p.value_slice()?;
-                            // figure out lifetimes and keep as &str
-                            inner.replace(v.to_string());
-                        }
-                    }
+                    field.parse(&mut p)?;
                 }
                 is_parsed = true;
                 break;
@@ -1339,6 +1260,10 @@ fn autoparser(
         if p.try_consume(b'}') {
             break;
         }
+    }
+
+    if !p.eof() {
+        return Err("trailing characters after JSON object".into());
     }
 
     /*
