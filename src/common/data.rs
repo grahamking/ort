@@ -546,7 +546,7 @@ impl Message {
         let mut fields = [
             JsonField::new_simple_string("role"),
             JsonField::new_raw("content"),
-            JsonField::new_simple_string("reasoning"),
+            JsonField::new_string("reasoning"),
             JsonField::new_vec_raw("tool_calls"),
         ];
         autoparser(json, &mut fields)?;
