@@ -364,132 +364,43 @@ impl ReasoningConfig {
 }
 
 impl PromptOpts {
-    pub fn from_json(input: &str) -> Result<Self, Cow<'static, str>> {
-        let mut p = Parser::new(input);
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut fields = [
+            JsonField::new_string("prompt"),
+            JsonField::new_simple_string("model"),
+            JsonField::new_simple_string("provider"),
+            JsonField::new_string("system"),
+            JsonField::new_simple_string("priority"),
+            JsonField::new_raw("reasoning"),
+            JsonField::new_bool("show_reasoning"),
+            JsonField::new_bool("quiet"),
+            JsonField::new_bool("merge_config"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        p.skip_ws();
-        p.expect(b'{')?;
-
-        let mut prompt: Option<String> = None;
-        let mut model: Option<String> = None;
-        let mut provider: Option<String> = None;
-        let mut system: Option<String> = None;
-        let mut priority: Option<Priority> = None;
-        let mut reasoning: Option<ReasoningConfig> = None;
-        let mut show_reasoning: Option<bool> = None;
-        let mut quiet: Option<bool> = None;
-        let mut merge_config = true;
-
-        p.skip_ws();
-        if p.try_consume(b'}') {
-            return Ok(PromptOpts {
-                prompt,
-                models: vec![],
-                provider,
-                system,
-                priority,
-                reasoning,
-                show_reasoning,
-                quiet,
-                merge_config,
-                prompt_filename: None,
-                // TODO: store files in last json, so resume works with files
-                files: vec![],
-            });
-        }
-
-        loop {
-            p.skip_ws();
-            let key = p.parse_simple_str()?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "prompt" => {
-                    prompt = p.parse_opt_string()?;
-                }
-                "model" => {
-                    model = p.parse_opt_string()?;
-                }
-                "provider" => {
-                    provider = p.parse_opt_string()?;
-                }
-                "system" => {
-                    system = p.parse_opt_string()?;
-                }
-                "priority" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        priority = None;
-                    } else {
-                        let s = p.parse_simple_str()?;
-                        priority = Some(Priority::from_str(s).map_err(|_| "invalid priority")?);
-                    }
-                }
-                "reasoning" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        reasoning = None;
-                    } else {
-                        // Grab the exact object slice and delegate to ReasoningConfig::from_json
-                        let slice = p.value_slice()?; // must be an object
-                        let cfg = ReasoningConfig::from_json(slice).map_err(|e| {
-                            "parser::PromptOpts::from_json invalid reasoning: ".to_string() + &e
-                        })?;
-                        reasoning = Some(cfg);
-                    }
-                }
-                "show_reasoning" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        show_reasoning = None;
-                    } else {
-                        show_reasoning = Some(p.parse_bool()?);
-                    }
-                }
-                "quiet" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        quiet = None;
-                    } else {
-                        quiet = Some(p.parse_bool()?);
-                    }
-                }
-                "merge_config" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        merge_config = true;
-                    } else {
-                        merge_config = p.parse_bool()?;
-                    }
-                }
-                _ => {
-                    // Unknown field: skip its value
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            } else {
-                p.expect(b'}')?;
-                break;
-            }
-        }
+        let priority = fields[4]
+            .get_string()
+            .as_deref()
+            .map(Priority::from_str)
+            .transpose()?;
+        let reasoning = fields[5]
+            .get_raw()
+            .as_deref()
+            .map(ReasoningConfig::from_json)
+            .transpose()?;
 
         Ok(PromptOpts {
-            prompt,
-            models: model.map(|m| vec![m]).unwrap_or_default(),
-            provider,
-            system,
+            prompt: fields[0].get_string(),
+            models: fields[1].get_string().map(|m| vec![m]).unwrap_or_default(),
+            provider: fields[2].get_string(),
+            system: fields[3].get_string(),
             priority,
             reasoning,
-            show_reasoning,
-            quiet,
-            merge_config,
+            show_reasoning: fields[6].get_bool(),
+            quiet: fields[7].get_bool(),
+            merge_config: fields[8].get_bool().unwrap_or(true),
             prompt_filename: None,
+            // TODO: store files in last json, so resume works with files
             files: vec![],
         })
     }
@@ -500,7 +411,7 @@ impl Tool {
         let mut p = Parser::new(json);
         p.skip_ws();
 
-        // Skip:
+        // Skip the preamble:
         // {"type": "function", "function": {
         p.expect(b'{')?;
         p.skip_ws();
@@ -637,74 +548,31 @@ impl Tool {
 
 impl config::ConfigFile {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
+        let mut fields = [
+            JsonField::new_raw("settings"),
+            JsonField::new_vec_raw("keys"),
+            JsonField::new_raw("prompt_opts"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut settings: Option<config::Settings> = None;
-        let mut keys: Vec<config::ApiKey> = vec![];
-        let mut prompt_opts: Option<PromptOpts> = None;
+        let settings = fields[0]
+            .get_raw()
+            .as_deref()
+            .map(config::Settings::from_json)
+            .transpose()?;
 
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
-            }
-
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "ConfigFile parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "settings" => {
-                    if settings.is_some() {
-                        return Err("duplicate field: settings".into());
-                    }
-                    let settings_json = p.value_slice()?;
-                    settings = Some(config::Settings::from_json(settings_json)?);
-                }
-                "keys" => {
-                    if !keys.is_empty() {
-                        return Err("duplicate field: keys".into());
-                    }
-                    if !p.try_consume(b'[') {
-                        return Err("keys: Expected array".into());
-                    }
-                    loop {
-                        let j = p.value_slice()?;
-                        let api_key = config::ApiKey::from_json(j)?;
-                        keys.push(api_key);
-                        p.skip_ws();
-                        if p.try_consume(b',') {
-                            continue;
-                        }
-                        p.skip_ws();
-                        if p.try_consume(b']') {
-                            break;
-                        }
-                    }
-                }
-                "prompt_opts" => {
-                    if prompt_opts.is_some() {
-                        return Err("duplicate field: prompt_opts".into());
-                    }
-                    let opts_json = p.value_slice()?;
-                    prompt_opts = Some(PromptOpts::from_json(opts_json)?);
-                }
-                _ => return Err("unknown field".into()),
-            }
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
+        let mut keys = vec![];
+        if let Some(keys_str) = fields[1].get_vec_raw() {
+            for k in keys_str {
+                keys.push(config::ApiKey::from_json(&k)?);
             }
         }
+
+        let prompt_opts = fields[2]
+            .get_raw()
+            .as_deref()
+            .map(PromptOpts::from_json)
+            .transpose()?;
 
         Ok(config::ConfigFile {
             settings,
@@ -1510,16 +1378,6 @@ impl<'a> Parser<'a> {
             Err("unpaired low surrogate")
         } else {
             Ok((cp, i2))
-        }
-    }
-
-    fn parse_opt_string(&mut self) -> Result<Option<String>, Cow<'static, str>> {
-        if self.peek_is_null() {
-            self.skip_null()?;
-            Ok(None)
-        } else {
-            let s = self.parse_string()?;
-            Ok(Some(s))
         }
     }
 

@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 
 use crate::common::base64;
 use crate::utils::filename_read_to_bytes;
-use crate::{ErrorKind, OrtError, OrtResult, ort_error};
+use crate::{ErrorKind, OrtResult, ort_error};
 
 const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
@@ -219,17 +219,14 @@ impl Priority {
 }
 
 impl FromStr for Priority {
-    type Err = OrtError;
+    type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "price" => Ok(Priority::Price),
             "latency" => Ok(Priority::Latency),
             "throughput" => Ok(Priority::Throughput),
-            _ => Err(ort_error(
-                ErrorKind::FormatError,
-                "Priority: Invalid string value",
-            )), // Handle unknown strings
+            _ => Err("Priority: Invalid string value"),
         }
     }
 }
