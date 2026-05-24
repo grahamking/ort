@@ -164,119 +164,53 @@ impl LastData {
 
 impl Message {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut p = Parser::new(json);
-        p.skip_ws();
-        p.expect(b'{')?;
+        let mut fields = [
+            JsonField::new_simple_string("role"),
+            JsonField::new_raw("content"),
+            JsonField::new_simple_string("reasoning"),
+            JsonField::new_vec_raw("tool_calls"),
+        ];
+        autoparser(json, &mut fields)?;
 
-        let mut role = None;
-        let mut content = vec![];
-        let mut content_seen = false;
-        let mut reasoning = None;
+        let role = fields[0]
+            .get_raw()
+            .as_deref()
+            .map(Role::from_str)
+            .transpose()?;
+        let reasoning = fields[2].get_string();
+
         let mut tool_calls = vec![];
-
-        loop {
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
+        if let Some(tool_calls_str_vec) = fields[3].get_vec_raw() {
+            for t in tool_calls_str_vec {
+                tool_calls.push(ToolCall::from_json(&t)?);
             }
+        }
 
-            let key = p
-                .parse_simple_str()
-                .map_err(|err| "Message parsing key: ".to_string() + err)?;
-            p.skip_ws();
-            p.expect(b':')?;
-            p.skip_ws();
-
-            match key {
-                "role" => {
-                    if role.is_some() {
-                        return Err("duplicate field: role".into());
-                    }
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        role = None;
-                    } else {
-                        let r = p.parse_simple_str()?;
-                        role = Some(Role::from_str(r)?);
-                    }
-                }
-                "content" => {
-                    if content_seen {
-                        return Err("duplicate field: content".into());
-                    }
-                    content_seen = true;
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                    } else if p.peek() == Some(b'[') {
-                        p.expect(b'[')?;
+        // Content can be a string or an array, so do extra parsing
+        let mut content = vec![];
+        if let Some(content_str) = fields[1].get_raw() {
+            let mut p = Parser::new(&content_str);
+            if p.peek_is_null() {
+                p.skip_null()?;
+            } else if p.peek() == Some(b'[') {
+                p.expect(b'[')?;
+                p.skip_ws();
+                if !p.try_consume(b']') {
+                    loop {
+                        let j = p.value_slice()?;
+                        content.push(Content::from_json(j)?);
                         p.skip_ws();
-                        if !p.try_consume(b']') {
-                            loop {
-                                let j = p.value_slice()?;
-                                content.push(Content::from_json(j)?);
-                                p.skip_ws();
-                                if p.try_consume(b',') {
-                                    continue;
-                                }
-                                p.skip_ws();
-                                if p.try_consume(b']') {
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        content.push(Content::Text(p.parse_string()?));
-                    }
-                }
-                "reasoning" => {
-                    if reasoning.is_some() {
-                        return Err("duplicate field: reasoning".into());
-                    }
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                        reasoning = None
-                    } else {
-                        reasoning = Some(p.parse_string()?);
-                    }
-                }
-                "tool_calls" => {
-                    if p.peek_is_null() {
-                        p.skip_null()?;
-                    } else {
-                        if !p.try_consume(b'[') {
-                            return Err("tool_calls: Expected array".into());
+                        if p.try_consume(b',') {
+                            continue;
                         }
                         p.skip_ws();
-                        // If the array isn't empty..
-                        if !p.try_consume(b']') {
-                            loop {
-                                let j = p.value_slice()?;
-                                let tool = ToolCall::from_json(j)?;
-                                tool_calls.push(tool);
-                                p.skip_ws();
-                                if p.try_consume(b',') {
-                                    continue;
-                                }
-                                p.skip_ws();
-                                if p.try_consume(b']') {
-                                    break;
-                                }
-                            }
+                        if p.try_consume(b']') {
+                            break;
                         }
                     }
                 }
-                _ => {
-                    p.skip_value()?;
-                }
-            }
-
-            p.skip_ws();
-            if p.try_consume(b',') {
-                continue;
-            }
-            p.skip_ws();
-            if p.try_consume(b'}') {
-                break;
+            } else {
+                content.push(Content::Text(p.parse_string()?));
             }
         }
 
@@ -367,63 +301,29 @@ impl PromptFile {
 
 /// Returns (base64_data, mime_type)
 fn parse_image_url(json: &str) -> Result<(String, &'static str), String> {
-    let mut p = Parser::new(json);
-    p.skip_ws();
-    p.expect(b'{')?;
+    let mut fields = [JsonField::new_string("url")];
+    autoparser(json, &mut fields)?;
 
-    let mut base64 = None;
-    let mut mime_type = None;
-
-    loop {
-        p.skip_ws();
-        if p.try_consume(b'}') {
-            break;
-        }
-
-        let key = p
-            .parse_simple_str()
-            .map_err(|err| "Image parsing key: ".to_string() + err)?;
-        p.skip_ws();
-        p.expect(b':')?;
-        p.skip_ws();
-
-        match key {
-            "url" => {
-                let data = p.parse_string()?;
-                if data.starts_with("data:image/jpeg") {
-                    mime_type = Some("image/jpeg");
-                    base64 = Some(
-                        data.strip_prefix("data:image/jpeg;base64,")
-                            .unwrap()
-                            .to_string(),
-                    );
-                } else if data.starts_with("data:image/png") {
-                    mime_type = Some("image/png");
-                    base64 = Some(
-                        data.strip_prefix("data:image/png;base64,")
-                            .unwrap()
-                            .to_string(),
-                    );
-                } else {
-                    return Err("Invalid mime type in saved image_url".to_string());
-                };
-            }
-            _ => {
-                p.skip_value()?;
-            }
-        }
-
-        p.skip_ws();
-        if p.try_consume(b',') {
-            continue;
-        }
-        p.skip_ws();
-        if p.try_consume(b'}') {
-            break;
-        }
+    let url_str = fields[0].get_string().expect("Missing image URL");
+    if url_str.starts_with("data:image/jpeg") {
+        Ok((
+            url_str
+                .strip_prefix("data:image/jpeg;base64,")
+                .unwrap()
+                .to_string(),
+            "image/jpeg",
+        ))
+    } else if url_str.starts_with("data:image/png") {
+        Ok((
+            url_str
+                .strip_prefix("data:image/png;base64,")
+                .unwrap()
+                .to_string(),
+            "image/png",
+        ))
+    } else {
+        Err("Invalid mime type in saved image_url".to_string())
     }
-
-    Ok((base64.expect("Missing image URL"), mime_type.unwrap()))
 }
 
 impl ReasoningConfig {
