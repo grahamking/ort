@@ -9,11 +9,13 @@
 use core::str::FromStr;
 
 extern crate alloc;
+use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::base64;
+use crate::common::json_parser::{JsonField, Parser, autoparser};
 use crate::utils::filename_read_to_bytes;
 use crate::{ErrorKind, OrtResult, ort_error};
 
@@ -59,6 +61,38 @@ pub struct ChatCompletionsResponse {
     pub usage: Option<Usage>,
 }
 
+impl ChatCompletionsResponse {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut fields = [
+            JsonField::new_simple_string("provider"),
+            JsonField::new_simple_string("model"),
+            JsonField::new_vec_raw("choices"),
+            JsonField::new_raw("usage"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let mut choices = vec![];
+        if let Some(v) = fields[2].get_vec_raw() {
+            for c in v {
+                choices.push(Choice::from_json(&c)?);
+            }
+        }
+
+        let usage = fields[3]
+            .get_raw()
+            .as_deref()
+            .map(Usage::from_json)
+            .transpose()?;
+
+        Ok(ChatCompletionsResponse {
+            provider: fields[0].get_string(),
+            model: fields[1].get_string(),
+            choices,
+            usage,
+        })
+    }
+}
+
 pub struct Choice {
     pub delta: Message,
     pub finish_reason: Option<String>,
@@ -67,6 +101,20 @@ pub struct Choice {
 impl Choice {
     pub fn is_tool_call_finish(&self) -> bool {
         matches!(self.finish_reason.as_deref(), Some("tool_calls"))
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut fields = [
+            JsonField::new_raw("delta"),
+            JsonField::new_simple_string("finish_reason"),
+        ];
+        autoparser(json, &mut fields)?;
+        let delta_json = fields[0].get_raw().expect("Missing delta in message");
+
+        Ok(Choice {
+            delta: Message::from_json(&delta_json)?,
+            finish_reason: fields[1].get_string(),
+        })
     }
 }
 
@@ -91,6 +139,22 @@ impl ToolCall {
                 .push_str(&partial.function.arguments);
         }
     }
+
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut fields = [
+            JsonField::new_int("index"),
+            JsonField::new_simple_string("id"),
+            JsonField::new_raw("function"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let function_json = fields[2].get_raw().expect("Missing function in tool call");
+        Ok(ToolCall {
+            index: fields[0].get_int().unwrap_or_default(),
+            id: fields[1].get_string(),
+            function: Function::from_json(&function_json)?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -99,14 +163,81 @@ pub struct Function {
     pub arguments: String, // JSON
 }
 
+impl Function {
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut fields = [
+            JsonField::new_simple_string("name"),
+            JsonField::new_string("arguments"),
+        ];
+        autoparser(json, &mut fields)?;
+        Ok(Function {
+            name: fields[0].get_string().unwrap_or_default(),
+            arguments: fields[1].get_string().unwrap_or_default(),
+        })
+    }
+}
+
 pub struct Usage {
     pub cost: f32, // In dollars, usually a very small fraction
+}
+
+impl Usage {
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut fields = [JsonField::new_float("cost")];
+        autoparser(json, &mut fields)?;
+        Ok(Usage {
+            cost: fields[0].get_float().unwrap_or_default(),
+        })
+    }
 }
 
 pub struct LastData {
     pub opts: PromptOpts,
     pub messages: Vec<Message>,
     pub tools: Vec<Tool>,
+}
+
+impl LastData {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        if json.is_empty() {
+            return Err(
+                "Cannot continue, last-<$TMUX_PANE>.json file is empty. Usually that mains previous run failed.".into(),
+            );
+        }
+
+        let mut fields = [
+            JsonField::new_raw("opts"),
+            JsonField::new_vec_raw("messages"),
+            JsonField::new_vec_raw("tools"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let opts = fields[0]
+            .get_raw()
+            .as_deref()
+            .map(PromptOpts::from_json)
+            .transpose()?;
+
+        let mut messages = vec![];
+        if let Some(msg_vec) = fields[1].get_vec_raw() {
+            for m in msg_vec {
+                messages.push(Message::from_json(&m)?);
+            }
+        }
+
+        let mut tools = vec![];
+        if let Some(tools_vec) = fields[2].get_vec_raw() {
+            for t in tools_vec {
+                tools.push(Tool::from_json(&t)?);
+            }
+        }
+
+        Ok(LastData {
+            opts: opts.expect("Missing prompt opts"),
+            messages,
+            tools,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -198,6 +329,47 @@ impl PromptOpts {
         messages.push(user_message);
         Ok(messages)
     }
+
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut fields = [
+            JsonField::new_string("prompt"),
+            JsonField::new_simple_string("model"),
+            JsonField::new_simple_string("provider"),
+            JsonField::new_string("system"),
+            JsonField::new_simple_string("priority"),
+            JsonField::new_raw("reasoning"),
+            JsonField::new_bool("show_reasoning"),
+            JsonField::new_bool("quiet"),
+            JsonField::new_bool("merge_config"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let priority = fields[4]
+            .get_string()
+            .as_deref()
+            .map(Priority::from_str)
+            .transpose()?;
+        let reasoning = fields[5]
+            .get_raw()
+            .as_deref()
+            .map(ReasoningConfig::from_json)
+            .transpose()?;
+
+        Ok(PromptOpts {
+            prompt: fields[0].get_string(),
+            models: fields[1].get_string().map(|m| vec![m]).unwrap_or_default(),
+            provider: fields[2].get_string(),
+            system: fields[3].get_string(),
+            priority,
+            reasoning,
+            show_reasoning: fields[6].get_bool(),
+            quiet: fields[7].get_bool(),
+            merge_config: fields[8].get_bool().unwrap_or(true),
+            prompt_filename: None,
+            // TODO: store files in last json, so resume works with files
+            files: vec![],
+        })
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -244,6 +416,41 @@ impl ReasoningConfig {
             enabled: false,
             ..Default::default()
         }
+    }
+
+    pub fn from_json(json: &str) -> Result<ReasoningConfig, Cow<'static, str>> {
+        let mut fields = [
+            JsonField::new_bool("enabled"),
+            JsonField::new_string("effort"),
+            JsonField::new_int("tokens"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let mut effort = None;
+        if let Some(v) = fields[1].get_string() {
+            let e = if v.eq_ignore_ascii_case("none") {
+                ReasoningEffort::None
+            } else if v.eq_ignore_ascii_case("low") {
+                ReasoningEffort::Low
+            } else if v.eq_ignore_ascii_case("medium") {
+                ReasoningEffort::Medium
+            } else if v.eq_ignore_ascii_case("high") {
+                ReasoningEffort::High
+            } else if v.eq_ignore_ascii_case("xhigh") {
+                ReasoningEffort::XHigh
+            } else {
+                return Err("invalid effort".into());
+            };
+            effort = Some(e);
+        }
+
+        Ok(ReasoningConfig {
+            effort,
+            enabled: fields[0]
+                .get_bool()
+                .ok_or("missing required field: enabled")?,
+            tokens: fields[2].get_int(),
+        })
     }
 }
 
@@ -334,6 +541,66 @@ impl Message {
         let reasoning_len = self.reasoning.as_ref().map(|c| c.len()).unwrap_or(0);
         (content_len.max(reasoning_len) + 10) as u32
     }
+
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut fields = [
+            JsonField::new_simple_string("role"),
+            JsonField::new_raw("content"),
+            JsonField::new_simple_string("reasoning"),
+            JsonField::new_vec_raw("tool_calls"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let role = fields[0]
+            .get_raw()
+            .as_deref()
+            .map(Role::from_str)
+            .transpose()?;
+        let reasoning = fields[2].get_string();
+
+        let mut tool_calls = vec![];
+        if let Some(tool_calls_str_vec) = fields[3].get_vec_raw() {
+            for t in tool_calls_str_vec {
+                tool_calls.push(ToolCall::from_json(&t)?);
+            }
+        }
+
+        // Content can be a string or an array, so do extra parsing
+        let mut content = vec![];
+        if let Some(content_str) = fields[1].get_raw() {
+            let mut p = Parser::new(&content_str);
+            if p.peek_is_null() {
+                p.skip_null()?;
+            } else if p.peek() == Some(b'[') {
+                p.expect(b'[')?;
+                p.skip_ws();
+                if !p.try_consume(b']') {
+                    loop {
+                        let j = p.value_slice()?;
+                        content.push(Content::from_json(j)?);
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b']') {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                content.push(Content::Text(p.parse_string()?));
+            }
+        }
+
+        Ok(Message::with_content(
+            // NVIDIA doesn't always send it. sus.
+            role.unwrap_or(Role::Assistant),
+            content,
+            reasoning,
+            tool_calls,
+        ))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -374,6 +641,82 @@ impl Content {
             ImageUrl(s) => s.as_ref(),
             File(f) => f.base64.as_ref(),
         }
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut fields = [
+            JsonField::new_simple_string("type"),
+            JsonField::new_string("text"),
+            JsonField::new_raw("image_url"),
+            JsonField::new_raw("file"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let kind = fields[0].get_string();
+        let text = fields[1].get_string();
+
+        let mut base64_data = None;
+        let mut mime_type = None;
+        let mut image_url = None;
+        if let Some(image_url_str) = fields[2].get_raw() {
+            if image_url_str.starts_with("http") {
+                image_url = Some(image_url_str);
+            } else {
+                let (base64, mt) = parse_image_url(&image_url_str)?;
+                base64_data = Some(base64);
+                mime_type = Some(mt);
+            }
+        }
+
+        let file = fields[3]
+            .get_raw()
+            .as_deref()
+            .map(PromptFile::from_json)
+            .transpose()?;
+
+        match kind.as_deref() {
+            Some("text") => Ok(Content::Text(text.ok_or("missing text")?)),
+            Some("image_url") => {
+                if let Some(image_url) = image_url {
+                    Ok(Content::ImageUrl(image_url.to_string()))
+                } else {
+                    Ok(Content::Image {
+                        base64: base64_data.ok_or("missing image_url")?,
+                        mime_type: mime_type.unwrap(),
+                    })
+                }
+            }
+            Some("file") => Ok(Content::File(file.ok_or("missing file")?)),
+            Some(other) => Err("unsupported content type: ".to_string() + other),
+            None => Err("missing content type".to_string()),
+        }
+    }
+}
+
+/// Returns (base64_data, mime_type)
+fn parse_image_url(json: &str) -> Result<(String, &'static str), String> {
+    let mut fields = [JsonField::new_string("url")];
+    autoparser(json, &mut fields)?;
+
+    let url_str = fields[0].get_string().expect("Missing image URL");
+    if url_str.starts_with("data:image/jpeg") {
+        Ok((
+            url_str
+                .strip_prefix("data:image/jpeg;base64,")
+                .unwrap()
+                .to_string(),
+            "image/jpeg",
+        ))
+    } else if url_str.starts_with("data:image/png") {
+        Ok((
+            url_str
+                .strip_prefix("data:image/png;base64,")
+                .unwrap()
+                .to_string(),
+            "image/png",
+        ))
+    } else {
+        Err("Invalid mime type in saved image_url".to_string())
     }
 }
 
@@ -495,6 +838,28 @@ impl PromptFile {
         }
         "application/octet-stream"
     }
+
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut fields = [
+            JsonField::new_string("filename"),
+            JsonField::new_raw("file_data"),
+        ];
+        autoparser(json, &mut fields)?;
+
+        let filename = fields[0].get_string();
+
+        let base64 = fields[1].get_raw().map(|data| {
+            data.strip_prefix("data:application/pdf;base64,")
+                .unwrap_or(data.as_str())
+                .to_string()
+        });
+
+        Ok(PromptFile::from_parts(
+            PromptFileKind::File,
+            filename.ok_or("missing filename")?,
+            base64.ok_or("missing file_data")?,
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -505,9 +870,304 @@ pub struct Tool {
     pub required_parameters: Vec<String>,
 }
 
+// This one doesn't use autoparser because we need to skip a lot of the function object.
+// Later we likely will use all of it an use autoparser.
+impl Tool {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut p = Parser::new(json);
+        p.skip_ws();
+
+        // Skip the preamble:
+        // {"type": "function", "function": {
+        p.expect(b'{')?;
+        p.skip_ws();
+        p.skip_value()?; // skip "type"
+        p.expect(b':')?;
+        p.skip_ws();
+        p.skip_value()?; // skip "function" from type:function
+        p.expect(b',')?;
+        p.skip_ws();
+        p.skip_value()?; // skip "function" as key
+        p.expect(b':')?;
+        p.skip_ws();
+        p.expect(b'{')?;
+
+        let mut name = String::new();
+        let mut description = String::new();
+        let mut parameters = vec![];
+        let mut required_parameters = vec![];
+
+        loop {
+            p.skip_ws();
+            if p.try_consume(b'}') {
+                break;
+            }
+
+            let key = p
+                .parse_simple_str()
+                .map_err(|err| "Message parsing key: ".to_string() + err)?;
+            p.skip_ws();
+            p.expect(b':')?;
+            p.skip_ws();
+
+            match key {
+                "name" => {
+                    name = p.parse_simple_str()?.to_string();
+                }
+                "description" => {
+                    description = p.parse_string()?;
+                }
+                "parameters" => {
+                    // Skip
+                    // {"type": "object", "properties": {
+                    p.expect(b'{')?;
+                    p.skip_value()?; // skip "type"
+                    p.expect(b':')?;
+                    p.skip_ws();
+                    p.skip_value()?; // skip "object"
+                    p.expect(b',')?;
+                    p.skip_ws();
+                    p.skip_value()?; // skip "properties"
+                    p.expect(b':')?;
+                    p.skip_ws();
+                    p.expect(b'{')?;
+
+                    let param_name = p.parse_simple_str()?.to_string();
+                    p.skip_ws();
+                    p.expect(b':')?;
+                    p.skip_ws();
+                    p.expect(b'{')?;
+                    p.skip_ws();
+
+                    let mut param_type = None;
+                    let mut description = None;
+                    loop {
+                        let param_key = p.parse_simple_str()?;
+                        p.skip_ws();
+                        p.expect(b':')?;
+                        p.skip_ws();
+
+                        match param_key {
+                            "type" => {
+                                param_type = Some(p.parse_simple_str()?.to_string());
+                            }
+                            "description" => {
+                                description = Some(p.parse_simple_str()?.to_string());
+                            }
+                            _ => {}
+                        }
+                        p.skip_ws();
+                        if p.try_consume(b',') {
+                            continue;
+                        } else {
+                            p.expect(b'}')?;
+                            break;
+                        }
+                    }
+
+                    // TODO: description can be optional. and no unwrap
+                    parameters.push(ToolParameter {
+                        name: param_name,
+                        param_type: param_type.unwrap(),
+                        description: description.unwrap(),
+                    });
+                }
+                "required" => {
+                    p.expect(b'[')?;
+                    p.skip_ws();
+                    if !p.try_consume(b']') {
+                        loop {
+                            let param_name = p.parse_simple_str()?;
+                            required_parameters.push(param_name.to_string());
+                            p.skip_ws();
+                            if p.try_consume(b',') {
+                                continue;
+                            }
+                            p.skip_ws();
+                            if p.try_consume(b']') {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    p.skip_value()?;
+                }
+            }
+            p.skip_ws();
+            if p.try_consume(b',') {
+                continue;
+            } else {
+                p.expect(b'}')?;
+                break;
+            }
+        }
+
+        Ok(Tool {
+            name,
+            description,
+            parameters,
+            required_parameters,
+        })
+    }
+}
+
 #[derive(Clone)]
 pub struct ToolParameter {
     pub name: String,
     pub param_type: String,
     pub description: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::LastData;
+
+    #[test]
+    fn rp1() {
+        let cfg = ReasoningConfig::from_json(r#"{"enabled": false}"#).unwrap();
+        assert!(!cfg.enabled);
+        assert!(cfg.effort.is_none());
+        assert!(cfg.tokens.is_none());
+    }
+
+    #[test]
+    fn rp2() {
+        let cfg = ReasoningConfig::from_json(r#"{"enabled": true, "effort": "medium"}"#).unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.effort, Some(ReasoningEffort::Medium));
+        assert!(cfg.tokens.is_none());
+    }
+
+    #[test]
+    fn rp3() {
+        let cfg = ReasoningConfig::from_json(r#"{"enabled": true, "tokens": 2048}"#).unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.tokens, Some(2048));
+        assert!(cfg.effort.is_none());
+    }
+
+    #[test]
+    fn rp4() {
+        let cfg = ReasoningConfig::from_json(r#"{"enabled":true,"effort":"high","tokens":null}"#)
+            .unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.effort, Some(ReasoningEffort::High));
+        assert!(cfg.tokens.is_none());
+    }
+
+    #[test]
+    fn cpo1() {
+        let s = r#"
+ {
+     "prompt": "\n\nExample JSON 1: {\"enabled\": false}\n",
+     "model": "google/gemma-3n-e4b-it:free",
+     "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
+     "show_reasoning": false,
+     "reasoning": { "enabled": false },
+     "merge_config": true
+ }
+ "#;
+        let opts = PromptOpts::from_json(s).unwrap();
+        assert!(!opts.show_reasoning.unwrap());
+        assert_eq!(opts.models, vec!["google/gemma-3n-e4b-it:free"]);
+        assert!(!opts.reasoning.unwrap().enabled);
+        assert!(opts.merge_config);
+    }
+
+    #[test]
+    fn cpo2() {
+        let s = r#"
+    {"model":"openai/gpt-5","provider":"openai","system":"Make your answer concise but complete. No yapping. Direct professional tone. No emoji.","priority":null,"reasoning":{"enabled":true,"effort":"high","tokens":null},"show_reasoning":false,"quiet":true}
+    "#;
+        let opts = PromptOpts::from_json(s).unwrap();
+        assert!(!opts.show_reasoning.unwrap());
+        assert_eq!(opts.models, vec!["openai/gpt-5"]);
+        assert!(opts.reasoning.as_ref().unwrap().enabled);
+        assert_eq!(
+            opts.reasoning.as_ref().unwrap().effort,
+            Some(ReasoningEffort::High)
+        );
+    }
+
+    #[test]
+    fn last_data() {
+        let s = r#"
+{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"Make your answer concise but complete. No yapping. Direct professional tone. No emoji.","priority":null,"reasoning":{"enabled":false,"effort":null,"tokens":null},"show_reasoning":false},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there! 😊How can I help you today? I'm ready for anything – questions, stories, ideas, or just a friendly chat!Let me know what's on your mind. ✨"}]}
+"#;
+        let l = LastData::from_json(s).unwrap();
+        assert_eq!(l.opts.provider.as_deref(), Some("google-ai-studio"));
+        assert_eq!(l.messages.len(), 2);
+    }
+
+    #[test]
+    fn test_usage() {
+        let s = r#"{"prompt_tokens":42,"completion_tokens":2,"total_tokens":44,"cost":0.0534,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0,"upstream_inference_completions_cost":0},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}"#;
+        let usage = Usage::from_json(s).unwrap();
+        assert_eq!(usage.cost, 0.0534);
+    }
+
+    #[test]
+    fn test_choice() {
+        let s = r#"{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}"#;
+        let choice = Choice::from_json(s).unwrap();
+        assert_eq!(choice.delta.text(), Some("Hello"));
+    }
+
+    #[test]
+    fn test_chat_completions_response_simple() {
+        let arr = [
+            r#"{"id":"gen-1756743299-7ytIBcjALWQQShwMQfw9","provider":"Meta","model":"meta-llama/llama-3.3-8b-instruct:free","object":"chat.completion.chunk","created":1756743300,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756743299-7ytIBcjALWQQShwMQfw9","provider":"Meta","model":"meta-llama/llama-3.3-8b-instruct:free","object":"chat.completion.chunk","created":1756743300,"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}]}"#,
+            r#"{"id":"gen-1756743299-7ytIBcjALWQQShwMQfw9","provider":"Meta","model":"meta-llama/llama-3.3-8b-instruct:free","object":"chat.completion.chunk","created":1756743300,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":42,"completion_tokens":2,"total_tokens":44,"cost":0,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0,"upstream_inference_completions_cost":0},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}}"#,
+        ];
+        for a in arr {
+            let ccr = ChatCompletionsResponse::from_json(a).unwrap();
+            assert_eq!(ccr.provider.as_deref(), Some("Meta"));
+            assert_eq!(
+                ccr.model.as_deref(),
+                Some("meta-llama/llama-3.3-8b-instruct:free")
+            );
+            assert_eq!(ccr.choices.len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_chat_completions_response_more() {
+        let arr = [
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"Rea","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":"l","reasoning":null,"reasoning_details":[]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":" Madrid, 14 times.","reasoning":null,"reasoning_details":[]},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}]}"#,
+            r#"{"id":"gen-1756749262-liysSWPMM37eb25U5gXO","provider":"WandB","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1756749262,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":33,"completion_tokens":8,"total_tokens":41,"cost":0.0000310365,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0.00001815,"upstream_inference_completions_cost":0.0000132},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0}}}"#,
+        ];
+        for a in arr {
+            let ccr = ChatCompletionsResponse::from_json(a).unwrap();
+            assert_eq!(ccr.provider.as_deref(), Some("WandB"));
+            assert_eq!(ccr.model.as_deref(), Some("deepseek/deepseek-chat-v3.1"));
+            assert_eq!(ccr.choices.len(), 1);
+        }
+    }
+
+    // Various null fields, including inside the message, and usage.
+    #[test]
+    fn test_nvidia_misc() {
+        let s = r#"{"id":"8f20d6699e194a0abed38c671384d32d","object":"chat.completion.chunk","created":1770582573,"model":"qwen/qwen3-next-80b-a3b-instruct","choices":[{"index":0,"delta":{"role":null,"content":"Ta","reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}"#;
+        let ccr = ChatCompletionsResponse::from_json(s).unwrap();
+        assert_eq!(ccr.choices[0].delta.text(), Some("Ta"));
+    }
+
+    #[test]
+    fn message_content_array() {
+        let s = r#"{"role":"user","content":[{"type":"text","text":"Hello"},{"type":"text","text":" there"}]}"#;
+        let msg = Message::from_json(s).unwrap();
+        assert_eq!(msg.content.len(), 2);
+        assert_eq!(msg.content[0].text(), Some("Hello"));
+        assert_eq!(msg.content[1].text(), Some(" there"));
+    }
 }

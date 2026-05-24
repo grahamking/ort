@@ -5,7 +5,7 @@
 //! Copyright (c) 2025 Graham King
 //!
 //! Core pieces used by both input/request and output/response paths.
-//! Also general utlities even if only used by input or output.
+//! Also general utilities even if only used by input or output.
 
 pub mod alloc;
 pub mod base64;
@@ -16,6 +16,7 @@ pub mod dir;
 pub mod error;
 pub mod file;
 pub mod io;
+pub mod json_parser;
 pub mod resolver;
 pub mod site;
 pub mod stats;

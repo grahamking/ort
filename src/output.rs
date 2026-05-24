@@ -8,7 +8,6 @@
 //! so deserializing openrouter.ai's response, and writing out
 //! to the screen/file/history.
 
-pub mod from_json;
 pub mod last_writer;
 pub mod logger;
 pub mod writer;
