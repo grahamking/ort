@@ -8,9 +8,13 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::upper_case_acronyms)]
 
+extern crate alloc;
+use alloc::{ffi::CString, string::String, vec::Vec};
+
+use crate::{ErrorKind, OrtResult, ort_error};
 use core::{
     arch::asm,
-    ffi::{c_char, c_int, c_long, c_uchar, c_ushort, c_void},
+    ffi::{CStr, c_char, c_int, c_long, c_uchar, c_ushort, c_void},
     mem::MaybeUninit,
 };
 
@@ -26,6 +30,7 @@ type uid_t = u32;
 type gid_t = u32;
 type blksize_t = i64;
 type blkcnt_t = i64;
+type pid_t = c_int;
 
 pub type socklen_t = u32;
 pub type sa_family_t = u16;
@@ -45,10 +50,14 @@ const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_IOCTL: u32 = 16;
 const SYS_ACCESS: u32 = 21;
+const SYS_DUP2: i32 = 33;
 const SYS_SOCKET: u32 = 41;
 const SYS_CONNECT: u32 = 42;
+const SYS_FORK: i32 = 57;
+const SYS_EXECVE: i32 = 59;
 const SYS_SETSOCKOPT: i32 = 54;
 const SYS_EXIT: i32 = 60;
+const SYS_WAIT4: i32 = 61;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
 const SYS_EPOLL_CREATE: i32 = 213;
@@ -56,9 +65,11 @@ const SYS_INOTIFY_ADD_WATCH: i32 = 254;
 const SYS_EPOLL_WAIT: i32 = 232;
 const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
+const SYS_PIPE2: i32 = 293;
 const SYS_INOTIFY_INIT1: i32 = 294;
 
 pub const EAGAIN: i32 = -11; // Operation would block, try again
+const EINTR: i32 = -4; // Interrupted system call
 const EACCES: i32 = -13; // Permission denied
 const ENOTTY: i32 = -25; // Not a typewriter / inappropriate ioctl for device
 
@@ -549,6 +560,263 @@ pub fn epoll_wait(
     ret
 }
 
+pub fn pipe2(pipefd: *mut c_int, flags: c_int) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_PIPE2 => ret,
+            in("rdi") pipefd,
+            in("esi") flags,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn dup2(oldfd: c_int, newfd: c_int) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_DUP2 => ret,
+            in("edi") oldfd,
+            in("esi") newfd,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+#[inline(never)]
+pub fn fork() -> pid_t {
+    let mut ret: pid_t;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_FORK => ret,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn execve(
+    path: *const c_char,
+    argv: *const *const c_char,
+    envp: *const *const c_char,
+) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_EXECVE => ret,
+            in("rdi") path,
+            in("rsi") argv,
+            in("rdx") envp,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+fn find_bash(envp: *const *const c_char) -> OrtResult<CString> {
+    const DEFAULT_PATH: &[u8] = b"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+    const BASH: &[u8] = b"bash";
+
+    let env_path = path_from_envp(envp);
+    let path = env_path.as_deref().unwrap_or(DEFAULT_PATH);
+
+    for dir in path.split(|b| *b == b':') {
+        let mut candidate = Vec::with_capacity(dir.len() + BASH.len() + 1);
+        if !dir.is_empty() {
+            candidate.extend_from_slice(dir);
+            candidate.push(b'/');
+        }
+        candidate.extend_from_slice(BASH);
+
+        if let Ok(cpath) = CString::new(candidate)
+            && access(cpath.as_ptr(), F_OK) == 0
+        {
+            return Ok(cpath);
+        }
+    }
+
+    Err(ort_error(ErrorKind::Other, "system bash not found"))
+}
+
+pub fn waitpid(pid: pid_t, status: *mut c_int, options: c_int) -> pid_t {
+    let mut ret: pid_t;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_WAIT4 => ret,
+            in("edi") pid,
+            in("rsi") status,
+            in("edx") options,
+            in("r10") core::ptr::null_mut::<c_void>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn system(command: &str) -> OrtResult<String> {
+    const STDOUT_FILENO: c_int = 1;
+    const STDERR_FILENO: c_int = 2;
+
+    let command = CString::new(command)
+        .map_err(|_| ort_error(ErrorKind::Other, "system command contains nul byte"))?;
+    let (env_bytes, envp) = current_envp();
+    let bash_path = find_bash(envp.as_ptr())?;
+
+    let mut pipefd = [0 as c_int; 2];
+    if pipe2(pipefd.as_mut_ptr(), O_CLOEXEC) < 0 {
+        return Err(ort_error(ErrorKind::Other, "system pipe2 failed"));
+    }
+
+    let pid = fork();
+    if pid < 0 {
+        let _ = close(pipefd[0]);
+        let _ = close(pipefd[1]);
+        return Err(ort_error(ErrorKind::Other, "system fork failed"));
+    }
+
+    if pid == 0 {
+        let _ = close(pipefd[0]);
+        if dup2(pipefd[1], STDOUT_FILENO) < 0 {
+            exit(127);
+        }
+        if dup2(pipefd[1], STDERR_FILENO) < 0 {
+            exit(127);
+        }
+        let _ = close(pipefd[1]);
+
+        let argv = [
+            c"bash".as_ptr(),
+            c"-c".as_ptr(),
+            command.as_ptr(),
+            core::ptr::null(),
+        ];
+        let _ = execve(bash_path.as_ptr(), argv.as_ptr(), envp.as_ptr());
+        exit(127);
+    }
+
+    let _ = close(pipefd[1]);
+
+    // The child stays in the parent's foreground process group, so terminal
+    // Ctrl-C is delivered to the shell by the kernel's default job control.
+    let mut output = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let bytes_read = read(pipefd[0], buf.as_mut_ptr().cast(), buf.len());
+        if bytes_read > 0 {
+            output.extend_from_slice(&buf[..bytes_read as usize]);
+        } else if bytes_read == 0 {
+            break;
+        } else if bytes_read == EINTR {
+            continue;
+        } else {
+            let _ = close(pipefd[0]);
+            let _ = wait_for_child(pid);
+            return Err(ort_error(ErrorKind::Other, "system read failed"));
+        }
+    }
+    let _ = close(pipefd[0]);
+
+    wait_for_child(pid)?;
+
+    // Keep the environment backing storage alive until after the child execs.
+    let _ = env_bytes.len();
+    let _ = bash_path.as_bytes().len();
+
+    Ok(String::from_utf8_lossy(&output).into_owned())
+}
+
+fn wait_for_child(pid: pid_t) -> OrtResult<()> {
+    let mut status = 0;
+    loop {
+        let ret = waitpid(pid, &mut status, 0);
+        if ret == pid {
+            return Ok(());
+        }
+        if ret == EINTR {
+            continue;
+        }
+        return Err(ort_error(ErrorKind::Other, "system waitpid failed"));
+    }
+}
+
+fn path_from_envp(envp: *const *const c_char) -> Option<Vec<u8>> {
+    if envp.is_null() {
+        return None;
+    }
+
+    let mut entry = envp;
+    unsafe {
+        while !(*entry).is_null() {
+            let bytes = CStr::from_ptr(*entry).to_bytes();
+            if let Some(path) = bytes.strip_prefix(b"PATH=") {
+                return Some(path.to_vec());
+            }
+            entry = entry.add(1);
+        }
+    }
+    None
+}
+
+fn current_envp() -> (Vec<u8>, Vec<*const c_char>) {
+    let mut env_bytes = read_proc_environ();
+    if env_bytes.last().is_some_and(|b| *b != 0) {
+        env_bytes.push(0);
+    }
+
+    let mut envp = Vec::new();
+    let mut start = 0usize;
+    for idx in 0..env_bytes.len() {
+        if env_bytes[idx] == 0 {
+            if idx > start {
+                envp.push(env_bytes[start..].as_ptr().cast());
+            }
+            start = idx + 1;
+        }
+    }
+    envp.push(core::ptr::null());
+
+    (env_bytes, envp)
+}
+
+fn read_proc_environ() -> Vec<u8> {
+    let fd = match open(c"/proc/self/environ".as_ptr(), O_RDONLY | O_CLOEXEC, 0) {
+        Ok(fd) => fd,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let bytes_read = read(fd, buf.as_mut_ptr().cast(), buf.len());
+        if bytes_read > 0 {
+            out.extend_from_slice(&buf[..bytes_read as usize]);
+        } else if bytes_read == 0 {
+            break;
+        } else if bytes_read == EINTR {
+            continue;
+        } else {
+            let _ = close(fd);
+            return Vec::new();
+        }
+    }
+    let _ = close(fd);
+
+    out
+}
+
 pub fn exit(exit_code: i32) -> ! {
     unsafe {
         asm!("syscall",
@@ -559,10 +827,18 @@ pub fn exit(exit_code: i32) -> ! {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     #[test]
+    fn system_captures_stdout_and_stderr() {
+        let out = match super::system("printf out; printf err >&2") {
+            Ok(out) => out,
+            Err(err) => panic!("{}", err.as_string()),
+        };
+        assert_eq!(out, "outerr");
+    }
+
+    /*
     fn test_mkdir() {
         let ret = super::mkdir(c"/home/graham/Temp/HERE_gk_test".as_ptr(), 0o755);
         let s = crate::common::utils::num_to_string(ret);
@@ -577,5 +853,5 @@ mod tests {
             crate::common::utils::print_hex(c"", &buf);
         }
     }
+    */
 }
-*/
