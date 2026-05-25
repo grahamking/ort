@@ -13,8 +13,10 @@ use alloc::vec::Vec;
 
 use core::{ffi::c_void, mem::MaybeUninit};
 
+use crate::common::tools::BashTool;
 use crate::common::tools::ReadTool;
 use crate::ort_error;
+use crate::syscall::system;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
@@ -163,11 +165,14 @@ fn run_single<W: Write + Send>(
                             assistant_tool_calls = Some(tool_calls.clone());
 
                             for tool_call in tool_calls {
-                                //utils::print_string(c"\nTool call: ", &tool_call.function.name);
-
                                 match tool_call.function.name.as_ref() {
                                     "read" => {
                                         let res = run_tool_read(&tool_call.function.arguments)?;
+                                        tool_call_results
+                                            .push((tool_call.id.clone().unwrap(), res));
+                                    }
+                                    "bash" => {
+                                        let res = run_tool_bash(&tool_call.function.arguments)?;
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), res));
                                     }
@@ -214,10 +219,14 @@ fn run_single<W: Write + Send>(
 
 // TODO: make const
 fn agent_tools() -> Vec<Tool> {
-    alloc::vec![Tool {
+    alloc::vec![def_tool_read(), def_tool_bash()]
+}
+
+fn def_tool_read() -> Tool {
+    Tool {
         name: "read".to_string(),
         description: "Read the contents of a text file.".to_string(),
-        parameters: alloc::vec![
+        parameters: vec![
             ToolParameter {
                 name: "path".to_string(),
                 param_type: "string".to_string(),
@@ -234,15 +243,46 @@ fn agent_tools() -> Vec<Tool> {
                 description: "Maximum number of lines to read".to_string(),
             },
         ],
-        required_parameters: alloc::vec!["path".to_string()],
-    }]
+        required_parameters: vec!["path".to_string()],
+    }
+}
+
+fn def_tool_bash() -> Tool {
+    Tool {
+        name: "bash".to_string(),
+        description:
+            "Execute a bash command in the current working directory. Returns stdout and stderr."
+                .to_string(),
+        parameters: vec![ToolParameter {
+            name: "command".to_string(),
+            param_type: "string".to_string(),
+            description: "Bash command to execute".to_string(),
+        }],
+        required_parameters: vec!["command".to_string()],
+    }
 }
 
 /// Tool: Read a file
 /// Params is JSON
 fn run_tool_read(params: &str) -> OrtResult<String> {
+    //crate::utils::print_string(c"\nread: ", params);
+
     // TODO: Specific error types
     let params = ReadTool::from_json(params)
         .map_err(|_err| ort_error(ErrorKind::Other, "Parsing read tool params JSON"))?;
-    utils::filename_read_to_string(&params.path).map_err(|err| ort_error(ErrorKind::Other, err))
+    Ok(match utils::filename_read_to_string(&params.path) {
+        Ok(res) => res,
+        // Return the string error so the model sees it.
+        Err("NOT FOUND") => "No such file or directory: ".to_string() + &params.path,
+        Err(s) => "Tool call error ".to_string() + s + ": " + &params.path,
+    })
+}
+
+/// Tool: Run a bash command
+fn run_tool_bash(params: &str) -> OrtResult<String> {
+    //crate::utils::print_string(c"\nbash: ", params);
+
+    let params = BashTool::from_json(params)
+        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing bash tool params JSON"))?;
+    system(&params.command)
 }

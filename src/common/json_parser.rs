@@ -290,20 +290,6 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'stati
         return Err("trailing characters after JSON object".into());
     }
 
-    /*
-    crate::utils::print_string(c"-- After", "");
-    for (name, value) in fields.iter() {
-        crate::utils::print_string(c"\nName: ", name);
-        match value {
-            JsonValue::String(Some(s)) | JsonValue::SimpleString(Some(s)) => {
-                crate::utils::print_string(c"\nValue: ", s);
-            }
-            _ => {}
-        }
-    }
-    crate::utils::print_string(c"\n-- End After", "");
-    */
-
     Ok(())
 }
 
