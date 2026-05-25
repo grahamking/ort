@@ -481,13 +481,16 @@ pub struct Message {
     pub role: Role,
     pub content: Vec<Content>,
     pub reasoning: Option<String>,
+    /// For Role::Assistant requesting a tool call
     pub tool_calls: Vec<ToolCall>,
+    /// For Role::Tool returning a result
+    pub tool_call_id: Option<String>,
 }
 
 impl Message {
     pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
         let content = content.map_or_else(Vec::new, |content| vec![Content::Text(content)]);
-        Self::with_content(role, content, reasoning, vec![])
+        Self::with_content(role, content, reasoning, vec![], None)
     }
 
     pub fn with_content(
@@ -495,12 +498,14 @@ impl Message {
         content: Vec<Content>,
         reasoning: Option<String>,
         tool_calls: Vec<ToolCall>,
+        tool_call_id: Option<String>,
     ) -> Self {
         Message {
             role,
             content,
             reasoning,
             tool_calls,
+            tool_call_id,
         }
     }
     pub fn system(content: String) -> Self {
@@ -510,7 +515,26 @@ impl Message {
         Self::new(Role::User, Some(content), None)
     }
     pub fn assistant(content: String) -> Self {
+        // TODO: also send reasoning back
         Self::new(Role::Assistant, Some(content), None)
+    }
+    pub fn assistant_with_tool_call(content: String, tool_calls: Vec<ToolCall>) -> Self {
+        Self::with_content(
+            Role::Assistant,
+            vec![Content::Text(content)],
+            None, // TODO: also send reasoning back
+            tool_calls,
+            None,
+        )
+    }
+    pub fn tool(id: String, content: String) -> Self {
+        Self::with_content(
+            Role::Tool,
+            vec![Content::Text(content)],
+            None,
+            vec![],
+            Some(id),
+        )
     }
 
     pub fn with_files(prompt: String, filenames: &[String]) -> OrtResult<Self> {
@@ -599,6 +623,7 @@ impl Message {
             content,
             reasoning,
             tool_calls,
+            None,
         ))
     }
 }
@@ -725,6 +750,7 @@ pub enum Role {
     System,
     User,
     Assistant,
+    Tool,
 }
 
 impl Role {
@@ -733,6 +759,7 @@ impl Role {
             Role::System => "system",
             Role::User => "user",
             Role::Assistant => "assistant",
+            Role::Tool => "tool",
         }
     }
 }
@@ -744,6 +771,7 @@ impl FromStr for Role {
             "system" => Ok(Role::System),
             "user" => Ok(Role::User),
             "assistant" => Ok(Role::Assistant),
+            "tool" => Ok(Role::Tool),
             _ => Err("Invalid role"),
         }
     }

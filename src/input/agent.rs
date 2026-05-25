@@ -8,6 +8,7 @@ extern crate alloc;
 use alloc::ffi::CString;
 use alloc::string::String;
 use alloc::string::ToString;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use core::{ffi::c_void, mem::MaybeUninit};
@@ -23,7 +24,7 @@ use crate::{
         error,
         site::Site,
     },
-    input::prompt::{self, ActivePrompt},
+    input::prompt::ActivePrompt,
     output::{
         last_writer::LastWriter,
         writer::{ConsoleWriter, OutputWriter},
@@ -38,7 +39,9 @@ pub fn run<W: Write + Send>(
     env: &Env,
     mut opts: PromptOpts,
     site: &'static Site,
-    messages: Vec<crate::Message>,
+    // This contains the system prompt
+    // It grows to contain the whole conversation
+    mut messages: Vec<crate::Message>,
     w_core: &mut W,
 ) -> OrtResult<()> {
     opts.quiet = Some(true);
@@ -54,76 +57,66 @@ pub fn run<W: Write + Send>(
         // IN_MOVED_TO should happen with a rename-and-move save, but I don't see it
         IN_MOVED_TO | IN_CLOSE_WRITE,
     );
-    let mut ie = MaybeUninit::<syscall::inotify_event>::uninit();
 
     // Show reasoning: false, quiet (don't show stats): true
     // TODO: We need an AgentWriter, needs to output differently
     let mut output_writer = ConsoleWriter::new(w_core, false, true);
 
-    // Display the initial prompt
-    if let Some(prompt) = &opts.prompt {
+    while let Some(prompt) = next_prompt(opts.prompt.take(), ifd, &filename)? {
         output_writer.write(Response::Prompt(prompt.clone()))?;
-    }
-
-    // Run the initial query
-    run_single(
-        api_key,
-        settings,
-        env,
-        opts.clone(),
-        site,
-        messages.clone(),
-        tools.clone(),
-        &mut output_writer,
-    )?;
-
-    loop {
-        // Wait for a new prompt
-        let res = syscall::read(
-            ifd,
-            ie.as_mut_ptr() as *mut c_void,
-            size_of::<syscall::inotify_event>(),
-        );
-        if res <= 0 {
-            break;
-        }
-        //let ie = unsafe { ie.assume_init() };
-        //let ie_str = utils::num_to_string(ie.mask);
-        //utils::print_string(c"mask: ", &ie_str);
-
-        // If it was IN_MOVED_TO (the rename-and-move case) we need to add another
-        // inotify watch
-
-        // todo: Make an ErrorKind
-        let next_prompt = utils::filename_read_to_string(&filename)
-            .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
-        opts.prompt = Some(next_prompt);
-
-        if let Some(prompt) = &opts.prompt {
-            output_writer.write(Response::Prompt(prompt.clone()))?;
-        }
-
-        let mut last = prompt::load_last_data(env)?;
-        opts.merge(last.opts);
 
         // Add the new prompt to the conversation
-        last.messages
-            .push(crate::Message::user(opts.prompt.take().unwrap()));
+        messages.push(Message::user(prompt));
 
-        // run it
-        run_single(
-            api_key,
-            settings,
-            env,
-            opts.clone(),
-            site,
-            messages.clone(),
-            tools.clone(),
-            &mut output_writer,
-        )?;
+        let mut has_tool_call = true;
+        while has_tool_call {
+            has_tool_call = run_single(
+                api_key,
+                settings,
+                env,
+                opts.clone(),
+                site,
+                &mut messages,
+                &tools,
+                &mut output_writer,
+            )?;
+        }
     }
 
     Ok(())
+}
+
+/// Wait for next user prompt
+fn next_prompt(
+    initial_prompt: Option<String>,
+    ifd: i32,
+    prompt_filename: &str,
+) -> OrtResult<Option<String>> {
+    // This make the while loop simpler
+    if initial_prompt.is_some() {
+        return Ok(initial_prompt);
+    }
+
+    let mut ie = MaybeUninit::<syscall::inotify_event>::uninit();
+    let res = syscall::read(
+        ifd,
+        ie.as_mut_ptr() as *mut c_void,
+        size_of::<syscall::inotify_event>(),
+    );
+    if res <= 0 {
+        return Ok(None);
+    }
+    //let ie = unsafe { ie.assume_init() };
+    //let ie_str = utils::num_to_string(ie.mask);
+    //utils::print_string(c"mask: ", &ie_str);
+
+    // If it was IN_MOVED_TO (the rename-and-move case) we need to add another
+    // inotify watch
+
+    // todo: Make an ErrorKind
+    let prompt = utils::filename_read_to_string(prompt_filename)
+        .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
+    Ok(Some(prompt))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -133,22 +126,26 @@ fn run_single<W: Write + Send>(
     env: &Env,
     opts: PromptOpts,
     site: &'static Site,
-    messages: Vec<Message>,
-    tools: Vec<Tool>,
+    messages: &mut Vec<Message>,
+    tools: &[Tool],
     output_writer: &mut ConsoleWriter<W>,
-) -> OrtResult<()> {
-    let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.clone(), env)?;
+) -> OrtResult<bool> {
+    let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         settings.dns.clone(),
         opts,
-        messages,
-        tools,
+        messages.clone(),
+        tools.to_vec(),
         0,
         site,
         Some(env),
     )?;
     active_prompt.start()?;
+
+    let mut assistant_message = String::new();
+    let mut assistant_tool_calls = None;
+    let mut tool_call_results = vec![];
 
     loop {
         match active_prompt.next() {
@@ -158,14 +155,21 @@ fn run_single<W: Write + Send>(
             Ok(Some(out)) => {
                 for event in out {
                     match &event {
+                        Response::Content(content) => {
+                            assistant_message.push_str(content);
+                        }
                         Response::ToolCalls(tool_calls) => {
+                            // We must send this back in the assistant message
+                            assistant_tool_calls = Some(tool_calls.clone());
+
                             for tool_call in tool_calls {
-                                utils::print_string(c"Tool call: ", &tool_call.function.name);
+                                //utils::print_string(c"\nTool call: ", &tool_call.function.name);
 
                                 match tool_call.function.name.as_ref() {
                                     "read" => {
-                                        let res = tool_read(&tool_call.function.arguments)?;
-                                        utils::print_string(c"Tool result: ", &res);
+                                        let res = run_tool_read(&tool_call.function.arguments)?;
+                                        tool_call_results
+                                            .push((tool_call.id.clone().unwrap(), res));
                                     }
                                     "other" => {}
                                     _ => {}
@@ -185,10 +189,27 @@ fn run_single<W: Write + Send>(
         }
     }
 
+    let has_tool_call = match assistant_tool_calls {
+        None => {
+            messages.push(Message::assistant(assistant_message));
+            false
+        }
+        Some(tc) => {
+            // TODO: Assistant can ask for multiple tool calls, return all of
+            // the requests. We already return all the results.
+            messages.push(Message::assistant_with_tool_call(assistant_message, tc));
+            for (id, res) in tool_call_results {
+                messages.push(Message::tool(id, res));
+            }
+            true
+        }
+    };
+
     let _stats = active_prompt.stop();
-    output_writer.stop(true)?; // prints stats
+    output_writer.stop(true)?;
     last_writer.stop(true)?; // Finalize JSON
-    Ok(())
+
+    Ok(has_tool_call)
 }
 
 // TODO: make const
@@ -219,7 +240,7 @@ fn agent_tools() -> Vec<Tool> {
 
 /// Tool: Read a file
 /// Params is JSON
-fn tool_read(params: &str) -> OrtResult<String> {
+fn run_tool_read(params: &str) -> OrtResult<String> {
     // TODO: Specific error types
     let params = ReadTool::from_json(params)
         .map_err(|_err| ort_error(ErrorKind::Other, "Parsing read tool params JSON"))?;

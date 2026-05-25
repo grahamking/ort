@@ -613,7 +613,7 @@ impl ActivePrompt {
                             }
                         }
                         // If we signaled the open (!is_first_reasoning)
-                        // and we signaled the close yet (is_first_reasoning),
+                        // and we haven't signaled the close yet (is_first_reasoning),
                         // signal the close.
                         if !self.is_first_reasoning && self.is_first_content {
                             queue.push(Response::Think(ThinkEvent::Stop));

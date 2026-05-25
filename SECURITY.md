@@ -2,7 +2,7 @@ tl;dr `ort` is not traditionally secure because it is vulnerable to [man-in-the-
 
 # Man-in-the-middle attack
 
-`ort` does not validate TLS certificates. This makes the binary smaller and the connection start faster. It also makes it vunlerable to man-in-the-middle attacks.
+`ort` does not validate TLS certificates. This makes the binary smaller and the connection start faster. It also makes it vulnerable to man-in-the-middle attacks.
 
 It's OK because you can:
 
