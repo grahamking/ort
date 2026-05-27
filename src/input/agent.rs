@@ -13,10 +13,13 @@ use alloc::vec::Vec;
 
 use core::{ffi::c_void, mem::MaybeUninit};
 
+use crate::common::file::File;
 use crate::common::tools::BashTool;
 use crate::common::tools::ReadTool;
+use crate::common::tools::WriteTool;
 use crate::ort_error;
 use crate::syscall::system;
+use crate::utils::ensure_dir_exists;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
@@ -176,7 +179,11 @@ fn run_single<W: Write + Send>(
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), res));
                                     }
-                                    "other" => {}
+                                    "write" => {
+                                        let res = run_tool_write(&tool_call.function.arguments)?;
+                                        tool_call_results
+                                            .push((tool_call.id.clone().unwrap(), res));
+                                    }
                                     _ => {}
                                 }
                             }
@@ -219,7 +226,7 @@ fn run_single<W: Write + Send>(
 
 // TODO: make const
 fn agent_tools() -> Vec<Tool> {
-    alloc::vec![def_tool_read(), def_tool_bash()]
+    alloc::vec![def_tool_read(), def_tool_bash(), def_tool_write()]
 }
 
 fn def_tool_read() -> Tool {
@@ -262,6 +269,26 @@ fn def_tool_bash() -> Tool {
     }
 }
 
+fn def_tool_write() -> Tool {
+    Tool {
+        name: "write".to_string(),
+        description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories. Use only for new files or complete rewrites.".to_string(),
+        parameters: vec![
+            ToolParameter{
+                name: "path".to_string(),
+                param_type: "string".to_string(),
+                description: "Path to the file to write (relative or absolute)".to_string(),
+            },
+            ToolParameter{
+                name: "content".to_string(),
+                param_type: "string".to_string(),
+                description: "Content to write to the file".to_string(),
+            },
+        ],
+        required_parameters: vec!["path".to_string(), "content".to_string()],
+    }
+}
+
 /// Tool: Read a file
 /// Params is JSON
 fn run_tool_read(params: &str) -> OrtResult<String> {
@@ -285,4 +312,26 @@ fn run_tool_bash(params: &str) -> OrtResult<String> {
     let params = BashTool::from_json(params)
         .map_err(|_err| ort_error(ErrorKind::Other, "Parsing bash tool params JSON"))?;
     system(&params.command)
+}
+
+fn run_tool_write(params: &str) -> OrtResult<String> {
+    //crate::utils::print_string(c"\nwrite: ", params);
+
+    let params = WriteTool::from_json(params)
+        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing write tool params JSON"))?;
+
+    if let Some(idx) = params.path.rfind('/') {
+        let dir_path = &params.path[..idx];
+        // TODO does not create ancestors
+        ensure_dir_exists(dir_path);
+    }
+
+    // Write the file
+    let mut c_path = [0u8; 128];
+    let end = params.path.len();
+    c_path[..end].copy_from_slice(params.path.as_bytes());
+    let mut target = unsafe { File::create(&c_path[..end + 1])? }; // + 1 for null byte
+    target.write(params.content.as_bytes())?;
+
+    Ok("Successfully wrote to ".to_string() + &params.path)
 }

@@ -51,3 +51,22 @@ impl BashTool {
         })
     }
 }
+
+pub struct WriteTool {
+    pub path: String,
+    pub content: String,
+}
+
+impl WriteTool {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        let mut fields = [
+            JsonField::new_simple_string("path"),
+            JsonField::new_string("content"),
+        ];
+        autoparser(json, &mut fields)?;
+        Ok(WriteTool {
+            path: fields[0].get_string().expect("Missing WriteTool path"),
+            content: fields[1].get_string().expect("Missing WriteTool content"),
+        })
+    }
+}

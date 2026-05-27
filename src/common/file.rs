@@ -22,6 +22,8 @@ impl File {
     /// Calls libc::open with the given pointer. Is actually safe.
     /// Path must end with a null byte.
     pub unsafe fn create(path: &[u8]) -> OrtResult<Self> {
+        //crate::utils::print_string(c"\ncreate: ", unsafe { str::from_utf8_unchecked(path) });
+
         let flags = syscall::O_CLOEXEC | syscall::O_WRONLY | syscall::O_CREAT | syscall::O_TRUNC;
         let fd = syscall::open(path.as_ptr() as *const c_char, flags, 0o660 as c_int)
             .map_err(|e| ort_error(ErrorKind::FileCreateFailed, e))?;
