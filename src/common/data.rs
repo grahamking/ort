@@ -28,6 +28,60 @@ pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 
 const MIME_TYPES: [(&str, &str); 2] = [("jpg", "image/jpeg"), ("png", "image/png")];
 
+pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE];
+
+const TOOL_READ: Tool = Tool {
+    name: "read",
+    description: "Read the contents of a text file.",
+    parameters: &[
+        ToolParameter {
+            name: "path",
+            param_type: "string",
+            description: "Path to the file to read (relative or absolute)",
+        },
+        ToolParameter {
+            name: "offset",
+            param_type: "number",
+            description: "Line number to start reading from (1-indexed)",
+        },
+        ToolParameter {
+            name: "limit",
+            param_type: "number",
+            description: "Maximum number of lines to read",
+        },
+    ],
+    required_parameters: &["path"],
+};
+
+const TOOL_BASH: Tool = Tool {
+    name: "bash",
+    description: "Execute a bash command in the current working directory. Returns stdout and stderr.",
+    parameters: &[ToolParameter {
+        name: "command",
+        param_type: "string",
+        description: "Bash command to execute",
+    }],
+    required_parameters: &["command"],
+};
+
+const TOOL_WRITE: Tool = Tool {
+    name: "write",
+    description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories. Use only for new files or complete rewrites.",
+    parameters: &[
+        ToolParameter {
+            name: "path",
+            param_type: "string",
+            description: "Path to the file to write (relative or absolute)",
+        },
+        ToolParameter {
+            name: "content",
+            param_type: "string",
+            description: "Content to write to the file",
+        },
+    ],
+    required_parameters: &["path", "content"],
+};
+
 // {
 //  "id":"gen-1756743299-7ytIBcjALWQQShwMQfw9",
 //  "provider":"Meta",
@@ -194,7 +248,7 @@ impl Usage {
 pub struct LastData {
     pub opts: PromptOpts,
     pub messages: Vec<Message>,
-    pub tools: Vec<Tool>,
+    pub tools: Vec<&'static Tool>,
 }
 
 impl LastData {
@@ -892,16 +946,20 @@ impl PromptFile {
 
 #[derive(Clone)]
 pub struct Tool {
-    pub name: String,
-    pub description: String,
-    pub parameters: Vec<ToolParameter>,
-    pub required_parameters: Vec<String>,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub parameters: &'static [ToolParameter],
+    pub required_parameters: &'static [&'static str],
 }
 
 // This one doesn't use autoparser because we need to skip a lot of the function object.
 // Later we likely will use all of it an use autoparser.
 impl Tool {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn find_by_name(name: &str) -> Option<&'static Tool> {
+        ALL_TOOLS.iter().find(|t| t.name == name).map(|v| &**v)
+    }
+
+    pub fn from_json(json: &str) -> Result<&'static Self, Cow<'static, str>> {
         let mut p = Parser::new(json);
         p.skip_ws();
 
@@ -921,9 +979,9 @@ impl Tool {
         p.expect(b'{')?;
 
         let mut name = String::new();
-        let mut description = String::new();
-        let mut parameters = vec![];
-        let mut required_parameters = vec![];
+        //let mut description = String::new();
+        //let mut parameters = vec![];
+        //let mut required_parameters = vec![];
 
         loop {
             p.skip_ws();
@@ -941,7 +999,11 @@ impl Tool {
             match key {
                 "name" => {
                     name = p.parse_simple_str()?.to_string();
+                    // The tools are statically know. We only need the name
+                    // to look it up.
+                    break;
                 }
+                /*
                 "description" => {
                     description = p.parse_string()?;
                 }
@@ -1018,6 +1080,7 @@ impl Tool {
                         }
                     }
                 }
+                */
                 _ => {
                     p.skip_value()?;
                 }
@@ -1031,20 +1094,19 @@ impl Tool {
             }
         }
 
-        Ok(Tool {
-            name,
-            description,
-            parameters,
-            required_parameters,
-        })
+        let Some(t) = Tool::find_by_name(&name) else {
+            // TODO: Error really needs to be a String
+            return Err("Tool not found".into());
+        };
+        Ok(t)
     }
 }
 
 #[derive(Clone)]
 pub struct ToolParameter {
-    pub name: String,
-    pub param_type: String,
-    pub description: String,
+    pub name: &'static str,
+    pub param_type: &'static str,
+    pub description: &'static str,
 }
 
 #[cfg(test)]

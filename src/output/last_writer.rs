@@ -34,7 +34,7 @@ impl LastWriter {
     pub fn new(
         opts: PromptOpts,
         messages: Vec<Message>,
-        tools: Vec<Tool>,
+        tools: Vec<&'static Tool>,
         env: &Env,
     ) -> OrtResult<Self> {
         let mut last_path = [0u8; 128];
@@ -162,10 +162,7 @@ mod tests {
     use super::*;
     use crate::{
         LastData, ThinkEvent,
-        common::{
-            data::{Tool, ToolParameter},
-            stats,
-        },
+        common::{data::ALL_TOOLS, stats},
         utils::num_to_string,
     };
 
@@ -179,16 +176,6 @@ mod tests {
             Message::system("system prompt".to_string()),
             Message::user("user prompt".to_string()),
         ];
-        let tools = vec![Tool {
-            name: "read".to_string(),
-            description: "Read the contents of a text file.".to_string(),
-            parameters: vec![ToolParameter {
-                name: "path".to_string(),
-                param_type: "string".to_string(),
-                description: "Path to the file to read (relative or absolute)".to_string(),
-            }],
-            required_parameters: vec!["path".to_string()],
-        }];
         let file = match unsafe { file::File::create(TEST_PATH_C) } {
             Ok(file) => file,
             Err(err) => panic!("{}", err.as_string()),
@@ -196,7 +183,7 @@ mod tests {
         let data = LastData {
             opts,
             messages,
-            tools,
+            tools: vec![&ALL_TOOLS[0]],
         };
         let mut writer = LastWriter {
             w: file,

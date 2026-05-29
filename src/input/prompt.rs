@@ -66,7 +66,7 @@ pub fn run<W: Write + Send>(
     opts: PromptOpts,
     site: &'static Site,
     messages: Vec<Message>,
-    tools: Vec<Tool>,
+    tools: Vec<&'static Tool>,
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: &mut W,
 ) -> OrtResult<()> {
@@ -96,7 +96,7 @@ pub fn run<W: Write + Send>(
         settings.dns.clone(),
         opts,
         messages,
-        tools,
+        tools.clone(),
         0,
         site,
         Some(env),
@@ -342,7 +342,7 @@ pub(in crate::input) struct ActivePrompt {
     opts: PromptOpts,
     site: &'static Site,
     messages: Vec<Message>,
-    tools: Vec<Tool>,
+    tools: Vec<&'static Tool>,
 
     // When running multiple models, this thread should use this one
     model_idx: usize,
@@ -370,7 +370,7 @@ impl ActivePrompt {
         dns: Vec<String>,
         opts: PromptOpts,
         messages: Vec<Message>,
-        tools: Vec<Tool>,
+        tools: Vec<&'static Tool>,
         model_idx: usize,
         site: &'static Site,
         env: Option<&Env>,

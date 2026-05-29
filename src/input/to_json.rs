@@ -19,7 +19,7 @@ pub fn build_body(
     idx: usize,
     opts: &PromptOpts,
     messages: &[Message],
-    tools: &[Tool],
+    tools: &[&'static Tool],
 ) -> OrtResult<String> {
     // TODO: Add tools encoded byte size to avoid realloc
     let capacity: u32 = 1024 + messages.iter().map(|m| m.size()).sum::<u32>();
@@ -230,7 +230,7 @@ impl Message {
 }
 
 impl Tool {
-    pub fn write_json_array<W: Write>(tools: &[Tool], w: &mut W) -> OrtResult<()> {
+    pub fn write_json_array<W: Write>(tools: &[&'static Tool], w: &mut W) -> OrtResult<()> {
         w.write_char('[')?;
         for (i, tool) in tools.iter().enumerate() {
             if i != 0 {
@@ -244,10 +244,10 @@ impl Tool {
 
     pub fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
         w.write_str(r#"{"type": "function", "function": {"name": "#)?;
-        write_json_str_simple(w, self.name.as_str())?;
+        write_json_str_simple(w, self.name)?;
 
         w.write_str(r#", "description": "#)?;
-        write_json_str(w, self.description.as_str())?;
+        write_json_str(w, self.description)?;
 
         w.write_str(r#", "parameters": {"type": "object", "properties": {"#)?;
         for (idx, param) in self.parameters.iter().enumerate() {
@@ -275,13 +275,13 @@ impl Tool {
 
 impl ToolParameter {
     fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
-        write_json_str_simple(w, self.name.as_str())?;
+        write_json_str_simple(w, self.name)?;
         w.write_str(r#": {"type": "#)?;
-        write_json_str_simple(w, self.param_type.as_str())?;
+        write_json_str_simple(w, self.param_type)?;
         // TODO: support arrays. They need
         // "items": {"type": "string"},
         w.write_str(r#", "description": "#)?;
-        write_json_str(w, self.description.as_str())?;
+        write_json_str(w, self.description)?;
         w.write_char('}')?;
         Ok(())
     }
@@ -463,6 +463,7 @@ mod tests {
 
     use super::*;
     use crate::ReasoningConfig;
+    use crate::common::data::ALL_TOOLS;
 
     #[test]
     fn test_build_body() {
@@ -483,29 +484,7 @@ mod tests {
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let tools = vec![Tool {
-            name: "read".to_string(),
-            description: "Read the contents of a text file.".to_string(),
-            parameters: vec![
-                ToolParameter {
-                    name: "path".to_string(),
-                    param_type: "string".to_string(),
-                    description: "Path to the file to read (relative or absolute)".to_string(),
-                },
-                ToolParameter {
-                    name: "offset".to_string(),
-                    param_type: "number".to_string(),
-                    description: "Line number to start reading from (1-indexed)".to_string(),
-                },
-                ToolParameter {
-                    name: "limit".to_string(),
-                    param_type: "number".to_string(),
-                    description: "Maximum number of lines to read".to_string(),
-                },
-            ],
-            required_parameters: vec!["path".to_string()],
-        }];
-        let got = match build_body(0, &opts, &messages, &tools) {
+        let got = match build_body(0, &opts, &messages, &[&ALL_TOOLS[0]]) {
             Ok(got) => got,
             Err(err) => {
                 panic!("{}", err.as_string());

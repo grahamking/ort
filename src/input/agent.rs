@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 
 use core::{ffi::c_void, mem::MaybeUninit};
 
+use crate::common::data::ALL_TOOLS;
 use crate::common::file::File;
 use crate::common::tools::BashTool;
 use crate::common::tools::ReadTool;
@@ -23,12 +24,7 @@ use crate::utils::ensure_dir_exists;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
-    common::{
-        config,
-        data::{Tool, ToolParameter},
-        error,
-        site::Site,
-    },
+    common::{config, data::Tool, error, site::Site},
     input::prompt::ActivePrompt,
     output::{
         last_writer::LastWriter,
@@ -50,7 +46,6 @@ pub fn run<W: Write + Send>(
     w_core: &mut W,
 ) -> OrtResult<()> {
     opts.quiet = Some(true);
-    let tools = agent_tools();
 
     // Watch the file immediately
     let filename = opts.prompt_filename.as_ref().unwrap().to_string();
@@ -82,7 +77,7 @@ pub fn run<W: Write + Send>(
                 opts.clone(),
                 site,
                 &mut messages,
-                &tools,
+                ALL_TOOLS,
                 &mut output_writer,
             )?;
         }
@@ -132,7 +127,7 @@ fn run_single<W: Write + Send>(
     opts: PromptOpts,
     site: &'static Site,
     messages: &mut Vec<Message>,
-    tools: &[Tool],
+    tools: &[&'static Tool],
     output_writer: &mut ConsoleWriter<W>,
 ) -> OrtResult<bool> {
     let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
@@ -222,71 +217,6 @@ fn run_single<W: Write + Send>(
     last_writer.stop(true)?; // Finalize JSON
 
     Ok(has_tool_call)
-}
-
-// TODO: make const
-fn agent_tools() -> Vec<Tool> {
-    alloc::vec![def_tool_read(), def_tool_bash(), def_tool_write()]
-}
-
-fn def_tool_read() -> Tool {
-    Tool {
-        name: "read".to_string(),
-        description: "Read the contents of a text file.".to_string(),
-        parameters: vec![
-            ToolParameter {
-                name: "path".to_string(),
-                param_type: "string".to_string(),
-                description: "Path to the file to read (relative or absolute)".to_string(),
-            },
-            ToolParameter {
-                name: "offset".to_string(),
-                param_type: "number".to_string(),
-                description: "Line number to start reading from (1-indexed)".to_string(),
-            },
-            ToolParameter {
-                name: "limit".to_string(),
-                param_type: "number".to_string(),
-                description: "Maximum number of lines to read".to_string(),
-            },
-        ],
-        required_parameters: vec!["path".to_string()],
-    }
-}
-
-fn def_tool_bash() -> Tool {
-    Tool {
-        name: "bash".to_string(),
-        description:
-            "Execute a bash command in the current working directory. Returns stdout and stderr."
-                .to_string(),
-        parameters: vec![ToolParameter {
-            name: "command".to_string(),
-            param_type: "string".to_string(),
-            description: "Bash command to execute".to_string(),
-        }],
-        required_parameters: vec!["command".to_string()],
-    }
-}
-
-fn def_tool_write() -> Tool {
-    Tool {
-        name: "write".to_string(),
-        description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories. Use only for new files or complete rewrites.".to_string(),
-        parameters: vec![
-            ToolParameter{
-                name: "path".to_string(),
-                param_type: "string".to_string(),
-                description: "Path to the file to write (relative or absolute)".to_string(),
-            },
-            ToolParameter{
-                name: "content".to_string(),
-                param_type: "string".to_string(),
-                description: "Content to write to the file".to_string(),
-            },
-        ],
-        required_parameters: vec!["path".to_string(), "content".to_string()],
-    }
 }
 
 /// Tool: Read a file
