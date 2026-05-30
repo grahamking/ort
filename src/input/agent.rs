@@ -28,7 +28,7 @@ use crate::{
     input::prompt::ActivePrompt,
     output::{
         last_writer::LastWriter,
-        writer::{ConsoleWriter, OutputWriter},
+        writer::{AgentWriter, OutputWriter},
     },
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
     utils,
@@ -58,9 +58,7 @@ pub fn run<W: Write + Send>(
         IN_MOVED_TO | IN_CLOSE_WRITE,
     );
 
-    // Show reasoning: false, quiet (don't show stats): true
-    // TODO: We need an AgentWriter, needs to output differently
-    let mut output_writer = ConsoleWriter::new(w_core, false, true);
+    let mut output_writer = AgentWriter::new(w_core);
 
     while let Some(prompt) = next_prompt(opts.prompt.take(), ifd, &filename)? {
         output_writer.write(Response::Prompt(prompt.clone()))?;
@@ -128,7 +126,7 @@ fn run_single<W: Write + Send>(
     site: &'static Site,
     messages: &mut Vec<Message>,
     tools: &[&'static Tool],
-    output_writer: &mut ConsoleWriter<W>,
+    output_writer: &mut AgentWriter<W>,
 ) -> OrtResult<bool> {
     let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
     let mut active_prompt = ActivePrompt::new(
@@ -261,7 +259,8 @@ fn run_tool_write(params: &str) -> OrtResult<String> {
     let end = params.path.len();
     c_path[..end].copy_from_slice(params.path.as_bytes());
     let mut target = unsafe { File::create(&c_path[..end + 1])? }; // + 1 for null byte
-    target.write(params.content.as_bytes())?;
+    let num_bytes = target.write(params.content.as_bytes())?;
+    let num_bytes_s = utils::num_to_string(num_bytes);
 
-    Ok("Successfully wrote to ".to_string() + &params.path)
+    Ok("Successfully wrote ".to_string() + &num_bytes_s + " bytes to " + &params.path)
 }

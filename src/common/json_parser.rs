@@ -634,7 +634,7 @@ impl<'a> Parser<'a> {
                 }
                 i += 1;
                 if i >= len {
-                    return Err("bad escape".into());
+                    return Err("wrong length parsing escape".into());
                 }
                 let e = self.b[i];
                 match e {
@@ -655,7 +655,13 @@ impl<'a> Parser<'a> {
                             return Err("invalid unicode".into());
                         }
                     }
-                    _ => return Err("bad escape".into()),
+                    0 => { // skip null bytes
+                    }
+                    _ => {
+                        //let x_s = crate::utils::num_to_string(x);
+                        //crate::utils::print_string(c"Unhandled escape: ", &x_s);
+                        return Err("unhandled escape".into());
+                    }
                 }
                 i += 1;
                 seg_start = i;

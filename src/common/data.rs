@@ -209,6 +209,10 @@ impl ToolCall {
             function: Function::from_json(&function_json)?,
         })
     }
+
+    pub fn as_string(&self) -> String {
+        self.function.name.clone() + ": " + &self.function.arguments
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1259,5 +1263,20 @@ mod tests {
         assert_eq!(msg.content.len(), 2);
         assert_eq!(msg.content[0].text(), Some("Hello"));
         assert_eq!(msg.content[1].text(), Some(" there"));
+    }
+
+    #[test]
+    fn parse_bash_command_null_bytes() {
+        let mut json = r#"{"command":"apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: CODE_OF_CONDUCT.md\n@@\n The community values respectful and constructive communication at all times.\n+\n+We encourage empathy: strive to understand others' perspectives and experiences, and respond with kindness and consideration.\n*** End Patch\nPATCH"}"#.to_string();
+        for b in unsafe { json.as_bytes_mut().iter_mut() } {
+            if *b == b'@' {
+                *b = 0;
+            }
+        }
+
+        let mut fields = [JsonField::new_string("command")];
+        autoparser(&json, &mut fields).unwrap();
+        let cmd = fields[0].get_string().expect("Missing 'command' field");
+        assert!(cmd.contains("empathy"));
     }
 }

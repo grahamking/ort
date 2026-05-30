@@ -33,7 +33,6 @@ pub enum ErrorKind {
     // Output & streaming
     //
     StdoutWriteFailed,
-    QueueDesync,
     // OpenRouter did not return usage stats
     MissingUsageStats,
     ResponseStreamError,
@@ -133,7 +132,6 @@ impl ErrorKind {
             ErrorKind::HistoryLookupFailed => "HistoryLookupFailed",
             ErrorKind::InvalidMessageSchema => "InvalidMessageSchema",
             ErrorKind::StdoutWriteFailed => "StdoutWriteFailed",
-            ErrorKind::QueueDesync => "QueueDesync",
             ErrorKind::MissingUsageStats => "MissingUsageStats",
             ErrorKind::ResponseStreamError => "ResponseStreamError",
             ErrorKind::LastWriterError => "LastWriterError",

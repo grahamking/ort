@@ -152,12 +152,8 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
-            Response::Prompt(prompt) => {
-                let _ = self.writer.write(BG_GRAY);
-                let _ = self.writer.write(prompt.as_bytes());
-                let _ = self.writer.write(RESET);
-                let _ = self.writer.write(b"\n");
-                let _ = self.writer.flush();
+            Response::Prompt(_prompt) => {
+                // Prompt not displayed in chat mode
             }
             Response::Error(err_string) => {
                 let _ = self.writer.write(CURSOR_ON);
@@ -168,10 +164,11 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
                 utils::print_string(c"\nERROR: ", &err_string);
                 return Err(ort_error(
                     ErrorKind::ResponseStreamError,
-                    "OpenRouter returned an error",
+                    "Remote returned an error",
                 ));
             }
             Response::None => {
+                // TODO: Can this still happen?
                 panic!("Response::None means we read the wrong Queue position");
             }
         }
@@ -244,10 +241,8 @@ impl<'a, W: Write + Send> OutputWriter for FileWriter<'a, W> {
                 ));
             }
             Response::None => {
-                return Err(ort_error(
-                    ErrorKind::QueueDesync,
-                    "Response::None means we read the wrong Queue position",
-                ));
+                // TODO: Can this still happen?
+                panic!("Response::None means we read the wrong Queue position");
             }
         }
         Ok(())
@@ -294,7 +289,7 @@ impl OutputWriter for CollectedWriter {
                 self.contents.push_str(&content);
             }
             Response::ToolCalls(_tool_calls) => {
-                // Agent mode won't use CollectedWriter
+                // No ToolCalls when using CollectedWriter
             }
             Response::Stats(stats) => {
                 self.got_stats = Some(stats);
@@ -308,10 +303,8 @@ impl OutputWriter for CollectedWriter {
                 ));
             }
             Response::None => {
-                return Err(ort_error(
-                    ErrorKind::QueueDesync,
-                    "Response::None means we read the wrong Queue position",
-                ));
+                // TODO: Can this still happen?
+                panic!("Response::None means we read the wrong Queue position");
             }
         }
         Ok(())
@@ -326,6 +319,76 @@ impl OutputWriter for CollectedWriter {
         out.push_str(&self.contents);
 
         self.output = Some(out);
+        Ok(())
+    }
+}
+
+pub struct AgentWriter<'a, W: Write + Send> {
+    pub writer: &'a mut W,
+}
+
+impl<'a, W: Write + Send> AgentWriter<'a, W> {
+    pub fn new(writer: &'a mut W) -> AgentWriter<'a, W> {
+        Self { writer }
+    }
+}
+
+impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
+    fn write(&mut self, data: Response) -> OrtResult<()> {
+        match data {
+            Response::Start => {}
+            Response::Think(think) => match think {
+                ThinkEvent::Start => {
+                    let _ = self.writer.write_char('\n');
+                }
+                ThinkEvent::Content(s) => {
+                    let _ = self.writer.write_all(s.as_bytes());
+                    let _ = self.writer.flush();
+                }
+                ThinkEvent::Stop => {
+                    let _ = self.writer.write_char('\r');
+                }
+            },
+            Response::Content(content) => {
+                let _ = self.writer.write_all(content.as_bytes());
+            }
+            Response::ToolCalls(tool_calls) => {
+                for t in tool_calls {
+                    let _ = self.writer.write_char('\n');
+                    let _ = self.writer.write(t.as_string().as_bytes());
+                    let _ = self.writer.write_char('\n');
+                    let _ = self.writer.flush();
+                }
+            }
+            Response::Stats(_stats) => {}
+            Response::Prompt(prompt) => {
+                let _ = self.writer.write(BG_GRAY);
+                let _ = self.writer.write(prompt.as_bytes());
+                let _ = self.writer.write(RESET);
+                let _ = self.writer.write(b"\n");
+                let _ = self.writer.flush();
+            }
+            Response::Error(mut err_string) => {
+                if err_string.contains(ERR_RATE_LIMITED) {
+                    return Err(ort_error(ErrorKind::RateLimited, ""));
+                }
+                let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
+                syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
+                return Err(ort_error(
+                    ErrorKind::ResponseStreamError,
+                    "Remote returned an error",
+                ));
+            }
+            Response::None => {
+                // TODO: Can this still happen?
+                panic!("Response::None means we read the wrong Queue position");
+            }
+        }
+        Ok(())
+    }
+
+    fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
+        let _ = self.writer.write(b"\n");
         Ok(())
     }
 }

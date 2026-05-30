@@ -126,10 +126,8 @@ impl OutputWriter for LastWriter {
                 ));
             }
             Response::None => {
-                return Err(ort_error(
-                    ErrorKind::QueueDesync,
-                    "Response::None means we read the wrong Queue position",
-                ));
+                // TODO: Can this still happen?
+                panic!("Response::None means we read the wrong Queue position");
             }
         }
         Ok(())
