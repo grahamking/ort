@@ -160,7 +160,7 @@ mod tests {
     use super::*;
     use crate::{
         LastData, ThinkEvent,
-        common::{data::ALL_TOOLS, stats},
+        common::{stats, tools::ALL_TOOLS},
         utils::num_to_string,
     };
 

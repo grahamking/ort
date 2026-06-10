@@ -463,7 +463,7 @@ mod tests {
 
     use super::*;
     use crate::ReasoningConfig;
-    use crate::common::data::ALL_TOOLS;
+    use crate::common::tools::ALL_TOOLS;
 
     #[test]
     fn test_build_body() {

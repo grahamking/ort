@@ -28,60 +28,6 @@ pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
 
 const MIME_TYPES: [(&str, &str); 2] = [("jpg", "image/jpeg"), ("png", "image/png")];
 
-pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE];
-
-const TOOL_READ: Tool = Tool {
-    name: "read",
-    description: "Read the contents of a text file.",
-    parameters: &[
-        ToolParameter {
-            name: "path",
-            param_type: "string",
-            description: "Path to the file to read (relative or absolute)",
-        },
-        ToolParameter {
-            name: "offset",
-            param_type: "number",
-            description: "Line number to start reading from (1-indexed)",
-        },
-        ToolParameter {
-            name: "limit",
-            param_type: "number",
-            description: "Maximum number of lines to read",
-        },
-    ],
-    required_parameters: &["path"],
-};
-
-const TOOL_BASH: Tool = Tool {
-    name: "bash",
-    description: "Execute a bash command in the current working directory. Returns stdout and stderr.",
-    parameters: &[ToolParameter {
-        name: "command",
-        param_type: "string",
-        description: "Bash command to execute",
-    }],
-    required_parameters: &["command"],
-};
-
-const TOOL_WRITE: Tool = Tool {
-    name: "write",
-    description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories. Use only for new files or complete rewrites.",
-    parameters: &[
-        ToolParameter {
-            name: "path",
-            param_type: "string",
-            description: "Path to the file to write (relative or absolute)",
-        },
-        ToolParameter {
-            name: "content",
-            param_type: "string",
-            description: "Content to write to the file",
-        },
-    ],
-    required_parameters: &["path", "content"],
-};
-
 // {
 //  "id":"gen-1756743299-7ytIBcjALWQQShwMQfw9",
 //  "provider":"Meta",
@@ -960,7 +906,10 @@ pub struct Tool {
 // Later we likely will use all of it an use autoparser.
 impl Tool {
     pub fn find_by_name(name: &str) -> Option<&'static Tool> {
-        ALL_TOOLS.iter().find(|t| t.name == name).map(|v| &**v)
+        super::tools::ALL_TOOLS
+            .iter()
+            .find(|t| t.name == name)
+            .map(|v| &**v)
     }
 
     pub fn from_json(json: &str) -> Result<&'static Self, Cow<'static, str>> {
