@@ -423,6 +423,9 @@ impl ActivePrompt {
                 return Err(ort_error(ErrorKind::Other, "build body"));
             }
         };
+        if let Some(l) = self.logger.as_mut() {
+            l.log(&body);
+        }
         self.start = Some(time::Ticks::now());
         let addr = if self.dns.is_empty() {
             let ip = match unsafe { resolver::resolve(self.site.dns_label) } {

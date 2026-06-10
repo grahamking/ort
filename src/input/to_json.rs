@@ -314,8 +314,15 @@ impl ToolCall {
 }
 
 pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
+    if data.content.is_empty() && data.reasoning.is_none() && data.tool_calls.is_empty() {
+        return Ok(());
+    }
     w.write_str("{\"role\":")?;
     write_json_str_simple(w, data.role.as_str())?;
+    if let Some(tool_call_id) = &data.tool_call_id {
+        w.write_str(",\"tool_call_id\":")?;
+        write_json_str_simple(w, tool_call_id)?;
+    }
     match (&data.content, &data.reasoning) {
         (content, Some(_)) if !content.is_empty() => {
             return Err(ort_error(
@@ -350,6 +357,14 @@ pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> 
             }
         }
     }
+    if !data.tool_calls.is_empty() {
+        w.write_str(",\"tool_calls\": [")?;
+        for tc in &data.tool_calls {
+            tc.write_json(w)?;
+        }
+        w.write_char(']')?;
+    }
+
     w.write_char('}')?;
     Ok(())
 }

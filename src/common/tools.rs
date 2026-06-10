@@ -13,7 +13,7 @@ use crate::common::{
     json_parser::{JsonField, autoparser},
 };
 
-pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE];
+pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE, &TOOL_EDIT];
 
 const TOOL_READ: Tool = Tool {
     name: "read",
@@ -65,6 +65,35 @@ const TOOL_WRITE: Tool = Tool {
         },
     ],
     required_parameters: &["path", "content"],
+};
+
+const TOOL_EDIT: Tool = Tool {
+    name: "edit",
+    description: "Edit a file by replacing an exact old_text span with new_text. Fails if old_text is not found exactly once unless replace_all is true or expected_occurrences is provi
+ded.",
+    parameters: &[
+        ToolParameter {
+            name: "path",
+            param_type: "string",
+            description: "Path to the file to edit.",
+        },
+        ToolParameter {
+            name: "old_text",
+            param_type: "string",
+            description: "Exact text to find in the file.",
+        },
+        ToolParameter {
+            name: "new_text",
+            param_type: "string",
+            description: "Replacement text.",
+        },
+        ToolParameter {
+            name: "replace_all",
+            param_type: "boolean",
+            description: "If true, replace all matches of old_text. Defaults to false, meaning only replace the first match.",
+        },
+    ],
+    required_parameters: &["path", "old_text", "new_text"],
 };
 
 pub struct ReadTool {
@@ -124,6 +153,36 @@ impl WriteTool {
         Ok(WriteTool {
             path: fields[0].get_string().expect("Missing WriteTool path"),
             content: fields[1].get_string().expect("Missing WriteTool content"),
+        })
+    }
+}
+
+pub struct EditTool {
+    pub path: String,
+    pub old_text: String,
+    pub new_text: String,
+    pub replace_all: bool,
+}
+
+impl EditTool {
+    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+        // Example JSON:
+        // { "path": "LICENSE",
+        //   "old_text": "Copyright (c) 2025 Graham King",
+        //   "new_text": "Copyright (c) 2025, 2026 Graham King"
+        // }
+        let mut fields = [
+            JsonField::new_simple_string("path"),
+            JsonField::new_string("old_text"),
+            JsonField::new_string("new_text"),
+            JsonField::new_bool("replace_all"),
+        ];
+        autoparser(json, &mut fields)?;
+        Ok(EditTool {
+            path: fields[0].get_string().expect("Missing EditTool path"),
+            old_text: fields[1].get_string().expect("Missing EditTool old_text"),
+            new_text: fields[2].get_string().expect("Missing EditTool new_text"),
+            replace_all: fields[3].get_bool().unwrap_or(false),
         })
     }
 }

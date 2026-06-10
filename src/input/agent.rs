@@ -16,6 +16,7 @@ use core::{ffi::c_void, mem::MaybeUninit};
 use crate::common::file::File;
 use crate::common::tools::ALL_TOOLS;
 use crate::common::tools::BashTool;
+use crate::common::tools::EditTool;
 use crate::common::tools::ReadTool;
 use crate::common::tools::WriteTool;
 use crate::ort_error;
@@ -157,6 +158,9 @@ fn run_single<W: Write + Send>(
                             assistant_message.push_str(content);
                         }
                         Response::ToolCalls(tool_calls) => {
+                            if tool_calls.is_empty() {
+                                continue;
+                            }
                             // We must send this back in the assistant message
                             assistant_tool_calls = Some(tool_calls.clone());
 
@@ -174,6 +178,11 @@ fn run_single<W: Write + Send>(
                                     }
                                     "write" => {
                                         let res = run_tool_write(&tool_call.function.arguments)?;
+                                        tool_call_results
+                                            .push((tool_call.id.clone().unwrap(), res));
+                                    }
+                                    "edit" => {
+                                        let res = run_tool_edit(&tool_call.function.arguments)?;
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), res));
                                     }
@@ -263,4 +272,29 @@ fn run_tool_write(params: &str) -> OrtResult<String> {
     let num_bytes_s = utils::num_to_string(num_bytes);
 
     Ok("Successfully wrote ".to_string() + &num_bytes_s + " bytes to " + &params.path)
+}
+
+fn run_tool_edit(params: &str) -> OrtResult<String> {
+    //crate::utils::print_string(c"\nedit: ", params);
+
+    let params = EditTool::from_json(params)
+        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing edit tool params JSON"))?;
+
+    let mut content = utils::filename_read_to_string(&params.path)
+        .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
+    let Some(idx) = content.find(&params.old_text) else {
+        return Ok("old_text not found in ".to_string() + &params.path);
+    };
+    if params.replace_all {
+        content = content.replace(&params.old_text, &params.new_text);
+    } else {
+        content.replace_range(idx..idx + params.old_text.len(), &params.new_text);
+    }
+
+    let c_path = CString::new(params.path.as_str())
+        .map_err(|_err| ort_error(ErrorKind::Other, "Edit path contains nul byte"))?;
+    let mut target = unsafe { File::create(c_path.as_bytes_with_nul())? };
+    target.write(content.as_bytes())?;
+
+    Ok(r#"{ "success": true, "files_changed": [""#.to_string() + &params.path + r#""] }"#)
 }
