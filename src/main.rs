@@ -102,6 +102,7 @@ fn main() -> std::process::ExitCode {
 
     let env = cli::Env {
         HOME: env_str!("HOME"),
+        PWD: env_str!("PWD"),
         TMUX_PANE: env_str!("TMUX_PANE"),
         XDG_CONFIG_HOME: env_str!("XDG_CONFIG_HOME"),
         XDG_CACHE_HOME: env_str!("XDG_CACHE_HOME"),
@@ -166,6 +167,7 @@ fn collect_env(mut envp: *const *const core::ffi::c_char) -> cli::Env {
             let value = parts.next().unwrap();
             match key {
                 "HOME" => env.HOME = Some(value),
+                "PWD" => env.PWD = Some(value),
                 "TMUX_PANE" => env.TMUX_PANE = Some(value),
                 "XDG_CONFIG_HOME" => env.XDG_CONFIG_HOME = Some(value),
                 "XDG_CACHE_HOME" => env.XDG_CACHE_HOME = Some(value),

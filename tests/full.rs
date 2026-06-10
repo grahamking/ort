@@ -99,6 +99,7 @@ fn env() -> Env {
     }
     cli::Env {
         HOME: env_str!("HOME"),
+        PWD: env_str!("PWD"),
         TMUX_PANE: env_str!("TMUX_PANE"),
         XDG_CONFIG_HOME: env_str!("XDG_CONFIG_HOME"),
         XDG_CACHE_HOME: env_str!("XDG_CACHE_HOME"),

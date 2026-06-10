@@ -12,13 +12,14 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::OrtError;
 use crate::Priority;
 use crate::PromptOpts;
 use crate::ReasoningConfig;
 use crate::ReasoningEffort;
+use crate::cli::Env;
 use crate::common::utils;
 use crate::{ErrorKind, ort_error};
+use crate::{OrtError, syscall};
 
 const MAX_CONCURRENT_MODELS: usize = 10;
 
@@ -37,7 +38,11 @@ pub enum Cmd {
     ContinueConversation(crate::PromptOpts),
 }
 
-pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, ArgParseError> {
+pub fn parse_prompt_args(
+    args: &[String],
+    stdin: Option<String>,
+    env: &Env,
+) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
     // or default.
     let mut prompt_parts: Vec<String> = Vec::new();
@@ -221,9 +226,26 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     if let Some(system_prompt) = system.as_ref()
         && system_prompt.bytes().next() == Some(FILE_INDICATOR)
     {
-        system = Some(
-            utils::filename_read_to_string(&system_prompt[1..]).map_err(ArgParseError::new_str)?,
-        );
+        let mut sp = utils::filename_read_to_string(&system_prompt[1..])
+            .map_err(|err| ArgParseError::new("System prompt file: ".to_string() + err))?;
+        // System prompt variable substitution. PWD is current working directory.
+        if let Some(pwd) = env.PWD {
+            sp = sp.replace("$PWD", pwd);
+        }
+        // This one is more expensive so only do it if necessary
+        if sp.contains("$DATE") {
+            // Shelling to `date` is much simpler and shorter than converting kernel clock
+            match syscall::system("date") {
+                Ok(current_date) => sp = sp.replace("$DATE", &current_date),
+                Err(err) => {
+                    return Err(ArgParseError::new(
+                        "Failed running `date` to substitute $DATE in system prompt: ".to_string()
+                            + &err.as_string(),
+                    ));
+                }
+            };
+        }
+        system = Some(sp);
     }
 
     let prompt_opts = PromptOpts {
@@ -306,7 +328,11 @@ impl From<ArgParseError> for OrtError {
         let _ = err;
         match err.s {
             Cow::Borrowed(static_str) => ort_error(ErrorKind::InvalidArguments, static_str),
-            Cow::Owned(_owned_str) => ort_error(ErrorKind::InvalidArguments, ""),
+            Cow::Owned(owned_str) => {
+                // TODO: OrtError must be able to hold a String
+                crate::utils::print_string(c"ArgParseError: ", &owned_str);
+                ort_error(ErrorKind::InvalidArguments, "See above")
+            }
         }
     }
 }

@@ -41,6 +41,7 @@ pub fn print_usage() {
 #[derive(Default)]
 pub struct Env {
     pub HOME: Option<&'static str>,
+    pub PWD: Option<&'static str>,
     pub TMUX_PANE: Option<&'static str>,
     pub XDG_CONFIG_HOME: Option<&'static str>,
     pub XDG_CACHE_HOME: Option<&'static str>,
@@ -48,7 +49,7 @@ pub struct Env {
     pub NVIDIA_API_KEY: Option<&'static str>,
 }
 
-fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
+fn parse_args(args: &[String], env: &Env) -> Result<args::Cmd, args::ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
         return Err(args::ArgParseError::show_help());
@@ -65,7 +66,7 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
         } else {
             None
         };
-        args::parse_prompt_args(args, stdin)
+        args::parse_prompt_args(args, stdin, env)
     }
 }
 
@@ -104,7 +105,7 @@ pub fn main<W: Write + Send>(
         }
     };
 
-    let cmd = match parse_args(args) {
+    let cmd = match parse_args(args, &env) {
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
             print_usage();
