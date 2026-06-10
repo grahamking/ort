@@ -164,6 +164,25 @@ No reasoning:
 - qwen/qwen3-235b-a22b-07-25
 - moonshotai/kimi-k2-0905
 
+# Agent mode (experimental)
+
+`ort` has an experimental agent mode. This provides the model with some basic tools: read, write, edit and bash.
+
+Usage:
+```
+ort agent -r medium -m openai/gpt-5.4-mini -s @agent_system_prompt.txt @/home/graham/prompt
+```
+
+So far I have only tested it with `openai/gpt-5.4-mini` and `openai/gpt-oss-120b:exacto`.
+
+The `agent_system_prompt.txt` is in the root of this repo. Feel free to tune it.
+
+The `prompt` file is the initial prompt (the `@` is required here). We then watch (with `inotify`) that file for a change, which is the next prompt. So instead of a CLI, the interface is that `prompt` file that you edit with your own editor, and on save the new prompt is sent to the agent. Stdout shows the agent output.
+
+The philosophy is that I already have a very good editor (`nvim`) and window manager (`tmux`) so I don't need the agent CLI to provide these. Run `ort agent` in tmux, split the window vertically about 80 / 20, and run `vim /home/graham/prompt` in the bottom 20%.
+
+WARNING: Always run agents in a sandbox (I like `firejail`). The ort agent never asks you for confirmation and does not sandbox for you.
+
 # Misc
 
 ## My shortcuts (Nov 2025)
