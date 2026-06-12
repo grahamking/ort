@@ -13,6 +13,8 @@ use alloc::vec::Vec;
 
 use core::{ffi::c_void, mem::MaybeUninit};
 
+use crate::Role;
+use crate::common::data::Content;
 use crate::common::file::File;
 use crate::common::tools::ALL_TOOLS;
 use crate::common::tools::BashTool;
@@ -59,13 +61,44 @@ pub fn run<W: Write + Send>(
         IN_MOVED_TO | IN_CLOSE_WRITE,
     );
 
+    if let Ok(agents_md) = utils::filename_read_to_string("AGENTS.md") {
+        match messages.first_mut() {
+            Some(Message {
+                role: Role::System,
+                content: content_vec,
+                ..
+            }) => {
+                match content_vec.first_mut() {
+                    Some(Content::Text(s)) => {
+                        // Append AGENTS.md body
+                        s.push('\n');
+                        s.push_str(&agents_md);
+                    }
+                    _ => {
+                        return Err(ort_error(ErrorKind::MissingSystemPrompt, "No content"));
+                    }
+                }
+            }
+            _ => {
+                return Err(ort_error(
+                    ErrorKind::MissingSystemPrompt,
+                    "No system prompt",
+                ));
+            }
+        }
+    }
+
+    let mut is_first = true; // First prompt was added in `input/cli.rs::main`.
     let mut output_writer = AgentWriter::new(w_core);
 
     while let Some(prompt) = next_prompt(opts.prompt.take(), ifd, &filename)? {
         output_writer.write(Response::Prompt(prompt.clone()))?;
 
         // Add the new prompt to the conversation
-        messages.push(Message::user(prompt));
+        if !is_first {
+            messages.push(Message::user(prompt));
+            is_first = false;
+        }
 
         let mut has_tool_call = true;
         while has_tool_call {

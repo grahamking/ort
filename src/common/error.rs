@@ -20,6 +20,7 @@ pub enum ErrorKind {
     // Failed to read config file
     ConfigReadFailed,
     MissingHomeDir,
+    MissingSystemPrompt,
 
     // Conversation/history
     HistoryMissing,
@@ -126,6 +127,7 @@ impl ErrorKind {
             ErrorKind::ConfigParseFailed => "ConfigParseFailed",
             ErrorKind::ConfigReadFailed => "ConfigReadFailed",
             ErrorKind::MissingHomeDir => "MissingHomeDir",
+            ErrorKind::MissingSystemPrompt => "MissingSystemPrompt",
             ErrorKind::HistoryMissing => "HistoryMissing",
             ErrorKind::HistoryParseFailed => "HistoryParseFailed",
             ErrorKind::HistoryReadFailed => "HistoryReadFailed",
