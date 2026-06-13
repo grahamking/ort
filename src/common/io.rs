@@ -6,6 +6,7 @@
 //!
 
 extern crate alloc;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::{ErrorKind, OrtResult, ort_error};
@@ -65,6 +66,19 @@ pub trait Write {
         Ok(())
     }
     */
+}
+
+impl Write for String {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
+        unsafe {
+            self.as_mut_vec().extend_from_slice(buf);
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> OrtResult<()> {
+        Ok(())
+    }
 }
 
 impl Write for Vec<u8> {

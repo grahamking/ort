@@ -418,7 +418,7 @@ pub(crate) fn write_json_str_simple<W: Write>(w: &mut W, s: &str) -> OrtResult<(
 }
 
 // Writes a JSON string (with surrounding quotes) with proper escaping, no allocations.
-fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
+pub fn write_json_str<W: Write>(w: &mut W, s: &str) -> OrtResult<()> {
     w.write_char('"')?;
     write_encoded_bytes(w, s.as_bytes())?;
     w.write_char('"')?;

@@ -14,7 +14,7 @@ use alloc::{ffi::CString, string::String, vec::Vec};
 use crate::{ErrorKind, OrtResult, ort_error};
 use core::{
     arch::asm,
-    ffi::{CStr, c_char, c_int, c_long, c_uchar, c_ushort, c_void},
+    ffi::{CStr, c_char, c_int, c_long, c_short, c_uchar, c_ushort, c_void},
     mem::MaybeUninit,
 };
 
@@ -46,6 +46,7 @@ const SYS_WRITE: u32 = 1;
 const SYS_OPEN: u32 = 2;
 const SYS_CLOSE: u32 = 3;
 const SYS_FSTAT: u32 = 5;
+const SYS_POLL: u32 = 7;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_IOCTL: u32 = 16;
@@ -111,6 +112,13 @@ pub const MAP_STACK: c_int = 0x020000;
 
 pub const F_SETFL: c_int = 4;
 const TCGETS: usize = 0x5401;
+const POLLIN: c_short = 0x001;
+
+pub struct ProcessOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: u32,
+}
 
 #[repr(C)]
 pub struct in_addr {
@@ -179,6 +187,13 @@ pub struct inotify_event {
     pub cookie: u32,              // Unique cookie associating related events (for rename(2))
     pub len: u32,                 // Size of name field
     pub name: [c_char; NAME_MAX], // Optional null-terminated name
+}
+
+#[repr(C)]
+struct pollfd {
+    fd: c_int,
+    events: c_short,
+    revents: c_short,
 }
 
 // Fill buf with random numbers.
@@ -378,6 +393,22 @@ pub fn close(fd: i32) -> i32 {
              lateout("rcx") _,
              lateout("r11") _,
              options(nostack, nomem),
+        );
+    }
+    ret
+}
+
+fn poll(fds: *mut pollfd, nfds: size_t, timeout: c_int) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_POLL => ret,
+            in("rdi") fds,
+            in("rsi") nfds,
+            in("edx") timeout,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
         );
     }
     ret
@@ -666,7 +697,7 @@ pub fn waitpid(pid: pid_t, status: *mut c_int, options: c_int) -> pid_t {
     ret
 }
 
-pub fn system(command: &str) -> OrtResult<String> {
+pub fn system(command: &str) -> OrtResult<ProcessOutput> {
     const STDOUT_FILENO: c_int = 1;
     const STDERR_FILENO: c_int = 2;
 
@@ -675,27 +706,42 @@ pub fn system(command: &str) -> OrtResult<String> {
     let (env_bytes, envp) = current_envp();
     let bash_path = find_bash(envp.as_ptr())?;
 
-    let mut pipefd = [0 as c_int; 2];
-    if pipe2(pipefd.as_mut_ptr(), O_CLOEXEC) < 0 {
+    let mut stdout_pipe = [0 as c_int; 2];
+    if pipe2(stdout_pipe.as_mut_ptr(), O_CLOEXEC) < 0 {
+        return Err(ort_error(ErrorKind::Other, "system pipe2 failed"));
+    }
+
+    let mut stderr_pipe = [0 as c_int; 2];
+    if pipe2(stderr_pipe.as_mut_ptr(), O_CLOEXEC) < 0 {
+        let _ = close(stdout_pipe[0]);
+        let _ = close(stdout_pipe[1]);
         return Err(ort_error(ErrorKind::Other, "system pipe2 failed"));
     }
 
     let pid = fork();
     if pid < 0 {
-        let _ = close(pipefd[0]);
-        let _ = close(pipefd[1]);
+        let _ = close(stdout_pipe[0]);
+        let _ = close(stdout_pipe[1]);
+        let _ = close(stderr_pipe[0]);
+        let _ = close(stderr_pipe[1]);
         return Err(ort_error(ErrorKind::Other, "system fork failed"));
     }
 
     if pid == 0 {
-        let _ = close(pipefd[0]);
-        if dup2(pipefd[1], STDOUT_FILENO) < 0 {
+        let _ = close(stdout_pipe[0]);
+        let _ = close(stderr_pipe[0]);
+        if dup2(stdout_pipe[1], STDOUT_FILENO) < 0 {
             exit(127);
         }
-        if dup2(pipefd[1], STDERR_FILENO) < 0 {
+        if dup2(stderr_pipe[1], STDERR_FILENO) < 0 {
             exit(127);
         }
-        let _ = close(pipefd[1]);
+        if stdout_pipe[1] != STDOUT_FILENO && stdout_pipe[1] != STDERR_FILENO {
+            let _ = close(stdout_pipe[1]);
+        }
+        if stderr_pipe[1] != STDOUT_FILENO && stderr_pipe[1] != STDERR_FILENO {
+            let _ = close(stderr_pipe[1]);
+        }
 
         let argv = [
             c"bash".as_ptr(),
@@ -707,48 +753,129 @@ pub fn system(command: &str) -> OrtResult<String> {
         exit(127);
     }
 
-    let _ = close(pipefd[1]);
+    let _ = close(stdout_pipe[1]);
+    let _ = close(stderr_pipe[1]);
 
     // The child stays in the parent's foreground process group, so terminal
     // Ctrl-C is delivered to the shell by the kernel's default job control.
-    let mut output = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let bytes_read = read(pipefd[0], buf.as_mut_ptr().cast(), buf.len());
-        if bytes_read > 0 {
-            output.extend_from_slice(&buf[..bytes_read as usize]);
-        } else if bytes_read == 0 {
-            break;
-        } else if bytes_read == EINTR {
-            continue;
-        } else {
-            let _ = close(pipefd[0]);
+    let (stdout, stderr) = match read_child_pipes(stdout_pipe[0], stderr_pipe[0]) {
+        Ok(output) => output,
+        Err(err) => {
             let _ = wait_for_child(pid);
-            return Err(ort_error(ErrorKind::Other, "system read failed"));
+            return Err(err);
         }
-    }
-    let _ = close(pipefd[0]);
+    };
 
-    wait_for_child(pid)?;
+    let exit_code = wait_for_child(pid)?;
 
     // Keep the environment backing storage alive until after the child execs.
     let _ = env_bytes.len();
     let _ = bash_path.as_bytes().len();
 
-    Ok(String::from_utf8_lossy(&output).into_owned())
+    Ok(ProcessOutput {
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        exit_code,
+    })
 }
 
-fn wait_for_child(pid: pid_t) -> OrtResult<()> {
+fn read_child_pipes(stdout_fd: c_int, stderr_fd: c_int) -> OrtResult<(Vec<u8>, Vec<u8>)> {
+    let mut fds = [
+        pollfd {
+            fd: stdout_fd,
+            events: POLLIN,
+            revents: 0,
+        },
+        pollfd {
+            fd: stderr_fd,
+            events: POLLIN,
+            revents: 0,
+        },
+    ];
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut buf = [0u8; 4096];
+    let mut open_fds = 2;
+
+    while open_fds > 0 {
+        let num_ready = poll(fds.as_mut_ptr(), fds.len(), -1);
+        if num_ready < 0 {
+            if num_ready == EINTR {
+                continue;
+            }
+            close_poll_fds(&mut fds);
+            return Err(ort_error(ErrorKind::Other, "system poll failed"));
+        }
+
+        for idx in 0..fds.len() {
+            if fds[idx].fd < 0 || fds[idx].revents == 0 {
+                continue;
+            }
+
+            let output = if idx == 0 { &mut stdout } else { &mut stderr };
+            match read_ready_fd(fds[idx].fd, output, &mut buf) {
+                Ok(true) => {
+                    let _ = close(fds[idx].fd);
+                    fds[idx].fd = -1;
+                    open_fds -= 1;
+                }
+                Ok(false) => {
+                    fds[idx].revents = 0;
+                }
+                Err(err) => {
+                    close_poll_fds(&mut fds);
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    Ok((stdout, stderr))
+}
+
+fn read_ready_fd(fd: c_int, output: &mut Vec<u8>, buf: &mut [u8; 4096]) -> OrtResult<bool> {
+    let bytes_read = read(fd, buf.as_mut_ptr().cast(), buf.len());
+    if bytes_read > 0 {
+        output.extend_from_slice(&buf[..bytes_read as usize]);
+        Ok(false)
+    } else if bytes_read == 0 {
+        Ok(true)
+    } else if bytes_read == EINTR {
+        Ok(false)
+    } else {
+        Err(ort_error(ErrorKind::Other, "system read failed"))
+    }
+}
+
+fn close_poll_fds(fds: &mut [pollfd; 2]) {
+    for fd in fds {
+        if fd.fd >= 0 {
+            let _ = close(fd.fd);
+            fd.fd = -1;
+        }
+    }
+}
+
+fn wait_for_child(pid: pid_t) -> OrtResult<u32> {
     let mut status = 0;
     loop {
         let ret = waitpid(pid, &mut status, 0);
         if ret == pid {
-            return Ok(());
+            return Ok(exit_code_from_wait_status(status));
         }
         if ret == EINTR {
             continue;
         }
         return Err(ort_error(ErrorKind::Other, "system waitpid failed"));
+    }
+}
+
+fn exit_code_from_wait_status(status: c_int) -> u32 {
+    let signal = status & 0x7f;
+    if signal == 0 {
+        ((status >> 8) & 0xff) as u32
+    } else {
+        (128 + signal) as u32
     }
 }
 
@@ -830,12 +957,14 @@ pub fn exit(exit_code: i32) -> ! {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn system_captures_stdout_and_stderr() {
-        let out = match super::system("printf out; printf err >&2") {
+    fn system_captures_stdout_stderr_and_exit_code() {
+        let out = match super::system("printf out; printf err >&2; exit 7") {
             Ok(out) => out,
             Err(err) => panic!("{}", err.as_string()),
         };
-        assert_eq!(out, "outerr");
+        assert_eq!(out.stdout, "out");
+        assert_eq!(out.stderr, "err");
+        assert_eq!(out.exit_code, 7);
     }
 
     /*

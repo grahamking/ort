@@ -236,7 +236,7 @@ pub fn parse_prompt_args(
         if sp.contains("$DATE") {
             // Shelling to `date` is much simpler and shorter than converting kernel clock
             match syscall::system("date") {
-                Ok(current_date) => sp = sp.replace("$DATE", &current_date),
+                Ok(current_date) => sp = sp.replace("$DATE", &current_date.stdout),
                 Err(err) => {
                     return Err(ArgParseError::new(
                         "Failed running `date` to substitute $DATE in system prompt: ".to_string()

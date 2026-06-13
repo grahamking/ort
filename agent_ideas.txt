@@ -1,0 +1,24 @@
+. Read tool
+
+Take optional start_line and end_line.
+
+Prefix every line with the line number
+
+Detect binary files (how?)
+
+Trim large files to "[... Output truncated to X characters ...]"
+
+. bash tool
+
+hard block some commands, see email
+ - "rm -rf"
+ - "sudo"
+ - " | sh" and " | bash"
+
+Trim large outputs to "[... Output truncated to X characters ...]"
+
+ . ask_user(question) tool
+
+Print the question, that's it.
+
+What is the tool call response? Maybe just confirmation that question was asked?

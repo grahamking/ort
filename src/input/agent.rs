@@ -198,28 +198,27 @@ fn run_single<W: Write + Send>(
                             assistant_tool_calls = Some(tool_calls.clone());
 
                             for tool_call in tool_calls {
-                                match tool_call.function.name.as_ref() {
-                                    "read" => {
-                                        let res = run_tool_read(&tool_call.function.arguments)?;
+                                let res = match tool_call.function.name.as_ref() {
+                                    "read" => run_tool_read(&tool_call.function.arguments),
+                                    "bash" => run_tool_bash(&tool_call.function.arguments),
+                                    "write" => run_tool_write(&tool_call.function.arguments),
+                                    "edit" => run_tool_edit(&tool_call.function.arguments),
+                                    _ => {
+                                        continue;
+                                    }
+                                };
+                                match res {
+                                    Ok(res) => {
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), res));
                                     }
-                                    "bash" => {
-                                        let res = run_tool_bash(&tool_call.function.arguments)?;
+                                    Err(ort_err) => {
+                                        let msg = ort_err.as_string();
+                                        // TODO: Send to output writer instead of printing here
+                                        crate::utils::print_string(c"Tool call failed: ", &msg);
                                         tool_call_results
-                                            .push((tool_call.id.clone().unwrap(), res));
+                                            .push((tool_call.id.clone().unwrap(), error(&msg)));
                                     }
-                                    "write" => {
-                                        let res = run_tool_write(&tool_call.function.arguments)?;
-                                        tool_call_results
-                                            .push((tool_call.id.clone().unwrap(), res));
-                                    }
-                                    "edit" => {
-                                        let res = run_tool_edit(&tool_call.function.arguments)?;
-                                        tool_call_results
-                                            .push((tool_call.id.clone().unwrap(), res));
-                                    }
-                                    _ => {}
                                 }
                             }
                         }
@@ -264,15 +263,20 @@ fn run_single<W: Write + Send>(
 fn run_tool_read(params: &str) -> OrtResult<String> {
     //crate::utils::print_string(c"\nread: ", params);
 
-    // TODO: Specific error types
+    // TODO: Specific error types instead of Other
     let params = ReadTool::from_json(params)
         .map_err(|_err| ort_error(ErrorKind::Other, "Parsing read tool params JSON"))?;
-    Ok(match utils::filename_read_to_string(&params.path) {
-        Ok(res) => res,
+    let content = match utils::filename_read_to_string(&params.path) {
+        Ok(content) => content,
         // Return the string error so the model sees it.
         Err("NOT FOUND") => "No such file or directory: ".to_string() + &params.path,
         Err(s) => "Tool call error ".to_string() + s + ": " + &params.path,
-    })
+    };
+    let num_lines = content.lines().count();
+    Ok(success(
+        &[("lines", num_lines)],
+        &[("path", &params.path), ("output", &content)],
+    ))
 }
 
 /// Tool: Run a bash command
@@ -281,7 +285,11 @@ fn run_tool_bash(params: &str) -> OrtResult<String> {
 
     let params = BashTool::from_json(params)
         .map_err(|_err| ort_error(ErrorKind::Other, "Parsing bash tool params JSON"))?;
-    system(&params.command)
+    let output = system(&params.command)?;
+    Ok(success(
+        &[("exit_code", output.exit_code as usize)],
+        &[("stdout", &output.stdout), ("stderr", &output.stderr)],
+    ))
 }
 
 fn run_tool_write(params: &str) -> OrtResult<String> {
@@ -302,9 +310,11 @@ fn run_tool_write(params: &str) -> OrtResult<String> {
     c_path[..end].copy_from_slice(params.path.as_bytes());
     let mut target = unsafe { File::create(&c_path[..end + 1])? }; // + 1 for null byte
     let num_bytes = target.write(params.content.as_bytes())?;
-    let num_bytes_s = utils::num_to_string(num_bytes);
 
-    Ok("Successfully wrote ".to_string() + &num_bytes_s + " bytes to " + &params.path)
+    Ok(success(
+        &[("bytes_written", num_bytes)],
+        &[("path", &params.path), ("message", "Write completed.")],
+    ))
 }
 
 fn run_tool_edit(params: &str) -> OrtResult<String> {
@@ -329,5 +339,57 @@ fn run_tool_edit(params: &str) -> OrtResult<String> {
     let mut target = unsafe { File::create(c_path.as_bytes_with_nul())? };
     target.write(content.as_bytes())?;
 
-    Ok(r#"{ "success": true, "files_changed": [""#.to_string() + &params.path + r#""] }"#)
+    Ok(success(&[], &[("path", &params.path)]))
+}
+
+fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> String {
+    // String length of a usize is it's number of digits
+    let mut len = nums
+        .iter()
+        .map(|(_, val)| if *val == 0 { 1 } else { val.ilog10() + 1 } as usize)
+        .sum();
+    len += strs.iter().map(|(_, val)| val.len()).sum::<usize>();
+
+    let mut out = String::with_capacity(len);
+    out.push_str(r#"{"success": true"#);
+
+    for (key, num) in nums {
+        out.push_str(r#", ""#);
+        out.push_str(key);
+        out.push_str(r#"": "#);
+        let num_s = utils::num_to_string(*num);
+        out.push_str(&num_s);
+    }
+
+    for (key, s) in strs {
+        out.push_str(r#", ""#);
+        out.push_str(key);
+        out.push_str(r#"": "#);
+        // With JSON escaping
+        let _ = super::to_json::write_json_str(&mut out, s);
+    }
+
+    out.push('}');
+
+    out
+}
+
+fn error(msg: &str) -> String {
+    r#"{"success": false, "error": ""#.to_string() + msg + r#""}"#
+}
+
+#[cfg(test)]
+mod test {
+    use super::success;
+    #[test]
+    pub fn test_success() {
+        let res = success(
+            &[("bytes_written", 42)],
+            &[
+                ("path", "/home/graham/Temp/xyz.txt"),
+                ("message", "Write completed."),
+            ],
+        );
+        crate::utils::print_string(c"OUTPUT: ", &res);
+    }
 }

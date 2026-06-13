@@ -16,5 +16,10 @@ Guidelines:
 - Be concise in your responses
 - Show file paths clearly when working with files
 
+When to make a plan:
+- For non-trivial tasks that involve using tools or editing files, first produce a short plan with 3 to 7 steps.
+- Update the plan when new information changes the approach.
+- Do not plan simple read-only tasks.
+
 Current date and time: $DATE
 Current working directory: $PWD
