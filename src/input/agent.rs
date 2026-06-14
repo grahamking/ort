@@ -263,19 +263,29 @@ fn run_single<W: Write + Send>(
 fn run_tool_read(params: &str) -> OrtResult<String> {
     //crate::utils::print_string(c"\nread: ", params);
 
-    // TODO: Specific error types instead of Other
-    let params = ReadTool::from_json(params)
-        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing read tool params JSON"))?;
+    let params = ReadTool::from_json(params).map_err(|_err| {
+        ort_error(
+            ErrorKind::ParsingToolCallParams,
+            "Parsing read tool params JSON",
+        )
+    })?;
     let content = match utils::filename_read_to_string(&params.path) {
         Ok(content) => content,
         // Return the string error so the model sees it.
         Err("NOT FOUND") => "No such file or directory: ".to_string() + &params.path,
         Err(s) => "Tool call error ".to_string() + s + ": " + &params.path,
     };
-    let num_lines = content.lines().count();
+    // Ideally limit would limit the original read, so we don't get whole file in memory
+    let offset = params.offset.map_or(0, |offset| offset as usize);
+    let limit = params.limit.map_or(usize::MAX, |limit| limit as usize);
+    let content_lines: Vec<&str> = content.lines().skip(offset).take(limit).collect();
+    let num_lines = content_lines.len();
     Ok(success(
         &[("lines", num_lines)],
-        &[("path", &params.path), ("output", &content)],
+        &[
+            ("path", &params.path),
+            ("output", &content_lines.join("\n")),
+        ],
     ))
 }
 
@@ -283,8 +293,12 @@ fn run_tool_read(params: &str) -> OrtResult<String> {
 fn run_tool_bash(params: &str) -> OrtResult<String> {
     //crate::utils::print_string(c"\nbash: ", params);
 
-    let params = BashTool::from_json(params)
-        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing bash tool params JSON"))?;
+    let params = BashTool::from_json(params).map_err(|_err| {
+        ort_error(
+            ErrorKind::ParsingToolCallParams,
+            "Parsing bash tool params JSON",
+        )
+    })?;
     let output = system(&params.command)?;
     Ok(success(
         &[("exit_code", output.exit_code as usize)],
@@ -295,8 +309,12 @@ fn run_tool_bash(params: &str) -> OrtResult<String> {
 fn run_tool_write(params: &str) -> OrtResult<String> {
     //crate::utils::print_string(c"\nwrite: ", params);
 
-    let params = WriteTool::from_json(params)
-        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing write tool params JSON"))?;
+    let params = WriteTool::from_json(params).map_err(|_err| {
+        ort_error(
+            ErrorKind::ParsingToolCallParams,
+            "Parsing write tool params JSON",
+        )
+    })?;
 
     if let Some(idx) = params.path.rfind('/') {
         let dir_path = &params.path[..idx];
@@ -320,8 +338,12 @@ fn run_tool_write(params: &str) -> OrtResult<String> {
 fn run_tool_edit(params: &str) -> OrtResult<String> {
     //crate::utils::print_string(c"\nedit: ", params);
 
-    let params = EditTool::from_json(params)
-        .map_err(|_err| ort_error(ErrorKind::Other, "Parsing edit tool params JSON"))?;
+    let params = EditTool::from_json(params).map_err(|_err| {
+        ort_error(
+            ErrorKind::ParsingToolCallParams,
+            "Parsing edit tool params JSON",
+        )
+    })?;
 
     let mut content = utils::filename_read_to_string(&params.path)
         .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;

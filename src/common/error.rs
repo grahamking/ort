@@ -30,6 +30,7 @@ pub enum ErrorKind {
 
     // Input validation
     InvalidMessageSchema,
+    ParsingToolCallParams,
 
     // Output & streaming
     //
@@ -133,6 +134,7 @@ impl ErrorKind {
             ErrorKind::HistoryReadFailed => "HistoryReadFailed",
             ErrorKind::HistoryLookupFailed => "HistoryLookupFailed",
             ErrorKind::InvalidMessageSchema => "InvalidMessageSchema",
+            ErrorKind::ParsingToolCallParams => "ParsingToolCallParams",
             ErrorKind::StdoutWriteFailed => "StdoutWriteFailed",
             ErrorKind::MissingUsageStats => "MissingUsageStats",
             ErrorKind::ResponseStreamError => "ResponseStreamError",
