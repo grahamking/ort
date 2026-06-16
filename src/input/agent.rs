@@ -89,7 +89,7 @@ pub fn run<W: Write + Send>(
     }
 
     let mut is_first = true; // First prompt was added in `input/cli.rs::main`.
-    let mut output_writer = AgentWriter::new(w_core);
+    let mut output_writer = AgentWriter::new(w_core, opts.show_reasoning.unwrap_or(false));
 
     while let Some(prompt) = next_prompt(opts.prompt.take(), ifd, &filename)? {
         output_writer.write(Response::Prompt(prompt.clone()))?;

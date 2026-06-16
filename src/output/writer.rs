@@ -22,14 +22,13 @@ const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
 // \r{CLEAR_LINE}\n
 const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
 
-// These are all surrounded by BOLD_START and BOLD_END, but I can't find a way to
+// These are both surrounded by BOLD_START and BOLD_END, but I can't find a way to
 // do string concatenation at build time with constants
-//const BOLD_START: &str = "\x1b[1m";
-//const BOLD_END: &str = "\x1b[0m";
 const MSG_PROCESSING: &[u8] = "\x1b[1mProcessing...\x1b[0m\r".as_bytes();
-const MSG_THINK_TAG_END: &[u8] = "\x1b[1m</think>\x1b[0m\n".as_bytes();
 const MSG_THINKING: &[u8] = "\x1b[1mThinking...\x1b[0m  ".as_bytes();
-const MSG_THINK_TAG_START: &[u8] = "\x1b[1m<think>\x1b[0m".as_bytes();
+
+const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
+const MSG_THINK_END: &[u8] = "\x1b[0m\n".as_bytes();
 
 // The spinner displays a sequence of these characters: | / - \ , which when
 // animated look like they are spinning.
@@ -43,8 +42,11 @@ const SPINNER: [&[u8]; 4] = [
     "\\\x1b[1D".as_bytes(),
 ];
 
-const BG_GRAY: &[u8] = "\x1b[48;5;8m".as_bytes();
-const RESET: &[u8] = "\x1b[49m".as_bytes();
+const PROMPT_START: &[u8] = "\n\x1b[3m".as_bytes();
+const RESET: &[u8] = "\x1b[0m".as_bytes();
+
+const TOOL_CALL_START: &[u8] = "\n\x1b[0m\x1b[96m".as_bytes();
+const TOOL_CALL_END: &[u8] = "\x1b[0m\n".as_bytes();
 
 const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
@@ -112,14 +114,14 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
                 if self.show_reasoning {
                     match think {
                         ThinkEvent::Start => {
-                            let _ = self.writer.write(MSG_THINK_TAG_START);
+                            let _ = self.writer.write(MSG_THINK_START);
                         }
                         ThinkEvent::Content(s) => {
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
                         ThinkEvent::Stop => {
-                            let _ = self.writer.write(MSG_THINK_TAG_END);
+                            let _ = self.writer.write(MSG_THINK_END);
                         }
                     }
                 } else {
@@ -325,11 +327,15 @@ impl OutputWriter for CollectedWriter {
 
 pub struct AgentWriter<'a, W: Write + Send> {
     pub writer: &'a mut W,
+    pub show_reasoning: bool,
 }
 
 impl<'a, W: Write + Send> AgentWriter<'a, W> {
-    pub fn new(writer: &'a mut W) -> AgentWriter<'a, W> {
-        Self { writer }
+    pub fn new(writer: &'a mut W, show_reasoning: bool) -> AgentWriter<'a, W> {
+        Self {
+            writer,
+            show_reasoning,
+        }
     }
 }
 
@@ -337,32 +343,38 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
             Response::Start => {}
-            Response::Think(think) => match think {
-                ThinkEvent::Start => {
-                    let _ = self.writer.write_char('\n');
+            Response::Think(think) => {
+                if self.show_reasoning {
+                    match think {
+                        ThinkEvent::Start => {
+                            let _ = self.writer.write(MSG_THINK_START);
+                            let _ = self.writer.flush();
+                        }
+                        ThinkEvent::Content(s) => {
+                            let _ = self.writer.write_all(s.as_bytes());
+                            let _ = self.writer.flush();
+                        }
+                        ThinkEvent::Stop => {
+                            let _ = self.writer.write(MSG_THINK_END);
+                            let _ = self.writer.write_char('\n');
+                        }
+                    }
                 }
-                ThinkEvent::Content(s) => {
-                    let _ = self.writer.write_all(s.as_bytes());
-                    let _ = self.writer.flush();
-                }
-                ThinkEvent::Stop => {
-                    let _ = self.writer.write_char('\r');
-                }
-            },
+            }
             Response::Content(content) => {
                 let _ = self.writer.write_all(content.as_bytes());
             }
             Response::ToolCalls(tool_calls) => {
                 for t in tool_calls {
-                    let _ = self.writer.write_char('\n');
+                    let _ = self.writer.write(TOOL_CALL_START);
                     let _ = self.writer.write(t.as_string().as_bytes());
-                    let _ = self.writer.write_char('\n');
+                    let _ = self.writer.write(TOOL_CALL_END);
                     let _ = self.writer.flush();
                 }
             }
             Response::Stats(_stats) => {}
             Response::Prompt(prompt) => {
-                let _ = self.writer.write(BG_GRAY);
+                let _ = self.writer.write(PROMPT_START);
                 let _ = self.writer.write(prompt.as_bytes());
                 let _ = self.writer.write(RESET);
                 let _ = self.writer.write(b"\n");
