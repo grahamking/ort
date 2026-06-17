@@ -29,10 +29,7 @@ use crate::{
     cli::Env,
     common::{config, data::Tool, error, site::Site},
     input::prompt::ActivePrompt,
-    output::{
-        last_writer::LastWriter,
-        writer::{AgentWriter, OutputWriter},
-    },
+    output::{OutputWriter, agent::AgentWriter, last_writer::LastWriter},
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
     utils,
 };

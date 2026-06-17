@@ -14,47 +14,6 @@ use crate::utils::zclean;
 use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats, common::utils};
 use crate::{ort_error, syscall};
 
-const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
-
-//const CURSOR_OFF: &str = "\x1b[?25l";
-const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
-
-// \r{CLEAR_LINE}\n
-const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
-
-// These are both surrounded by BOLD_START and BOLD_END, but I can't find a way to
-// do string concatenation at build time with constants
-const MSG_PROCESSING: &[u8] = "\x1b[1mProcessing...\x1b[0m\r".as_bytes();
-const MSG_THINKING: &[u8] = "\x1b[1mThinking...\x1b[0m  ".as_bytes();
-
-const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
-const MSG_THINK_END: &[u8] = "\x1b[0m\n".as_bytes();
-
-// The spinner displays a sequence of these characters: | / - \ , which when
-// animated look like they are spinning.
-// The array includes the ANSI escape to move back one character after each one
-// is printed, so they overwrite each other.
-//const BACK_ONE: &[u8] = "\x1b[1D".as_bytes();
-const SPINNER: [&[u8]; 4] = [
-    "|\x1b[1D".as_bytes(),
-    "/\x1b[1D".as_bytes(),
-    "-\x1b[1D".as_bytes(),
-    "\\\x1b[1D".as_bytes(),
-];
-
-const PROMPT_START: &[u8] = "\n\x1b[3m".as_bytes();
-const RESET: &[u8] = "\x1b[0m".as_bytes();
-
-const TOOL_CALL_START: &[u8] = "\n\x1b[0m\x1b[96m".as_bytes();
-const TOOL_CALL_END: &[u8] = "\x1b[0m\n".as_bytes();
-
-const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
-
-pub trait OutputWriter {
-    fn write(&mut self, data: Response) -> OrtResult<()>;
-    fn stop(&mut self, include_stats: bool) -> OrtResult<()>;
-}
-
 pub struct ConsoleWriter<'a, W: Write + Send> {
     pub writer: &'a mut W, // Must handle ANSI control chars
     pub show_reasoning: bool,
@@ -79,9 +38,9 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
     }
 }
 
-impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
+impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
     fn stop(&mut self, include_stats: bool) -> OrtResult<()> {
-        let _ = self.writer.write(CURSOR_ON);
+        let _ = self.writer.write(super::CURSOR_ON);
         let _ = self.writer.write(b"\n");
         let _ = self.writer.flush();
         if !include_stats || self.is_quiet {
@@ -100,38 +59,40 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
 
     fn write(&mut self, data: Response) -> OrtResult<()> {
         if !self.is_running {
-            let _ = self.writer.write(MSG_CONNECTING);
+            let _ = self.writer.write(super::MSG_CONNECTING);
             let _ = self.writer.flush();
             self.is_running = true;
         }
 
         match data {
             Response::Start => {
-                let _ = self.writer.write(MSG_PROCESSING);
+                let _ = self.writer.write(super::MSG_PROCESSING);
                 let _ = self.writer.flush();
             }
             Response::Think(think) => {
                 if self.show_reasoning {
                     match think {
                         ThinkEvent::Start => {
-                            let _ = self.writer.write(MSG_THINK_START);
+                            let _ = self.writer.write(super::MSG_THINK_START);
                         }
                         ThinkEvent::Content(s) => {
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
                         ThinkEvent::Stop => {
-                            let _ = self.writer.write(MSG_THINK_END);
+                            let _ = self.writer.write(super::MSG_THINK_END);
                         }
                     }
                 } else {
                     match think {
                         ThinkEvent::Start => {
-                            let _ = self.writer.write(MSG_THINKING);
+                            let _ = self.writer.write(super::MSG_THINKING);
                             let _ = self.writer.flush();
                         }
                         ThinkEvent::Content(_) => {
-                            let _ = self.writer.write(SPINNER[self.spindx % SPINNER.len()]);
+                            let _ = self
+                                .writer
+                                .write(super::SPINNER[self.spindx % super::SPINNER.len()]);
                             let _ = self.writer.flush();
                             self.spindx += 1;
                         }
@@ -142,7 +103,7 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
             Response::Content(content) => {
                 if self.is_first_content {
                     // Erase the Processing or Thinking line
-                    let _ = self.writer.write(MSG_CLEAR_LINE);
+                    let _ = self.writer.write(super::MSG_CLEAR_LINE);
                     self.is_first_content = false;
                 }
                 let _ = self.writer.write_all(content.as_bytes());
@@ -158,9 +119,9 @@ impl<'a, W: Write + Send> OutputWriter for ConsoleWriter<'a, W> {
                 // Prompt not displayed in chat mode
             }
             Response::Error(err_string) => {
-                let _ = self.writer.write(CURSOR_ON);
+                let _ = self.writer.write(super::CURSOR_ON);
                 let _ = self.writer.flush();
-                if err_string.contains(ERR_RATE_LIMITED) {
+                if err_string.contains(super::ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
                 utils::print_string(c"\nERROR: ", &err_string);
@@ -197,7 +158,7 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
     }
 }
 
-impl<'a, W: Write + Send> OutputWriter for FileWriter<'a, W> {
+impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
             Response::Start => {}
@@ -232,7 +193,7 @@ impl<'a, W: Write + Send> OutputWriter for FileWriter<'a, W> {
                 let _ = self.writer.flush();
             }
             Response::Error(mut err_string) => {
-                if err_string.contains(ERR_RATE_LIMITED) {
+                if err_string.contains(super::ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
                 let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
@@ -282,7 +243,7 @@ impl CollectedWriter {
     }
 }
 
-impl OutputWriter for CollectedWriter {
+impl super::OutputWriter for CollectedWriter {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
             Response::Start => {}
@@ -321,86 +282,6 @@ impl OutputWriter for CollectedWriter {
         out.push_str(&self.contents);
 
         self.output = Some(out);
-        Ok(())
-    }
-}
-
-pub struct AgentWriter<'a, W: Write + Send> {
-    pub writer: &'a mut W,
-    pub show_reasoning: bool,
-}
-
-impl<'a, W: Write + Send> AgentWriter<'a, W> {
-    pub fn new(writer: &'a mut W, show_reasoning: bool) -> AgentWriter<'a, W> {
-        Self {
-            writer,
-            show_reasoning,
-        }
-    }
-}
-
-impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
-    fn write(&mut self, data: Response) -> OrtResult<()> {
-        match data {
-            Response::Start => {}
-            Response::Think(think) => {
-                if self.show_reasoning {
-                    match think {
-                        ThinkEvent::Start => {
-                            let _ = self.writer.write(MSG_THINK_START);
-                            let _ = self.writer.flush();
-                        }
-                        ThinkEvent::Content(s) => {
-                            let _ = self.writer.write_all(s.as_bytes());
-                            let _ = self.writer.flush();
-                        }
-                        ThinkEvent::Stop => {
-                            let _ = self.writer.write(MSG_THINK_END);
-                            let _ = self.writer.write_char('\n');
-                        }
-                    }
-                }
-            }
-            Response::Content(content) => {
-                let _ = self.writer.write_all(content.as_bytes());
-            }
-            Response::ToolCalls(tool_calls) => {
-                for t in tool_calls {
-                    let _ = self.writer.write(TOOL_CALL_START);
-                    let _ = self.writer.write(t.as_string().as_bytes());
-                    let _ = self.writer.write(TOOL_CALL_END);
-                    let _ = self.writer.flush();
-                }
-            }
-            Response::Stats(_stats) => {}
-            Response::Prompt(prompt) => {
-                let _ = self.writer.write(PROMPT_START);
-                let _ = self.writer.write(prompt.as_bytes());
-                let _ = self.writer.write(RESET);
-                let _ = self.writer.write(b"\n");
-                let _ = self.writer.flush();
-            }
-            Response::Error(mut err_string) => {
-                if err_string.contains(ERR_RATE_LIMITED) {
-                    return Err(ort_error(ErrorKind::RateLimited, ""));
-                }
-                let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                return Err(ort_error(
-                    ErrorKind::ResponseStreamError,
-                    "Remote returned an error",
-                ));
-            }
-            Response::None => {
-                // TODO: Can this still happen?
-                panic!("Response::None means we read the wrong Queue position");
-            }
-        }
-        Ok(())
-    }
-
-    fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
-        let _ = self.writer.write(b"\n");
         Ok(())
     }
 }

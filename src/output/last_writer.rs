@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 use crate::cli::Env;
 use crate::common::data::Tool;
-use crate::output::writer::OutputWriter;
+use crate::output::OutputWriter;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, Write, common::config,
     common::file, common::utils,
