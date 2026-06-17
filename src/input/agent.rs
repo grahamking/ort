@@ -15,15 +15,8 @@ use core::{ffi::c_void, mem::MaybeUninit};
 
 use crate::Role;
 use crate::common::data::Content;
-use crate::common::file::File;
-use crate::common::tools::ALL_TOOLS;
-use crate::common::tools::BashTool;
-use crate::common::tools::EditTool;
-use crate::common::tools::ReadTool;
-use crate::common::tools::WriteTool;
+use crate::common::tools::{self};
 use crate::ort_error;
-use crate::syscall::system;
-use crate::utils::ensure_dir_exists;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
@@ -106,7 +99,7 @@ pub fn run<W: Write + Send>(
                 opts.clone(),
                 site,
                 &mut messages,
-                ALL_TOOLS,
+                tools::ALL_TOOLS,
                 &mut output_writer,
             )?;
         }
@@ -195,15 +188,10 @@ fn run_single<W: Write + Send>(
                             assistant_tool_calls = Some(tool_calls.clone());
 
                             for tool_call in tool_calls {
-                                let res = match tool_call.function.name.as_ref() {
-                                    "read" => run_tool_read(&tool_call.function.arguments),
-                                    "bash" => run_tool_bash(&tool_call.function.arguments),
-                                    "write" => run_tool_write(&tool_call.function.arguments),
-                                    "edit" => run_tool_edit(&tool_call.function.arguments),
-                                    _ => {
-                                        continue;
-                                    }
-                                };
+                                let active_tool = tools::parse_function(&tool_call.function)?;
+                                output_writer
+                                    .write(Response::ToolDisplay(active_tool.display()))?;
+                                let res = active_tool.run();
                                 match res {
                                     Ok(res) => {
                                         tool_call_results
@@ -255,160 +243,6 @@ fn run_single<W: Write + Send>(
     Ok(has_tool_call)
 }
 
-/// Tool: Read a file
-/// Params is JSON
-fn run_tool_read(params: &str) -> OrtResult<String> {
-    //crate::utils::print_string(c"\nread: ", params);
-
-    let params = ReadTool::from_json(params).map_err(|_err| {
-        ort_error(
-            ErrorKind::ParsingToolCallParams,
-            "Parsing read tool params JSON",
-        )
-    })?;
-    let content = match utils::filename_read_to_string(&params.path) {
-        Ok(content) => content,
-        // Return the string error so the model sees it.
-        Err("NOT FOUND") => "No such file or directory: ".to_string() + &params.path,
-        Err(s) => "Tool call error ".to_string() + s + ": " + &params.path,
-    };
-    // Ideally limit would limit the original read, so we don't get whole file in memory
-    let offset = params.offset.map_or(0, |offset| offset as usize);
-    let limit = params.limit.map_or(usize::MAX, |limit| limit as usize);
-    let content_lines: Vec<&str> = content.lines().skip(offset).take(limit).collect();
-    let num_lines = content_lines.len();
-    Ok(success(
-        &[("lines", num_lines)],
-        &[
-            ("path", &params.path),
-            ("output", &content_lines.join("\n")),
-        ],
-    ))
-}
-
-/// Tool: Run a bash command
-fn run_tool_bash(params: &str) -> OrtResult<String> {
-    //crate::utils::print_string(c"\nbash: ", params);
-
-    let params = BashTool::from_json(params).map_err(|_err| {
-        ort_error(
-            ErrorKind::ParsingToolCallParams,
-            "Parsing bash tool params JSON",
-        )
-    })?;
-    let output = system(&params.command)?;
-    Ok(success(
-        &[("exit_code", output.exit_code as usize)],
-        &[("stdout", &output.stdout), ("stderr", &output.stderr)],
-    ))
-}
-
-fn run_tool_write(params: &str) -> OrtResult<String> {
-    //crate::utils::print_string(c"\nwrite: ", params);
-
-    let params = WriteTool::from_json(params).map_err(|_err| {
-        ort_error(
-            ErrorKind::ParsingToolCallParams,
-            "Parsing write tool params JSON",
-        )
-    })?;
-
-    if let Some(idx) = params.path.rfind('/') {
-        let dir_path = &params.path[..idx];
-        // TODO does not create ancestors
-        ensure_dir_exists(dir_path);
-    }
-
-    // Write the file
-    let mut c_path = [0u8; 128];
-    let end = params.path.len();
-    c_path[..end].copy_from_slice(params.path.as_bytes());
-    let mut target = unsafe { File::create(&c_path[..end + 1])? }; // + 1 for null byte
-    let num_bytes = target.write(params.content.as_bytes())?;
-
-    Ok(success(
-        &[("bytes_written", num_bytes)],
-        &[("path", &params.path), ("message", "Write completed.")],
-    ))
-}
-
-fn run_tool_edit(params: &str) -> OrtResult<String> {
-    //crate::utils::print_string(c"\nedit: ", params);
-
-    let params = EditTool::from_json(params).map_err(|_err| {
-        ort_error(
-            ErrorKind::ParsingToolCallParams,
-            "Parsing edit tool params JSON",
-        )
-    })?;
-
-    let mut content = utils::filename_read_to_string(&params.path)
-        .map_err(|str_err| error::ort_error(ErrorKind::Other, str_err))?;
-    let Some(idx) = content.find(&params.old_text) else {
-        return Ok("old_text not found in ".to_string() + &params.path);
-    };
-    if params.replace_all {
-        content = content.replace(&params.old_text, &params.new_text);
-    } else {
-        content.replace_range(idx..idx + params.old_text.len(), &params.new_text);
-    }
-
-    let c_path = CString::new(params.path.as_str())
-        .map_err(|_err| ort_error(ErrorKind::Other, "Edit path contains nul byte"))?;
-    let mut target = unsafe { File::create(c_path.as_bytes_with_nul())? };
-    target.write(content.as_bytes())?;
-
-    Ok(success(&[], &[("path", &params.path)]))
-}
-
-fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> String {
-    // String length of a usize is it's number of digits
-    let mut len = nums
-        .iter()
-        .map(|(_, val)| if *val == 0 { 1 } else { val.ilog10() + 1 } as usize)
-        .sum();
-    len += strs.iter().map(|(_, val)| val.len()).sum::<usize>();
-
-    let mut out = String::with_capacity(len);
-    out.push_str(r#"{"success": true"#);
-
-    for (key, num) in nums {
-        out.push_str(r#", ""#);
-        out.push_str(key);
-        out.push_str(r#"": "#);
-        let num_s = utils::num_to_string(*num);
-        out.push_str(&num_s);
-    }
-
-    for (key, s) in strs {
-        out.push_str(r#", ""#);
-        out.push_str(key);
-        out.push_str(r#"": "#);
-        // With JSON escaping
-        let _ = super::to_json::write_json_str(&mut out, s);
-    }
-
-    out.push('}');
-
-    out
-}
-
 fn error(msg: &str) -> String {
     r#"{"success": false, "error": ""#.to_string() + msg + r#""}"#
-}
-
-#[cfg(test)]
-mod test {
-    use super::success;
-    #[test]
-    pub fn test_success() {
-        let res = success(
-            &[("bytes_written", 42)],
-            &[
-                ("path", "/home/graham/Temp/xyz.txt"),
-                ("message", "Write completed."),
-            ],
-        );
-        crate::utils::print_string(c"OUTPUT: ", &res);
-    }
 }

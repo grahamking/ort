@@ -47,7 +47,8 @@ pub const SPINNER: [&[u8]; 4] = [
 pub const PROMPT_START: &[u8] = "\n\x1b[3m".as_bytes();
 pub const RESET: &[u8] = "\x1b[0m".as_bytes();
 
-pub const TOOL_CALL_START: &[u8] = "\n\x1b[0m\x1b[96m".as_bytes();
+pub const TOOL_CALL_START: &[u8] = "\n\x1b[0m".as_bytes();
+pub const TOOL_CALL_ARGUMENT_START: &[u8] = "\x1b[96m".as_bytes();
 pub const TOOL_CALL_END: &[u8] = "\x1b[0m\n".as_bytes();
 
 pub const ERR_RATE_LIMITED: &str = "429 Too Many Requests";

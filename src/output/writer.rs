@@ -109,7 +109,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self.writer.write_all(content.as_bytes());
                 let _ = self.writer.flush();
             }
-            Response::ToolCalls(_) => {
+            Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // No tool calls in chat mode
             }
             Response::Stats(stats) => {
@@ -180,7 +180,7 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
             Response::Content(content) => {
                 let _ = self.writer.write_all(content.as_bytes());
             }
-            Response::ToolCalls(_tool_calls) => {
+            Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // TODO
             }
             Response::Stats(stats) => {
@@ -251,7 +251,7 @@ impl super::OutputWriter for CollectedWriter {
             Response::Content(content) => {
                 self.contents.push_str(&content);
             }
-            Response::ToolCalls(_tool_calls) => {
+            Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // No ToolCalls when using CollectedWriter
             }
             Response::Stats(stats) => {

@@ -56,13 +56,16 @@ impl<'a, W: Write + Send> super::OutputWriter for AgentWriter<'a, W> {
             Response::Content(content) => {
                 let _ = self.writer.write_all(content.as_bytes());
             }
-            Response::ToolCalls(tool_calls) => {
-                for t in tool_calls {
-                    let _ = self.writer.write(super::TOOL_CALL_START);
-                    let _ = self.writer.write(t.as_string().as_bytes());
-                    let _ = self.writer.write(super::TOOL_CALL_END);
-                    let _ = self.writer.flush();
-                }
+            Response::ToolCalls(_tool_calls) => {
+                // We use ToolDisplay instead
+            }
+            Response::ToolDisplay(tool) => {
+                let _ = self.writer.write(super::TOOL_CALL_START);
+                let _ = self.writer.write(tool.name.as_bytes());
+                let _ = self.writer.write(super::TOOL_CALL_ARGUMENT_START);
+                let _ = self.writer.write(tool.arguments.trim().as_bytes());
+                let _ = self.writer.write(super::TOOL_CALL_END);
+                let _ = self.writer.flush();
             }
             Response::Stats(_stats) => {}
             Response::Prompt(prompt) => {

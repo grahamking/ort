@@ -31,6 +31,7 @@ pub enum ErrorKind {
     // Input validation
     InvalidMessageSchema,
     ParsingToolCallParams,
+    ToolDoesNotExist,
 
     // Output & streaming
     //
@@ -135,6 +136,7 @@ impl ErrorKind {
             ErrorKind::HistoryLookupFailed => "HistoryLookupFailed",
             ErrorKind::InvalidMessageSchema => "InvalidMessageSchema",
             ErrorKind::ParsingToolCallParams => "ParsingToolCallParams",
+            ErrorKind::ToolDoesNotExist => "ToolDoesNotExist",
             ErrorKind::StdoutWriteFailed => "StdoutWriteFailed",
             ErrorKind::MissingUsageStats => "MissingUsageStats",
             ErrorKind::ResponseStreamError => "ResponseStreamError",

@@ -791,6 +791,8 @@ pub enum Response {
     Content(String),
     /// Let's do stuff
     ToolCalls(Vec<ToolCall>),
+    /// A clean way to display a tool call
+    ToolDisplay(ToolDisplay),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
     /// Less good things. Often you mistyped the model name.
@@ -1060,6 +1062,14 @@ pub struct ToolParameter {
     pub name: &'static str,
     pub param_type: &'static str,
     pub description: &'static str,
+}
+
+/// Info AgentWriter needs to display a tool call.
+#[derive(Clone)]
+pub struct ToolDisplay {
+    // Capitalized and with a space at the end please
+    pub name: &'static str,
+    pub arguments: String,
 }
 
 #[cfg(test)]

@@ -115,6 +115,7 @@ impl OutputWriter for LastWriter {
                 }
                 self.w.write_char(']')?;
             }
+            Response::ToolDisplay(_) => {}
             Response::Stats(stats) => {
                 self.data.opts.provider = Some(utils::slug(stats.provider()));
             }
