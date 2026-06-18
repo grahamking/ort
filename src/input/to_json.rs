@@ -370,7 +370,10 @@ pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> 
     }
     if !data.tool_calls.is_empty() {
         w.write_str(",\"tool_calls\": [")?;
-        for tc in &data.tool_calls {
+        for (i, tc) in data.tool_calls.iter().enumerate() {
+            if i != 0 {
+                w.write_char(',')?;
+            }
             tc.write_json(w)?;
         }
         w.write_char(']')?;
