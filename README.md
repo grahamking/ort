@@ -188,86 +188,79 @@ WARNING: Always run agents in a sandbox (I like `firejail`). The ort agent never
 
 # Misc
 
-## My shortcuts (Nov 2025)
+## My shortcuts (Jun 2026)
 
 All of this in my `.bash_aliases` file. Then are all bash aliases, so you type your prompt right after: `q Is this a question?`.
 
 First make them token efficient with a system prompt:
 ```
-SYSTEM_PROMPT="Make your answer concise but complete. No yapping. Direct professional tone. No emoji."
+SYSTEM_PROMPT="Make your answer concise but complete. No yapping. Direct professional tone. No emoji. Date: $(date)."
 ```
 
 I use this hundreds of times a day for all my easy questions, it's quicker than reading the docs. This model is very fast, almost free, and high quality. Sterling job Google!
 
 ```
-alias q='ort -p latency -m google/gemini-2.5-flash-lite-preview-09-2025 -r off -s "$SYSTEM_PROMPT"'
+alias q='ort -p latency -m google/gemini-3.1-flash-lite -r off -s "$SYSTEM_PROMPT"'
 ```
 
-I just added multi-model support, so after a bit of investigation these are the best combination of fast, token efficient, and good quality:
-
+A good alternative. A bit slower but smarter, and still very cheap:
 ```
-alias qc='ort -p latency -r off -s "$SYSTEM_PROMPT" \
--m amazon/nova-lite-v1 \
--m qwen/qwen3-next-80b-a3b-instruct \
--m x-ai/grok-4-fast \
--m google/gemini-2.5-flash-lite-preview-09-2025'
+alias dsf='ort -pr deepseek -m deepseek/deepseek-v4-flash -r low -s "$SYSTEM_PROMPT"'
 ```
 
-Sometimes you need to write some code or ask a hard question. These are IMHO the smartest models today. GPT 5 and 5.1 write very good Rust.
+Some fast good quality models:
 ```
-alias gpt='ort -m openai/gpt-5.1 -r medium -s "$SYSTEM_PROMPT"'
-alias gemini='ort -m google/gemini-3-pro-preview -r medium'
+alias fast_kimi='ort -pr moonshotai -r none -m moonshotai/kimi-k2.6 -s "$SYSTEM_PROMPT"'
+alias fast_gpt='ort -m openai/gpt-5.5 -r none -s "$SYSTEM_PROMPT"'
+alias fast_gemini='ort -m google/gemini-3.5-flash -r low -s "$SYSTEM_PROMPT"'
 ```
 
-For open models, I like these two, although I don't use them as much:
+Thinking models, with web_search / web_fetch. Slower but smart.
+
 ```
-alias glm='ort -r medium -pr z-ai -m z-ai/glm-4.6:exacto -s "$SYSTEM_PROMPT"'
-alias m2='ort -m minimax/minimax-m2 -r medium -s "$SYSTEM_PROMPT"'
+alias glm='ort -r medium -pr z-ai -m z-ai/glm-5.2 -ws -s "$SYSTEM_PROMPT"'
+alias minimax='ort -pr minimax -m minimax/minimax-m3 -r medium -ws -s "$SYSTEM_PROMPT"'
+alias gpt='ort -m openai/gpt-5.4 -r medium -ws -s "$SYSTEM_PROMPT"' # Leave as 5.4 it's much cheaper
+alias gemini='ort -m google/gemini-3.1-pro-preview -ws -r medium'
+alias kimi='ort -r medium -pr moonshotai -m moonshotai/kimi-k2.6 -ws -s "$SYSTEM_PROMPT"'
+alias ds='ort -pr deepseek -m deepseek/deepseek-v4-pro -r medium -ws -s "$SYSTEM_PROMPT"'
 ```
 
 ## tmux
 
-Here's an advanced example of how I use it in tmux:
+Here's an advanced example of how I use it in tmux. I have this on my path as `/bin/smart` for when I need the best possible answers. Uses `SYSTEM_PROMPT` from earlier.
+
+This will ask the three top frontier models the same question, and open the answer in three tmux panes.
 
 ```
 #!/bin/bash
-# # Query multiple models in tmux panes
-# Usage: xx Prompt goes here
-#
-# - Resets window panes to three horizontal rows
-# - Runs the query in three LLMs, one in each window
-
-SYSTEM_PROMPT="Make your answer concise but complete. No yapping. Direct professional tone. No emoji."
-MODEL_1=z-ai/glm-4.5                # Hybrid reasoning, -r useful here
-MODEL_2=moonshotai/kimi-k2-0905     # No reasoning
-MODEL_3=deepseek/deepseek-chat-v3.1 # Hybrid
 
 # Close all other panes in the current window (keep only the current one)
 tmux kill-pane -a
 
-# Split the current pane horizontally to create 3 equal panes
+# Split the current pane horizontally
 tmux split-window -v
 tmux split-window -v
 
 # Select all panes and distribute them evenly
-# try also: even-vertical (2 or 3 panes) or tiled (good for 4 panes)
+# tmux select-layout tiled
+# tmux select-layout even-horizontal
 tmux select-layout even-vertical
 
 # Run commands in each pane
-tmux send-keys -t 0 "ort -m $MODEL_1 -r medium -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
-tmux send-keys -t 1 "ort -m $MODEL_2 -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
-tmux send-keys -t 2 "ort -m $MODEL_3 -r medium -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
+tmux send-keys -t 0 "ort -pr anthropic -m anthropic/claude-opus-4.8 -r high -ws -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
+tmux send-keys -t 1 "ort -pr google-vertex -m google/gemini-3.1-pro-preview -r high -ws -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
+tmux send-keys -t 2 "ort -pr openai -m openai/gpt-5.5 -r high -ws -s \"$SYSTEM_PROMPT\" \"$*\"" Enter
 
 # Optional: Select the first pane
-t
+tmux select-pane -t 0
 ```
-
-If you mostly use models from the big-three labs I highly recommend trying OpenRouter. You get to use Qwen, DeepSeek, Kimi, GLM - all of which have impressed me - and all sorts of cutting edge experiments, such as diffusion model Mercury.
-Orginal version written by GPT-5 to my spec.
 
 ## Development
 
 We do our own DNS resolution (of course!). Currently that's an A query to 127.0.0.53, so a resolver will need to be running there (Modern Linux will have `systemd-resolved` there). We do not check `/etc/hosts`, and do not support IPv6.
+
+The most recent call is logged in `~/.cache/ort/log.jsonl`. Request JSON on the first line, then all the response lines.
 
 MIT Licence.
 
