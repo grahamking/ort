@@ -68,7 +68,7 @@ impl OutputWriter for LastWriter {
             Response::Start => {
                 self.w.write_char('{')?;
                 self.w.write_str(r#""tools": "#)?;
-                Tool::write_json_array(&self.data.tools, &mut self.w)?;
+                Tool::write_json_array(&self.data.tools, false, &mut self.w)?;
 
                 self.w.write_str(r#", "messages":"#)?;
 

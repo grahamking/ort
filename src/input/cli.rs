@@ -25,7 +25,7 @@ const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
 
 // Keep default mode in sync with lib.rs DEFAULT_MODEL
-const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] <prompt>\n\
+const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
 Defaults: -m google/gemma-3n-e4b-it:free; -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
@@ -154,6 +154,8 @@ pub fn main<W: Write + Send>(
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
+            // Agent mode always includes server-side web tools
+            cli_opts.include_web_tools = Some(true);
             let messages = cli_opts.messages()?;
             agent::run(
                 &api_key,

@@ -19,7 +19,8 @@ pub fn build_body(
     idx: usize,
     opts: &PromptOpts,
     messages: &[Message],
-    tools: &[&'static Tool],
+    // Does not include server-side tools like web_search
+    client_tools: &[&'static Tool],
 ) -> OrtResult<String> {
     // TODO: Add tools encoded byte size to avoid realloc
     let capacity: u32 = 1024 + messages.iter().map(|m| m.size()).sum::<u32>();
@@ -78,7 +79,7 @@ pub fn build_body(
     Message::write_json_array(messages, w)?;
 
     w.write_str(", \"tools\":")?;
-    Tool::write_json_array(tools, w)?;
+    Tool::write_json_array(client_tools, opts.include_web_tools.unwrap_or_default(), w)?;
 
     // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
     // This disables that parsing. Experimental, does not help.
@@ -229,9 +230,19 @@ impl Message {
     }
 }
 
+const WEB_TOOLS: &str = r#"{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"},"#;
+
 impl Tool {
-    pub fn write_json_array<W: Write>(tools: &[&'static Tool], w: &mut W) -> OrtResult<()> {
+    pub fn write_json_array<W: Write>(
+        tools: &[&'static Tool],
+        include_web_tools: bool,
+        w: &mut W,
+    ) -> OrtResult<()> {
         w.write_char('[')?;
+        if include_web_tools {
+            w.write_str(WEB_TOOLS)?;
+        }
+
         for (i, tool) in tools.iter().enumerate() {
             if i != 0 {
                 w.write_char(',')?;
@@ -494,19 +505,20 @@ mod tests {
             merge_config: false,
             prompt_filename: None,
             files: vec![], // TODO
+            include_web_tools: Some(true),
         };
         let messages = vec![
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let got = match build_body(0, &opts, &messages, &[&ALL_TOOLS[0]]) {
+        let got = match build_body(0, &opts, &messages, &[ALL_TOOLS[0]]) {
             Ok(got) => got,
             Err(err) => {
                 panic!("{}", err.as_string());
             }
         };
 
-        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "function", "function": {"name": "read", "description": "Read the contents of a text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},"offset": {"type": "number", "description": "Line number to start reading from (1-indexed)"},"limit": {"type": "number", "description": "Maximum number of lines to read"}}, "required": ["path"]}}}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"},{"type": "function", "function": {"name": "read", "description": "Read the contents of a text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},"offset": {"type": "number", "description": "Line number to start reading from (1-indexed)"},"limit": {"type": "number", "description": "Maximum number of lines to read"}}, "required": ["path"]}}}]}"#;
 
         assert_eq!(got, expected);
     }

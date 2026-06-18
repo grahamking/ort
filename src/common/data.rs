@@ -182,15 +182,30 @@ impl Function {
 }
 
 pub struct Usage {
-    pub cost: f32, // In dollars, usually a very small fraction
+    // In dollars, usually a very small fraction
+    pub cost: f32,
+    // How many times the OpenRouter server-side search tool was called
+    pub web_search_requests: Option<u32>,
 }
 
 impl Usage {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut fields = [JsonField::new_float("cost")];
+        let mut fields = [
+            JsonField::new_float("cost"),
+            JsonField::new_raw("server_tool_use"),
+        ];
         autoparser(json, &mut fields)?;
+        let mut web_search_requests = None;
+        if let Some(server_tool_json) = fields[1].get_raw() {
+            let mut server_tool_fields = [JsonField::new_int("web_search_requests")];
+            autoparser(&server_tool_json, &mut server_tool_fields)?;
+            server_tool_fields[0]
+                .get_int()
+                .map(|stu| web_search_requests.replace(stu));
+        }
         Ok(Usage {
             cost: fields[0].get_float().unwrap_or_default(),
+            web_search_requests,
         })
     }
 }
@@ -267,6 +282,8 @@ pub struct PromptOpts {
     pub files: Vec<String>,
     // If the prompt is '@<filename>' we save filename in here
     pub prompt_filename: Option<String>,
+    // Include web_search and web_fetch server-side tools
+    pub include_web_tools: Option<bool>,
 }
 
 impl Default for PromptOpts {
@@ -283,6 +300,7 @@ impl Default for PromptOpts {
             merge_config: true,
             files: vec![],
             prompt_filename: None,
+            include_web_tools: None,
         }
     }
 }
@@ -312,6 +330,8 @@ impl PromptOpts {
             .get_or_insert(o.reasoning.unwrap_or_default());
         self.show_reasoning
             .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+        self.include_web_tools
+            .get_or_insert(o.include_web_tools.unwrap_or_default());
         self.files.extend(o.files);
     }
 
@@ -345,6 +365,7 @@ impl PromptOpts {
             JsonField::new_bool("show_reasoning"),
             JsonField::new_bool("quiet"),
             JsonField::new_bool("merge_config"),
+            JsonField::new_bool("include_web_tools"),
         ];
         autoparser(json, &mut fields)?;
 
@@ -372,6 +393,7 @@ impl PromptOpts {
             prompt_filename: None,
             // TODO: store files in last json, so resume works with files
             files: vec![],
+            include_web_tools: fields[9].get_bool(),
         })
     }
 }
@@ -1118,6 +1140,7 @@ mod tests {
      "model": "google/gemma-3n-e4b-it:free",
      "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
      "show_reasoning": false,
+     "include_web_tools": true,
      "reasoning": { "enabled": false },
      "merge_config": true
  }
@@ -1127,6 +1150,7 @@ mod tests {
         assert_eq!(opts.models, vec!["google/gemma-3n-e4b-it:free"]);
         assert!(!opts.reasoning.unwrap().enabled);
         assert!(opts.merge_config);
+        assert!(opts.include_web_tools.unwrap());
     }
 
     #[test]

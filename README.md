@@ -32,6 +32,8 @@ Like a good friend, it remembers. `-c` will continue a conversation. And like a 
 
 It sees things your way. `-f <filename.[jpg|png] | URL>` sends a multi-modal model an image to look at.
 
+It's a global citizen. Pass `-ws` and it will enable OpenRouter's `web_search` and `web_fetch` tools to stay current. This is enabled by default in agent mode. Not supported with `build.nvidia.com`.
+
 As an honest CLI, it cares about the small stuff. For humans there's ANSI codes. If you pipe the output somewhere else, it's clean ASCII. And you can pipe input in too. You do you.
 
 Harking from a time when we trusted each other, it doesn't check TLS certificates, and because we know our neighbours, it uses hard-coded DNS if you set `dns` in the config file - you should. I don't mind telling you, those two can get the city folks riled up.
@@ -44,7 +46,7 @@ For experimental [build.nvidia.com](https://build.nvidia.com/) support see at th
 
 Usage:
 ```
-ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|none|low|medium|high|<toks>] [-rr] [-q] [-c] <prompt>
+ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|none|low|medium|high|<toks>] [-rr] [-q] [-c] [-nc] [-ws] <prompt>
 ```
 
 Use Kimi K2, select the provider with lowest price, and set a system prompt:
@@ -64,6 +66,7 @@ ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick 
 - -c Continue. Add a new prompt to the previous conversation, e.g. `ort -c "Are you sure?"`. All the fields default to the previous message (model, priority, provider, system prompt, etc, but you can override them here, for example continuing the conversation but with a different model, or a higher reasoning effort. The provider of the previous message is set as the first choice, to benefit from caching.
 - -nc No config. Do not merge the default prompt options from the config into the command line prompt opts. Useful for disabling the default system prompt for example.
 - -f filename.[jpg|png] or -f <url> Send that image to the model. E.g.: `ort -r low -m qwen/qwen3.5-35b-a3b -f ~/Temp/firefighter-cat.jpg "Describe this image"`. Can be passed multiple times. Accepts local JPG and PNG images as well as an http(s) URL for a remote image.
+- -ws Enable web_search and web_fetch server-side tools.
 
 Accepts piped stdin: `echo 'What is the capital of South Africa?' | ort -m z-ai/glm-4.5-air:free`
 

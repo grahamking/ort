@@ -57,6 +57,8 @@ pub fn parse_prompt_args(
     let mut continue_conversation = false;
     let mut merge_config = true;
     let mut files: Vec<String> = vec![];
+    let mut include_web_tools: Option<bool> = None;
+
     // If the prompt is '@<filename>' we save filename in here
     // Agent mode needs it
     let mut prompt_filename: Option<String> = None;
@@ -184,6 +186,10 @@ pub fn parse_prompt_args(
                 merge_config = false;
                 i += 1;
             }
+            "-ws" => {
+                include_web_tools = Some(true);
+                i += 1;
+            }
             "-f" => {
                 i += 1;
                 if i >= args.len() {
@@ -260,6 +266,7 @@ pub fn parse_prompt_args(
         merge_config,
         files,
         prompt_filename,
+        include_web_tools,
     };
     if continue_conversation {
         Ok(Cmd::ContinueConversation(prompt_opts))

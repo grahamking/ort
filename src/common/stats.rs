@@ -20,6 +20,7 @@ pub struct Stats {
     pub elapsed_time: Duration,
     pub time_to_first_token: Option<Duration>,
     pub inter_token_latency_ms: u128,
+    pub web_search_requests: Option<u32>,
 }
 
 impl Stats {
@@ -37,6 +38,10 @@ impl Stats {
         if let Some(cost_in_cents) = self.cost_in_cents {
             s.push_str(&utils::float_to_string(cost_in_cents, 4));
             s.push_str(" cents. ");
+        }
+        if let Some(web_search_requests) = self.web_search_requests {
+            s.push_str(&utils::num_to_string(web_search_requests));
+            s.push_str(" web search. ");
         }
         // We will either have all the timings or none, only need to check one of them
         if self.time_to_first_token.is_some() {
