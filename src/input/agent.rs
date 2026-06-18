@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2026 Graham King
 
 extern crate alloc;
 use alloc::ffi::CString;
@@ -51,6 +51,7 @@ pub fn run<W: Write + Send>(
         IN_MOVED_TO | IN_CLOSE_WRITE,
     );
 
+    // Load AGENTS.md
     if let Ok(agents_md) = utils::filename_read_to_string("AGENTS.md") {
         match messages.first_mut() {
             Some(Message {
@@ -78,18 +79,14 @@ pub fn run<W: Write + Send>(
         }
     }
 
-    let mut is_first = true; // First prompt was added in `input/cli.rs::main`.
     let mut output_writer = AgentWriter::new(w_core, opts.show_reasoning.unwrap_or(false));
 
-    while let Some(prompt) = next_prompt(opts.prompt.take(), ifd, &filename)? {
-        output_writer.write(Response::Prompt(prompt.clone()))?;
+    // First prompt is already in `messages`, added in `input/cli.rs::main`.
+    let inital_prompt = opts.prompt.take().unwrap(); // Safety: Always have initial prompt
+    output_writer.write(Response::Prompt(inital_prompt))?;
 
-        // Add the new prompt to the conversation
-        if !is_first {
-            messages.push(Message::user(prompt));
-            is_first = false;
-        }
-
+    loop {
+        // Send a prompt, run all the requested tools
         let mut has_tool_call = true;
         while has_tool_call {
             has_tool_call = run_single(
@@ -103,22 +100,20 @@ pub fn run<W: Write + Send>(
                 &mut output_writer,
             )?;
         }
+
+        // Wait for the next user prompt
+        let Some(prompt) = next_prompt(ifd, &filename)? else {
+            break;
+        };
+        messages.push(Message::user(prompt.clone()));
+        output_writer.write(Response::Prompt(prompt))?;
     }
 
     Ok(())
 }
 
 /// Wait for next user prompt
-fn next_prompt(
-    initial_prompt: Option<String>,
-    ifd: i32,
-    prompt_filename: &str,
-) -> OrtResult<Option<String>> {
-    // This make the while loop simpler
-    if initial_prompt.is_some() {
-        return Ok(initial_prompt);
-    }
-
+fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
     let mut ie = MaybeUninit::<syscall::inotify_event>::uninit();
     let res = syscall::read(
         ifd,
