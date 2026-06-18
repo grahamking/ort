@@ -1,0 +1,96 @@
+--- Qwen 3.6 27B high
+
+## Top 10 TODOs by Value
+
+### 1. **Parse JSON error responses from OpenRouter** (`src/net/http.rs:295`)
+**Value: Very High.** Currently when the API returns an error (e.g., "not a valid model ID"), `ort` just dumps the raw JSON blob as a string. Parsing it to extract the `message` and `code` fields would give users clear, actionable error messages instead of opaque JSON dumps. Low effort, immediate UX improvement for every error case.
+
+### 2. **Read `/etc/resolv.conf` for DNS server** (`src/common/resolver.rs:51`)
+**Value: Very High.** The DNS resolver is hardcoded to `127.0.0.53` (systemd-resolved). This means `ort` breaks on any system without systemd-resolved listening on that address — Docker containers, Alpine, WSL, macOS-based CI, etc. Reading the actual config file makes `ort` portable to all Linux systems. High impact, contained change.
+
+### 3. **Handle chunked transfer encoding properly** (`src/input/prompt.rs:465,512`)
+**Value: Very High.** This is the *common case* for streaming SSE responses. If chunked encoding isn't handled correctly, streaming responses can be corrupted, truncated, or silently lose data. This is a core correctness issue for the primary use case (reading model responses).
+
+### 4. **Error handling: try all resolver addresses, not just the first** (`src/net/http.rs:312`)
+**Value: Very High.** DNS lookups commonly return multiple addresses. If the first one fails, `ort` gives up entirely instead of trying the next one. This makes the tool fragile against any temporary network issue, load balancer node failure, etc. Simple retry loop would dramatically improve reliability. Related: the function currently hits a "connect error handling TODO" dead-end anyway.
+### 5. **Handle multiple parallel tool calls in agent mode** (`src/input/agent.rs:224`)
+**Value: Very High.** LLMs increasingly emit multiple independent tool calls in a single response. If `ort` only processes the first one, the agent loop wastes a round-trip for each independent call. Supporting parallel returns would make agent mode significantly faster and more correct.
+
+### 6. **Support non-PDF files (or restrict `-f` to PDF)** (`src/input/to_json.rs:415`)
+**Value: High.** File attachments currently hardcode `data:application/pdf;base64` — sending any other file type as PDF will confuse the model. Either expanding to detect MIME types or explicitly restricting to PDF would prevent subtle failures. The more flexible approach (MIME detection) would unlock images, code files, etc.
+
+### 7. **Send reasoning content back in conversation history** (`src/common/data.rs:544,551`)
+**Value: High.** The `assistant()` and `assistant_with_tool_call()` constructors discard reasoning content. This means the model's chain-of-thought is lost in subsequent turns of the conversation. Preserving it is essential for models that output reasoning to maintain context quality.
+
+### 8. **Store files in `last.json` so resume works with file attachments** (`src/common/data.rs:394`)
+**Value: High.** When you resume a conversation with `ort`, file attachments are lost because they're not persisted in the last-state file. This means you can't use `-` (resume) after attaching files, which is a broken UX path. Storing base64 data in `last.json` would be straightforward if files are small, or storing file paths for larger ones.
+
+### 9. **Support tool parameter arrays** (`src/input/to_json.rs:292`)
+**Value: High.** Tool schemas can have `type: "array"` parameters, which need `"items": {...}` in the JSON schema. Without this, any tool with an array parameter (e.g., `list_files(["dir1", "dir2"])`) can't generate correct schemas. Blocks agent tooling capabilities.
+
+### 10. **OrtError must be able to hold a String** (`src/input/args.rs:339`, also `src/common/data.rs:1075`)
+**Value: Medium-High.** The error type can only hold `&'static str`, so dynamic error messages (from owned strings) must be printed to stdout and then replaced with "See above". This makes error handling inconsistent and loses context when errors propagate. Fixing this has a cascading benefit across all error handling in the codebase.
+
+---
+
+### Honorable Mentions (lower priority)
+
+| # | TODO | Value | Why |
+|---|------|-------|-----|
+| 11 | Warn about missing TSC calibration (`src/input/prompt.rs:398`) | Medium | Nice diagnostic, not blocking |
+| 12 | 429 rate-limit detection (`src/input/prompt.rs:121`) | Medium | Helpful UX for retry logic |
+| 13 | Singleton Logger (`src/output/logger.rs:21`) | Low | Architecture cleanup |
+| 14 | Remove copy in TLS handshake (`src/net/tls.rs:258`) | Low | Performance micro-optimization |
+| 15 | Tool write doesn't create ancestor dirs (`src/common/tools.rs:271`) | Medium | Minor agent capability gap |
+| 16 | Error as String in tool lookup (`src/common/data.rs:1075`) | Low | Subsumed by #10 |
+| 17 | Various "can this still happen?" checks (output module) | Low | Dead code / defensive cleanup |
+| 18 | Capacity pre-alloc for tools in JSON (`src/input/to_json.rs:25`) | Low | Minor perf optimization |
+| 19 | Check syscall numbers in decimal (`src/syscall.rs:77`) | Low | Readability, not correctness |
+
+
+--- GPT 5.5 high
+
+I found **37 TODOs** in the project source/tests, excluding `.git/hooks` sample files. Ranked by likely value:
+
+1. **`src/input/prompt.rs:465` / `src/input/prompt.rs:512` — Properly handle chunked transfer encoding**
+   **Value: 10/10**
+   This is on the main streaming response path and the comment says chunked encoding is “the common case.” Correct chunk parsing would improve correctness, avoid relying on accidentally skipping chunk-size lines, and prevent subtle stream parsing bugs.
+
+2. **`src/common/resolver.rs:51` — Read DNS servers from `/etc/resolv.conf`**
+   **Value: 10/10**
+   DNS is currently hardcoded to `127.0.0.53`, which only works on some Linux setups. Reading system resolver config would make `ort` work reliably across more distributions and environments.
+
+3. **`src/net/http.rs:312` — Try all resolved addresses and improve connect errors**
+   **Value: 9/10**
+   The current connection logic returns after the first IPv4 address attempt. Trying all addresses would improve reliability when one address is down/unreachable and would provide much better diagnostics.
+
+4. **`src/input/to_json.rs:412` — Support non-PDF files or restrict `-f` to PDF**
+   **Value: 9/10**
+   Files are currently serialized as `application/pdf` regardless of actual type. That can silently send incorrect data to OpenRouter/models. Either validating PDF-only or supporting MIME detection would prevent confusing failures.
+
+5. **`src/input/agent.rs:224` — Correctly return multiple assistant tool calls**
+   **Value: 8/10**
+   Multi-tool calls are common in agent workflows. Handling all requested tool calls correctly would make agent mode more capable and less brittle.
+
+6. **`src/input/to_json.rs:292` — Support array parameters in tool schemas**
+   **Value: 8/10**
+   Tool schemas currently cannot fully describe array parameters. This limits tool quality and can cause models to call tools incorrectly, especially for search/list-style inputs.
+
+7. **`src/common/data.rs:394` — Store files in last JSON so resume works with files**
+   **Value: 8/10**
+   Continuing a conversation with `-c` loses attached files. Fixing this would make file-based workflows much more reliable and predictable.
+
+8. **`src/net/http.rs:295` / `src/input/prompt.rs:121` — Parse API error JSON and classify useful errors like 429**
+   **Value: 7/10**
+   OpenRouter returns structured error JSON, but `ort` mostly treats it as raw text. Parsing it would improve user-facing errors, allow better `ErrorKind`s, and make rate-limit handling cleaner.
+
+9. **`src/input/args.rs:339` / `src/common/data.rs:1075` — Let `OrtError` hold owned `String`s**
+   **Value: 7/10**
+   Several places lose useful dynamic error messages or print side-channel diagnostics because errors can’t own strings. Fixing this would improve diagnostics
+ across argument parsing, tool parsing, HTTP errors, and tests.
+
+10. **`src/common/tools.rs:271` — Make `WriteTool` create ancestor directories**
+   **Value: 7/10**
+   Agent mode’s write tool currently only creates one directory level. Recursive ancestor creation would make file-writing tools much more dependable for real coding-agent tasks.Malformed: unterminated string in scan_string_end
+
+
