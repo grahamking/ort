@@ -1,8 +1,5 @@
 ---
 
-. Total cost. Show stats somewhere, maybe top-right. Cost, model, total tokens, that kind of thing.
-  Or as a line after each prompt completes, with it's own color.
-
 . "Read" tool ToolDisplay should show the lines it reads as START-END (offset - offset+num)
   to see if the tool calls really are repeating
 

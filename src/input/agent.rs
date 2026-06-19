@@ -15,6 +15,7 @@ use core::{ffi::c_void, mem::MaybeUninit};
 
 use crate::Role;
 use crate::common::data::Content;
+use crate::common::stats::Stats;
 use crate::common::tools::{self};
 use crate::ort_error;
 use crate::{
@@ -85,6 +86,8 @@ pub fn run<W: Write + Send>(
     let inital_prompt = opts.prompt.take().unwrap(); // Safety: Always have initial prompt
     output_writer.write(Response::Prompt(inital_prompt))?;
 
+    let mut total_stats = Stats::default();
+
     loop {
         // Send a prompt, run all the requested tools
         let mut has_tool_call = true;
@@ -98,8 +101,10 @@ pub fn run<W: Write + Send>(
                 &mut messages,
                 tools::ALL_TOOLS,
                 &mut output_writer,
+                &mut total_stats,
             )?;
         }
+        output_writer.write(Response::Stats(total_stats.clone()))?;
 
         // Wait for the next user prompt
         let Some(prompt) = next_prompt(ifd, &filename)? else {
@@ -146,6 +151,7 @@ fn run_single<W: Write + Send>(
     messages: &mut Vec<Message>,
     tools: &[&'static Tool],
     output_writer: &mut AgentWriter<W>,
+    total_stats: &mut Stats,
 ) -> OrtResult<bool> {
     let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
     let mut active_prompt = ActivePrompt::new(
@@ -231,7 +237,9 @@ fn run_single<W: Write + Send>(
         }
     };
 
-    let _stats = active_prompt.stop();
+    let stats = active_prompt.stop();
+    *total_stats += stats;
+
     output_writer.stop(true)?;
     last_writer.stop(true)?; // Finalize JSON
 

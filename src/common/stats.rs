@@ -4,6 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use core::ops::AddAssign;
 use core::time::Duration;
 
 extern crate alloc;
@@ -21,6 +22,27 @@ pub struct Stats {
     pub time_to_first_token: Option<Duration>,
     pub inter_token_latency_ms: u128,
     pub web_search_requests: Option<u32>,
+}
+
+impl AddAssign for Stats {
+    fn add_assign(&mut self, other: Self) {
+        if let Some(cost) = other.cost_in_cents {
+            *self.cost_in_cents.get_or_insert(0.0) += cost;
+        }
+        if let Some(web_searches) = other.web_search_requests {
+            *self.web_search_requests.get_or_insert(0) += web_searches;
+        }
+        if self.time_to_first_token.is_none() {
+            self.time_to_first_token = other.time_to_first_token;
+        }
+        self.elapsed_time += other.elapsed_time;
+        if self.provider.is_empty() {
+            self.provider = other.provider;
+        }
+        if self.used_model.is_empty() {
+            self.used_model = other.used_model;
+        }
+    }
 }
 
 impl Stats {
@@ -43,9 +65,11 @@ impl Stats {
             s.push_str(&utils::num_to_string(web_search_requests));
             s.push_str(" web search. ");
         }
-        // We will either have all the timings or none, only need to check one of them
-        if self.time_to_first_token.is_some() {
+        if self.elapsed_time != Duration::ZERO {
             s.push_str(&format_duration(self.elapsed_time));
+        }
+        // We will either both timings or none, only need to check one
+        if self.time_to_first_token.is_some() {
             s.push_str(" (");
             s.push_str(&format_duration(
                 self.time_to_first_token.unwrap_or_default(),

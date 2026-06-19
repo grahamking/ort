@@ -67,7 +67,16 @@ impl<'a, W: Write + Send> super::OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(super::TOOL_CALL_END);
                 let _ = self.writer.flush();
             }
-            Response::Stats(_stats) => {}
+            Response::Stats(mut stats) => {
+                // Prevent timing display
+                stats.time_to_first_token = None;
+
+                // TODO: Align flush right
+                let _ = self.writer.write(super::AGENT_STATS_START);
+                let _ = self.writer.write(stats.as_string().as_bytes());
+                let _ = self.writer.write(super::AGENT_STATS_END);
+                let _ = self.writer.flush();
+            }
             Response::Prompt(prompt) => {
                 let _ = self.writer.write(super::PROMPT_START);
                 let _ = self.writer.write(prompt.as_bytes());
