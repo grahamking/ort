@@ -78,14 +78,13 @@ fn test_list() {
     let mut count = 0;
     for line in contents.lines() {
         count += 1;
-        // One of the most popular and entrenched models
-        if line == "meta-llama/llama-3-70b-instruct" {
+        if line == "openrouter/auto" {
             return;
         }
     }
-    // List is ordered alphabetically, "m" should have many before
+    // List is ordered alphabetically, should have many before
     assert!(count > 20, "Too few lines: {count}");
-    panic!("List did not include Llama 3 70B");
+    panic!("List did not include openrouter/auto");
 }
 
 fn env() -> Env {

@@ -71,6 +71,7 @@ impl<R: Read> OrtBufReader<R> {
         let n = self.inner.read(&mut self.buf)?;
         self.pos = 0;
         self.cap = n;
+        //crate::utils::print_string(c"fill_buf: ", &crate::utils::num_to_string(self.cap));
         Ok(())
     }
 
@@ -218,5 +219,68 @@ pub fn fd_read_to_string(fd: c_int, buffer: &mut String) {
     // Maintain String's UTF-8 invariant. On invalid UTF-8, clear to a valid value.
     if core::str::from_utf8(v.as_slice()).is_err() {
         v.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    /// Wraps a `String` as a byte source, using `copy_nonoverlapping` to
+    /// transfer bytes into the read buffer.
+    /// Only used by unit tests so far
+    #[allow(unused)]
+    pub struct StringReader {
+        data: String,
+        pos: usize,
+    }
+
+    impl Read for StringReader {
+        fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
+            let src = self.data.as_bytes().as_ptr();
+            let bytes_remaining = self.data.len() - self.pos;
+            let count = bytes_remaining.min(buf.len());
+
+            if count == 0 {
+                return Ok(0);
+            }
+
+            // SAFETY: src and dst are disjoint; count ≤ remaining and ≤ buf.len().
+            unsafe {
+                core::ptr::copy_nonoverlapping(src.add(self.pos), buf.as_mut_ptr(), count);
+            }
+            self.pos += count;
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn test_read_line_basic() {
+        let s = "First\nSecond\nThird\n";
+        let reader = StringReader {
+            data: s.to_string(),
+            pos: 0,
+        };
+        let mut candidate = OrtBufReader::new(reader);
+        let mut out = String::new();
+        let _res = candidate.read_line(&mut out).unwrap();
+        assert_eq!(out, "First\n");
+    }
+
+    /// Test that read_line will refill the buffer and continue if the initial chunk does not
+    /// contain a newline.
+    /// Gemini 3+ Pro sends large encrypted_reasoning fields.
+    #[test]
+    fn test_read_line_beyond_bufsize() {
+        let encrypted_reasoning = "A".repeat(BUF_SIZE);
+        let s = r#"{"id":"gen-1782054493-E4ogiV1pqlfKWAx1vUro","object":"chat.completion.chunk","created":1782054493,"model":"google/gemini-3.1-pro-preview-20260219","provider":"Google","choices":[{"index":0,"delta":{"content":"","role":"assistant","reasoning":null,"reasoning_details":[{"type":"reasoning.encrypted","data":""#.to_string() + &encrypted_reasoning + "\",\"format\":\"google-gemini-v1\",\"index\":0}]},\"finish_reason\":null,\"native_finish_reason\":null}]}\nEXTRA_STUFF";
+        let reader = StringReader { data: s, pos: 0 };
+
+        let mut candidate = OrtBufReader::new(reader);
+        let mut out = String::new();
+        let _res = candidate.read_line(&mut out).unwrap();
+        assert!(out.contains("native_finish_reason"));
+        assert!(!out.contains("EXTRA_STUFF"));
     }
 }

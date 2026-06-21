@@ -5,6 +5,8 @@
 //! Copyright (c) 2025 Graham King
 
 extern crate alloc;
+use core::fmt;
+
 use alloc::string::String;
 
 #[repr(u8)]
@@ -121,8 +123,17 @@ pub enum ErrorKind {
     Other,
 }
 
+impl fmt::Debug for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = self.as_string();
+        f.write_str(s)
+    }
+}
+
 impl ErrorKind {
     pub fn as_string(&self) -> &'static str {
+        // TODO: Use core::alloc::format!("{self:?}") instead of all this
+        // We must return String instead though, which affects OrtError
         match self {
             ErrorKind::MissingApiKey => "MissingApiKey",
             ErrorKind::InvalidArguments => "InvalidArguments",
@@ -197,7 +208,7 @@ impl ErrorKind {
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct OrtError {
     pub kind: ErrorKind,
     pub context: &'static str,
