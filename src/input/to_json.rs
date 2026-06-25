@@ -230,7 +230,7 @@ impl Message {
     }
 }
 
-const WEB_TOOLS: &str = r#"{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"},"#;
+const WEB_TOOLS: &str = r#"{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}"#;
 
 impl Tool {
     pub fn write_json_array<W: Write>(
@@ -244,7 +244,7 @@ impl Tool {
         }
 
         for (i, tool) in tools.iter().enumerate() {
-            if i != 0 {
+            if include_web_tools || i != 0 {
                 w.write_char(',')?;
             }
             tool.write_json(w)?;

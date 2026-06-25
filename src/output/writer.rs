@@ -70,6 +70,11 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self.writer.flush();
             }
             Response::Think(think) => {
+                if !self.is_first_content {
+                    // If content has started, don't show thinking.
+                    // Sometimes Gemini Pro sends it out of order.
+                    return Ok(());
+                }
                 if self.show_reasoning {
                     match think {
                         ThinkEvent::Start => {
