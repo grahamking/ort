@@ -18,15 +18,15 @@ use crate::{
 use crate::{Role, ort_error};
 
 /// How many bytes of content tokens to buffer before streaming to disk.
-/// This limits max memory.
-const TOKEN_MEM_BUFFER: usize = 1024;
+/// This limits max memory, but also the biggest message we can handle.
+const TOKEN_MEM_BUFFER: usize = 4096;
 
 /// LastWriter saves to disk the model response and enough information so that we can
 /// continue the conversation with `ort -c "next prompt"` later.
 pub struct LastWriter {
     w: file::File,
     data: LastData,
-    buffer: [u8; TOKEN_MEM_BUFFER + 64],
+    buffer: [u8; TOKEN_MEM_BUFFER],
     buf_idx: usize,
 }
 
@@ -55,7 +55,7 @@ impl LastWriter {
         Ok(LastWriter {
             data,
             w: last_file,
-            buffer: [0u8; TOKEN_MEM_BUFFER + 64],
+            buffer: [0u8; TOKEN_MEM_BUFFER],
             buf_idx: 0,
         })
     }
@@ -93,17 +93,24 @@ impl OutputWriter for LastWriter {
             Response::Think(_) => {}
             Response::Content(content) => {
                 let b = content.as_bytes();
-                let end = self.buf_idx + b.len();
-                self.buffer[self.buf_idx..end].copy_from_slice(b);
-                self.buf_idx = end;
+                if b.len() > TOKEN_MEM_BUFFER {
+                    let l = crate::utils::num_to_string(b.len());
+                    crate::utils::print_string(c"Content too long: ", &l);
+                    panic!("Received content longer than TOKEN_MEM_BUFFER.");
+                }
 
-                if self.buffer.len() >= TOKEN_MEM_BUFFER {
+                let mut end = self.buf_idx + b.len();
+                if end >= TOKEN_MEM_BUFFER {
                     crate::input::to_json::write_encoded_bytes(
                         &mut self.w,
                         &self.buffer[..self.buf_idx],
                     )?;
                     self.buf_idx = 0;
+                    end = b.len();
                 }
+
+                self.buffer[self.buf_idx..end].copy_from_slice(b);
+                self.buf_idx = end;
             }
             Response::ToolCalls(tool_calls) => {
                 self.w.write_str(", \"tool_calls\": [")?;
@@ -187,7 +194,7 @@ mod tests {
         let mut writer = LastWriter {
             w: file,
             data,
-            buffer: [0u8; TOKEN_MEM_BUFFER + 64],
+            buffer: [0u8; TOKEN_MEM_BUFFER],
             buf_idx: 0,
         };
 
