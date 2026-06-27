@@ -23,8 +23,9 @@ const DEFAULT_SHOW_REASONING: bool = false;
 const DEFAULT_QUIET: bool = false;
 const IMAGE_EXT: [&str; 4] = ["jpg", "JPG", "png", "PNG"];
 
-// Keep in sync with src/lib.rs
-pub const DEFAULT_MODEL: &str = "google/gemma-3n-e4b-it:free";
+// Keep in sync with src/input/cli.rs
+// Ideally this would be openrouter/free but it picks very bad models.
+pub const DEFAULT_MODEL: &str = "nvidia/nemotron-3-super-120b-a12b:free";
 
 const MIME_TYPES: [(&str, &str); 2] = [("jpg", "image/jpeg"), ("png", "image/png")];
 

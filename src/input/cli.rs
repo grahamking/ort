@@ -24,9 +24,9 @@ use crate::{ErrorKind, ort_error};
 const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
 
-// Keep default mode in sync with lib.rs DEFAULT_MODEL
+// Keep default mode in sync with common/data.rs DEFAULT_MODEL
 const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
-Defaults: -m google/gemma-3n-e4b-it:free; -s omitted ; -p omitted\n\
+Defaults: -m nvidia/nemotron-3-super-120b-a12b:free -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
 See https://github.com/grahamking/ort for full docs.

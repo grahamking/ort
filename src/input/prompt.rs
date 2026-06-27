@@ -18,20 +18,20 @@ use crate::cli::Env;
 use crate::common::data::{Tool, ToolCall};
 use crate::net::AsFd;
 use crate::output::logger::Logger;
-use crate::{Context as _, OrtError, TcpSocket, TlsStream};
+use crate::{Context as _, OrtError, chunked};
 
 use crate::ChatCompletionsResponse;
 use crate::OrtResult;
 use crate::build_body;
+use crate::common::config;
 use crate::common::dir;
 use crate::common::file;
-use crate::common::io::Write;
+use crate::common::io::{ReadLine, Write};
 use crate::common::resolver;
 use crate::common::site::Site;
 use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
-use crate::common::{buf_read, config};
 use crate::http;
 use crate::ort_error;
 use crate::output::OutputWriter;
@@ -44,6 +44,10 @@ use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
 
 const EPOLL_WAIT_TIMEOUT_MS: i32 = 100;
+
+/// Same size as input/list.rs but likely could be much smaller
+/// Same size means the generic is shared, smaller code.
+const MAX_CHUNK_SIZE: usize = 128 * 1024;
 
 struct EpollFd(i32);
 
@@ -336,6 +340,8 @@ pub fn run_multi<W: Write + Send>(
     Ok(())
 }
 
+pub trait PromptReader: ReadLine + AsFd {}
+
 pub(in crate::input) struct ActivePrompt {
     api_key: String,
     dns: Vec<String>,
@@ -348,7 +354,7 @@ pub(in crate::input) struct ActivePrompt {
     // When running multiple models, this thread should use this one
     model_idx: usize,
 
-    reader: Option<buf_read::OrtBufReader<TlsStream<TcpSocket>>>,
+    reader: Option<Box<dyn PromptReader>>,
 
     stats: stats::Stats,
     tsc_calibration: Option<time::TscCalibration>,
@@ -446,28 +452,29 @@ impl ActivePrompt {
                 })
                 .unwrap()
         };
-        self.reader = match http::chat_completions(
+        let mut buf_reader = match http::chat_completions(
             &self.api_key,
             self.site.host,
             self.site.chat_completions_url,
             vec![addr],
             &body,
         ) {
-            Ok(r) => Some(r),
+            Ok(r) => r,
             Err(err) => {
                 print_string(c"FATAL running chat_completions: ", &err.as_string());
                 return Err(ort_error(ErrorKind::Other, "running chat_completions"));
             }
         };
 
-        match http::skip_header(self.reader.as_mut().unwrap()) {
+        match http::skip_header(&mut buf_reader) {
             Ok(true) => {
-                // TODO it's transfer encoding chunked, this is the common case
-                // which we don't handle correctly yet
+                // Transfer encoding chunked, this is the common case
+                let chunk_reader = chunked::read::<_, MAX_CHUNK_SIZE>(buf_reader);
+                self.reader = Some(Box::new(chunk_reader));
             }
             Ok(false) => {
                 // Not chunked encoding. I don't think we ever get here.
-                // But the rest of this function assumes we do.
+                self.reader = Some(Box::new(buf_reader));
             }
             Err(err) => {
                 print_string(c"FATAL running skip_header: ", &err.as_string());
@@ -498,7 +505,8 @@ impl ActivePrompt {
                 }
             }
             let line = self.line_buf.trim();
-            //utils::print_string(c"LINE: ", line);
+            // utils::print_string(c"LEN: ", &crate::utils::num_to_string(line.len()));
+            // utils::print_string(c"LINE: ", line);
 
             if self.is_start {
                 // Very first message from server, usually
@@ -509,7 +517,6 @@ impl ActivePrompt {
             }
 
             // SSE heartbeats and blank lines
-            // TODO: and this skips chunked transfer encoding size lines
             if line.is_empty() || line.starts_with(':') {
                 continue;
             }

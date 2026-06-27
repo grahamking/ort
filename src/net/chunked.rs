@@ -9,6 +9,9 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::common::io::ReadLine;
+use crate::input::prompt::PromptReader;
+use crate::net::AsFd;
 use crate::{ErrorKind, OrtResult, Read, common::buf_read, ort_error, syscall};
 
 /// Read a transfer encoding chunked body, chunk by chunk.
@@ -25,6 +28,50 @@ pub struct ChunkedIterator<R: Read, const MAX_CHUNK_SIZE: usize> {
     r: buf_read::OrtBufReader<R>,
     size_buf: String,
     data_buf: Vec<u8>,
+    pending_lines: Vec<String>,
+}
+
+impl<R: Read, const MAX_CHUNK_SIZE: usize> ReadLine for ChunkedIterator<R, MAX_CHUNK_SIZE> {
+    fn read_line(&mut self, buf: &mut String) -> OrtResult<usize> {
+        if let Some(next) = self.pending_lines.pop() {
+            buf.push_str(&next);
+            return Ok(next.len());
+        }
+
+        let chunk = match self.next_chunk() {
+            Some(Ok(s)) => s,
+            Some(Err(err)) => return Err(err),
+            None => return Ok(0),
+        };
+
+        let mut lines_iter = chunk.lines();
+        let Some(first) = lines_iter.next() else {
+            return Ok(0);
+        };
+        buf.push_str(first);
+        let first_len = first.len();
+
+        // `rev` to store the lines in reverse order, allowing us to `pop` the back one.
+        // This is much more memory efficient that removing the front one and move the rest.
+        self.pending_lines = lines_iter
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .rev()
+            .collect();
+
+        Ok(first_len)
+    }
+}
+
+impl<T: Read + AsFd, const MAX_CHUNK_SIZE: usize> AsFd for ChunkedIterator<T, MAX_CHUNK_SIZE> {
+    fn as_fd(&self) -> i32 {
+        self.r.as_fd()
+    }
+}
+
+impl<T: Read + AsFd, const MAX_CHUNK_SIZE: usize> PromptReader
+    for ChunkedIterator<T, MAX_CHUNK_SIZE>
+{
 }
 
 /// Lending Iterator. This doesn't implement Iterator because that doesn't allow the Item
@@ -38,6 +85,7 @@ impl<R: Read, const MAX_CHUNK_SIZE: usize> ChunkedIterator<R, MAX_CHUNK_SIZE> {
             r,
             size_buf: String::with_capacity(16),
             data_buf: Vec::with_capacity(MAX_CHUNK_SIZE),
+            pending_lines: Vec::new(),
         }
     }
 

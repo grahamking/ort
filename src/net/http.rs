@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 
 use crate::{
     Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
-    ort_error,
+    common::io::ReadLine, ort_error,
 };
 use crate::{syscall, utils};
 

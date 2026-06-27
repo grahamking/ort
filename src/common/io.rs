@@ -33,6 +33,18 @@ pub trait Read {
     }
 }
 
+pub trait ReadLine {
+    /// Reads all bytes up to and including a newline (0x0A) and appends
+    /// them to `buf`.
+    ///
+    /// Existing content of `buf` is preserved.
+    /// Returns the number of bytes appended.
+    ///
+    /// On EOF with no new data, returns `Ok(0)`.
+    /// Assumes the stream is valid UTF-8.
+    fn read_line(&mut self, buf: &mut String) -> OrtResult<usize>;
+}
+
 pub trait Write {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize>;
     fn flush(&mut self) -> OrtResult<()>;
