@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025, 2026 Graham King
 //!
 
 use core::{net::Ipv4Addr, ptr::copy_nonoverlapping};
@@ -32,6 +32,7 @@ const DNS_PACKET_SUFFIX: [u8; 4] = [
     0, 1, // Query type: "A" records
 ];
 
+/// This is only called if .config/ort.json's settings/dns is not set. Which you should set.
 /// # Safety
 /// System programming is for everyone
 pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
@@ -48,8 +49,7 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
         sin_family: AF_INET as u16,
         sin_port: 53_u16.to_be(),
         sin_addr: syscall::in_addr {
-            // TODO: Look this up in /etc/resolv.conf
-            s_addr: u32::from_ne_bytes([127, 0, 0, 53]),
+            s_addr: resolver_ip_address()?,
         },
         sin_zero: [0u8; 8],
     };
@@ -101,4 +101,36 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
     let end = bytes_read as usize;
     let ip = u32::from_be_bytes([buf[end - 4], buf[end - 3], buf[end - 2], buf[end - 1]]);
     Ok(Ipv4Addr::from_bits(ip))
+}
+
+fn resolver_ip_address() -> OrtResult<u32> {
+    // /etc/resolv.conf is POSIX so error if it doesn't exist.
+    let resolv_conf = utils::filename_read_to_string("/etc/resolv.conf").map_err(|_err| {
+        ort_error(
+            ErrorKind::ReadingResolvConfFailed,
+            "Err reading resolv.conf",
+        )
+    })?;
+
+    // We only look at the first `nameserver` entry, there can be up to three.
+    let mut nameserver = None;
+    for line in resolv_conf.lines() {
+        if let Some(ns) = line.strip_prefix("nameserver ") {
+            nameserver = ip_str_to_u32(ns);
+            break;
+        }
+    }
+
+    // Default to 127.0.0.53
+    Ok(nameserver.unwrap_or_else(|| u32::from_ne_bytes([127, 0, 0, 53])))
+}
+
+/// Convert a string IPv4 such as "127.0.0.53" to u32
+/// Nice work from deepseek-v4-flash.
+fn ip_str_to_u32(s: &str) -> Option<u32> {
+    s.split('.')
+        .try_fold((0u32, 0u8), |(acc, i), x| {
+            Some(((acc << 8) | x.parse::<u8>().ok()? as u32, i + 1))
+        })
+        .and_then(|(v, i)| (i == 4).then_some(v.to_be()))
 }

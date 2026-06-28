@@ -60,6 +60,7 @@ pub enum ErrorKind {
     // Networking
     //
     DnsResolveFailed,
+    ReadingResolvConfFailed,
     // libc::socket failed
     SocketCreateFailed,
     // libc::connect failed
@@ -160,6 +161,7 @@ impl ErrorKind {
             ErrorKind::ThreadStackAllocFailed => "ThreadStackAllocFailed",
             ErrorKind::ThreadSpawnFailed => "ThreadSpawnFailed",
             ErrorKind::DnsResolveFailed => "DnsResolveFailed",
+            ErrorKind::ReadingResolvConfFailed => "ReadingResolvConfFailed",
             ErrorKind::SocketCreateFailed => "SocketCreateFailed",
             ErrorKind::SocketConnectFailed => "SocketConnectFailed",
             ErrorKind::SocketReadFailed => "SocketReadFailed",

@@ -18,7 +18,7 @@ If you consider your online activity very high risk (don't use Open Router then!
 
 `ort` sends your prompts to AI models on [openrouter.ai](https://openrouter.ai/).
 
-It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~200 KiB ELF binary. It does not use the Rust std library or any external Rust crates, not even libc. It is statically linked.
+It is built the old fashioned way, in solid Rust. It doesn't slow you down with Python interpreters. This is a compact ~220 KiB ELF binary. It does not use the Rust std library or any external Rust crates, not even libc. It is statically linked.
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
@@ -258,7 +258,7 @@ tmux select-pane -t 0
 
 ## Development
 
-We do our own DNS resolution (of course!). Currently that's an A query to 127.0.0.53, so a resolver will need to be running there (Modern Linux will have `systemd-resolved` there). We do not check `/etc/hosts`, and do not support IPv6.
+We do our own DNS resolution (of course!). Currently that's an A query to the first `nameserver` defined in `/etc/resolv.conf` or if there isn't one `127.0.0.53`. A resolver will need to be running there. On modern Linux that's `systemd-resolved`. `ort` does not check `/etc/hosts`, and does not support IPv6. We only do this query if you forgot to set `.config/ort.json` values `settings / dns`. See "Performance" section and example config file.
 
 The most recent call is logged in `~/.cache/ort/log.jsonl`. Request JSON on the first line, then all the response lines.
 

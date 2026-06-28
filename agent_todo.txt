@@ -5,9 +5,6 @@
 ### 1. **Parse JSON error responses from OpenRouter** (`src/net/http.rs:295`)
 **Value: Very High.** Currently when the API returns an error (e.g., "not a valid model ID"), `ort` just dumps the raw JSON blob as a string. Parsing it to extract the `message` and `code` fields would give users clear, actionable error messages instead of opaque JSON dumps. Low effort, immediate UX improvement for every error case.
 
-### 2. **Read `/etc/resolv.conf` for DNS server** (`src/common/resolver.rs:51`)
-**Value: Very High.** The DNS resolver is hardcoded to `127.0.0.53` (systemd-resolved). This means `ort` breaks on any system without systemd-resolved listening on that address — Docker containers, Alpine, WSL, macOS-based CI, etc. Reading the actual config file makes `ort` portable to all Linux systems. High impact, contained change.
-
 ### 4. **Error handling: try all resolver addresses, not just the first** (`src/net/http.rs:312`)
 **Value: Very High.** DNS lookups commonly return multiple addresses. If the first one fails, `ort` gives up entirely instead of trying the next one. This makes the tool fragile against any temporary network issue, load balancer node failure, etc. Simple retry loop would dramatically improve reliability. Related: the function currently hits a "connect error handling TODO" dead-end anyway.
 ### 5. **Handle multiple parallel tool calls in agent mode** (`src/input/agent.rs:224`)
@@ -48,10 +45,6 @@
 --- GPT 5.5 high
 
 I found **37 TODOs** in the project source/tests, excluding `.git/hooks` sample files. Ranked by likely value:
-
-2. **`src/common/resolver.rs:51` — Read DNS servers from `/etc/resolv.conf`**
-   **Value: 10/10**
-   DNS is currently hardcoded to `127.0.0.53`, which only works on some Linux setups. Reading system resolver config would make `ort` work reliably across more distributions and environments.
 
 3. **`src/net/http.rs:312` — Try all resolved addresses and improve connect errors**
    **Value: 9/10**
