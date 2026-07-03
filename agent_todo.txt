@@ -54,10 +54,6 @@ I found **37 TODOs** in the project source/tests, excluding `.git/hooks` sample 
    **Value: 9/10**
    Files are currently serialized as `application/pdf` regardless of actual type. That can silently send incorrect data to OpenRouter/models. Either validating PDF-only or supporting MIME detection would prevent confusing failures.
 
-5. **`src/input/agent.rs:224` — Correctly return multiple assistant tool calls**
-   **Value: 8/10**
-   Multi-tool calls are common in agent workflows. Handling all requested tool calls correctly would make agent mode more capable and less brittle.
-
 6. **`src/input/to_json.rs:292` — Support array parameters in tool schemas**
    **Value: 8/10**
    Tool schemas currently cannot fully describe array parameters. This limits tool quality and can cause models to call tools incorrectly, especially for search/list-style inputs.

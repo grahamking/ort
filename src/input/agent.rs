@@ -226,10 +226,15 @@ fn run_single<W: Write + Send>(
             messages.push(Message::assistant(assistant_message));
             false
         }
-        Some(tc) => {
-            // TODO: Assistant can ask for multiple tool calls, return all of
-            // the requests. We already return all the results.
-            messages.push(Message::assistant_with_tool_call(assistant_message, tc));
+        Some(all_tool_calls) => {
+            // The JSON response format is a "role: assistant" message with all the tool calls
+            // the agent made inside of that.
+            messages.push(Message::assistant_with_tool_call(
+                assistant_message,
+                all_tool_calls,
+            ));
+            // Then multiple messages with "role: tool" and the results one by one.
+            // The calls and results are not co-located.
             for (id, res) in tool_call_results {
                 messages.push(Message::tool(id, res));
             }
