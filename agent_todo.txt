@@ -5,8 +5,6 @@
 ### 1. **Parse JSON error responses from OpenRouter** (`src/net/http.rs:295`)
 **Value: Very High.** Currently when the API returns an error (e.g., "not a valid model ID"), `ort` just dumps the raw JSON blob as a string. Parsing it to extract the `message` and `code` fields would give users clear, actionable error messages instead of opaque JSON dumps. Low effort, immediate UX improvement for every error case.
 
-### 4. **Error handling: try all resolver addresses, not just the first** (`src/net/http.rs:312`)
-**Value: Very High.** DNS lookups commonly return multiple addresses. If the first one fails, `ort` gives up entirely instead of trying the next one. This makes the tool fragile against any temporary network issue, load balancer node failure, etc. Simple retry loop would dramatically improve reliability. Related: the function currently hits a "connect error handling TODO" dead-end anyway.
 ### 5. **Handle multiple parallel tool calls in agent mode** (`src/input/agent.rs:224`)
 **Value: Very High.** LLMs increasingly emit multiple independent tool calls in a single response. If `ort` only processes the first one, the agent loop wastes a round-trip for each independent call. Supporting parallel returns would make agent mode significantly faster and more correct.
 
@@ -45,10 +43,6 @@
 --- GPT 5.5 high
 
 I found **37 TODOs** in the project source/tests, excluding `.git/hooks` sample files. Ranked by likely value:
-
-3. **`src/net/http.rs:312` — Try all resolved addresses and improve connect errors**
-   **Value: 9/10**
-   The current connection logic returns after the first IPv4 address attempt. Trying all addresses would improve reliability when one address is down/unreachable and would provide much better diagnostics.
 
 4. **`src/input/to_json.rs:412` — Support non-PDF files or restrict `-f` to PDF**
    **Value: 9/10**

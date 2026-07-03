@@ -434,7 +434,7 @@ impl ActivePrompt {
             l.log(&body);
         }
         self.start = Some(time::Ticks::now());
-        let addr = if self.dns.is_empty() {
+        let addrs = if self.dns.is_empty() {
             let ip = match unsafe { resolver::resolve(self.site.dns_label) } {
                 Ok(ip) => ip,
                 Err(err) => {
@@ -442,21 +442,21 @@ impl ActivePrompt {
                     return Err(ort_error(ErrorKind::DnsResolveFailed, ""));
                 }
             };
-            SocketAddr::new(IpAddr::V4(ip), self.site.port)
+            vec![SocketAddr::new(IpAddr::V4(ip), self.site.port)]
         } else {
             self.dns
-                .first()
+                .iter()
                 .map(|a| {
                     let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                     SocketAddr::new(IpAddr::V4(ip_addr), self.site.port)
                 })
-                .unwrap()
+                .collect()
         };
         let mut buf_reader = match http::chat_completions(
             &self.api_key,
             self.site.host,
             self.site.chat_completions_url,
-            vec![addr],
+            addrs,
             &body,
         ) {
             Ok(r) => r,

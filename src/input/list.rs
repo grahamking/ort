@@ -8,15 +8,18 @@ use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
 use alloc::string::{String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::site::Site;
+use crate::utils::print_string;
 use crate::{
     Context, OrtResult, Read, Write, chunked,
     common::{buf_read, config, resolver},
     http,
     input::args,
 };
+use crate::{ErrorKind, ort_error};
 
 // As of Feb 18 2026 output takes just over 8k
 const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
@@ -28,22 +31,26 @@ pub fn run<W: Write + Send>(
     site: &'static Site,
     w: &mut W,
 ) -> OrtResult<()> {
-    let addr = if settings.dns.is_empty() {
+    let addrs = if settings.dns.is_empty() {
         let ip = unsafe { resolver::resolve(site.dns_label)? };
-        SocketAddr::new(IpAddr::V4(ip), site.port)
+        vec![SocketAddr::new(IpAddr::V4(ip), site.port)]
     } else {
         settings
             .dns
-            .first()
+            .iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
                 SocketAddr::new(IpAddr::V4(ip_addr), site.port)
             })
-            // unwrap is safe because we checked is_empty
-            .unwrap()
+            .collect()
     };
-    let reader = http::list_models(api_key, site.host, site.list_url, alloc::vec![addr])
-        .context("list_models connect")?;
+    let reader = match http::list_models(api_key, site.host, site.list_url, addrs) {
+        Ok(r) => r,
+        Err(err) => {
+            print_string(c"FATAL running list_models: ", &err.as_string());
+            return Err(ort_error(ErrorKind::Other, "running list_models"));
+        }
+    };
     let mut reader = buf_read::OrtBufReader::new(reader);
     let is_chunked = http::skip_header(&mut reader)?;
 

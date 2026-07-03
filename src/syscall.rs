@@ -54,9 +54,10 @@ const SYS_ACCESS: u32 = 21;
 const SYS_DUP2: i32 = 33;
 const SYS_SOCKET: u32 = 41;
 const SYS_CONNECT: u32 = 42;
+const SYS_SETSOCKOPT: i32 = 54;
+const SYS_GETSOCKOPT: i32 = 55;
 const SYS_FORK: i32 = 57;
 const SYS_EXECVE: i32 = 59;
-const SYS_SETSOCKOPT: i32 = 54;
 const SYS_EXIT: i32 = 60;
 const SYS_WAIT4: i32 = 61;
 const SYS_FCNTL: i32 = 72;
@@ -73,6 +74,7 @@ pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EINTR: i32 = -4; // Interrupted system call
 const EACCES: i32 = -13; // Permission denied
 const ENOTTY: i32 = -25; // Not a typewriter / inappropriate ioctl for device
+pub const EINPROGRESS: i32 = -115; // Operation now in progress
 
 // TODO check these two, might be wrong values, and convert to decimal
 pub const O_CLOEXEC: c_int = 0x80000;
@@ -91,6 +93,8 @@ pub const SOCK_STREAM: c_int = 1;
 pub const SOCK_DGRAM: c_int = 2;
 pub const SOCK_CLOEXEC: c_int = O_CLOEXEC;
 pub const AF_INET: c_int = 2;
+pub const SOL_SOCKET: c_int = 1;
+pub const SO_ERROR: c_int = 4;
 pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
@@ -110,9 +114,11 @@ pub const MAP_PRIVATE: c_int = 0x0002;
 pub const MAP_ANONYMOUS: c_int = 0x0020;
 pub const MAP_STACK: c_int = 0x020000;
 
+pub const F_GETFL: c_int = 3;
 pub const F_SETFL: c_int = 4;
 const TCGETS: usize = 0x5401;
 const POLLIN: c_short = 0x001;
+const POLLOUT: c_short = 0x004;
 
 pub struct ProcessOutput {
     pub stdout: String,
@@ -414,6 +420,15 @@ fn poll(fds: *mut pollfd, nfds: size_t, timeout: c_int) -> c_int {
     ret
 }
 
+pub fn poll_write(fd: c_int, timeout_ms: c_int) -> c_int {
+    let mut fds = [pollfd {
+        fd,
+        events: POLLOUT,
+        revents: 0,
+    }];
+    poll(fds.as_mut_ptr(), 1, timeout_ms)
+}
+
 /// open + fstat + close
 pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'static str> {
     let fd = open(path, O_RDONLY, 0)?;
@@ -484,6 +499,30 @@ pub fn setsockopt(
             in("edx") name,
             in("r10") value,
             in("r8d") option_len,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
+}
+
+pub fn getsockopt(
+    socket: c_int,
+    level: c_int,
+    name: c_int,
+    value: *mut c_void,
+    option_len: *mut socklen_t,
+) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_GETSOCKOPT => ret,
+            in("edi") socket,
+            in("esi") level,
+            in("edx") name,
+            in("r10") value,
+            in("r8") option_len,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),

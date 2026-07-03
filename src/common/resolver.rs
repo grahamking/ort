@@ -97,6 +97,8 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
 
     //let answer_count = u16::from_le_bytes([buf[7], buf[8]]);
 
+    // TODO: Include all the answers from the resolver. Our connect code can handle multiple.
+
     // The last four bytes are always one of the answers, even if there are several
     let end = bytes_read as usize;
     let ip = u32::from_be_bytes([buf[end - 4], buf[end - 3], buf[end - 2], buf[end - 1]]);

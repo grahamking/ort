@@ -17,6 +17,11 @@ use crate::{
 };
 use crate::{syscall, utils};
 
+/// How long to wait for 'connect' syscall.
+/// Everyone blackholes the initial SYN so we can't wait for a rejection.
+/// Default timeout is about 2 minutes. Change to 2 seconds.
+const SOCKET_CONNECT_TIMEOUT_MS: i32 = 2000;
+
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
 const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
 const CONTENT_LENGTH_0: &str = "Content-Length: 0";
@@ -305,41 +310,22 @@ pub fn skip_header<T: Read + Write>(
     Ok(is_chunked)
 }
 
-/// Attempt to connect to all the SocketAddr in order, with a timeout.
-/// The addreses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
+/// Attempt to connect to all the SocketAddr in order.
+/// The addresses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
 fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
-    // TODO: Erorr handling, don't just try the first
-
-    //let mut errs = vec![];
-    //let addrs: Vec<_> = addrs.to_socket_addrs().unwrap().collect();
     for addr in addrs {
         let addr_v4 = match addr {
             SocketAddr::V4(v4) => v4,
             _ => continue,
         };
         let sock = TcpSocket::new()?;
-        sock.connect(&addr_v4)?;
-        return Ok(sock);
-        /*
-        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
-            Ok(tcp) => {
-                set_tcp_fastopen(&tcp);
-                return Ok(tcp);
-            }
-            Err(err) => {
-                errs.push((addr, err));
-            }
+        if sock.connect(&addr_v4, SOCKET_CONNECT_TIMEOUT_MS).is_ok() {
+            return Ok(sock);
         }
-        */
     }
-    //let err_msg: Vec<String> = errs
-    //    .into_iter()
-    //    .map(|(addr, err)| format!("Failed connecting to {addr:?}: {err}"))
-    //    .collect();
-    //Err(io::Error::other(err_msg.join("; ")))
     Err(ort_error(
         ErrorKind::HttpConnectError,
-        "connect error handling TODO",
+        "'connect' failed on all of the IP addresses",
     ))
 }
