@@ -8,7 +8,6 @@ use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
 use alloc::string::{String, ToString};
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::site::Site;
@@ -32,8 +31,10 @@ pub fn run<W: Write + Send>(
     w: &mut W,
 ) -> OrtResult<()> {
     let addrs = if settings.dns.is_empty() {
-        let ip = unsafe { resolver::resolve(site.dns_label)? };
-        vec![SocketAddr::new(IpAddr::V4(ip), site.port)]
+        let ips = unsafe { resolver::resolve(site.dns_label)? };
+        ips.into_iter()
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), site.port))
+            .collect()
     } else {
         settings
             .dns

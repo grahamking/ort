@@ -8,6 +8,7 @@
 use core::{net::Ipv4Addr, ptr::copy_nonoverlapping};
 
 extern crate alloc;
+use alloc::vec::Vec;
 
 use crate::{
     ErrorKind, OrtResult, ort_error,
@@ -35,7 +36,7 @@ const DNS_PACKET_SUFFIX: [u8; 4] = [
 /// This is only called if .config/ort.json's settings/dns is not set. Which you should set.
 /// # Safety
 /// System programming is for everyone
-pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
+pub unsafe fn resolve(label: &[u8]) -> OrtResult<Vec<Ipv4Addr>> {
     // socket
     let sock_fd = syscall::socket(AF_INET, SOCK_DGRAM, 0);
     if sock_fd <= 0 {
@@ -95,14 +96,29 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Ipv4Addr> {
         return Err(ort_error(ErrorKind::DnsResolveFailed, "server err code"));
     }
 
-    //let answer_count = u16::from_le_bytes([buf[7], buf[8]]);
-
-    // TODO: Include all the answers from the resolver. Our connect code can handle multiple.
-
-    // The last four bytes are always one of the answers, even if there are several
-    let end = bytes_read as usize;
-    let ip = u32::from_be_bytes([buf[end - 4], buf[end - 3], buf[end - 2], buf[end - 1]]);
-    Ok(Ipv4Addr::from_bits(ip))
+    // Each response is 16 bytes. The last four are the IP. Parse from the end.
+    let answer_count = u16::from_le_bytes([buf[7], buf[8]]);
+    let mut result = Vec::with_capacity(answer_count as usize);
+    for i in 0..answer_count as usize {
+        let record_end = bytes_read as usize - (16 * i);
+        let ip = u32::from_be_bytes([
+            buf[record_end - 4],
+            buf[record_end - 3],
+            buf[record_end - 2],
+            buf[record_end - 1],
+        ]);
+        result.push(Ipv4Addr::from_bits(ip));
+        /*
+        let b0 = crate::utils::num_to_string(buf[record_end - 4]);
+        let b1 = crate::utils::num_to_string(buf[record_end - 3]);
+        let b2 = crate::utils::num_to_string(buf[record_end - 2]);
+        let b3 = crate::utils::num_to_string(buf[record_end - 1]);
+        let ip_str = b0 + "." + &b1 + "." + &b2 + "." + &b3;
+        crate::utils::print_string(c"Got IP: ", &ip_str);
+        */
+    }
+    result.reverse();
+    Ok(result)
 }
 
 fn resolver_ip_address() -> OrtResult<u32> {

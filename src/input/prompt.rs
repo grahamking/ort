@@ -435,14 +435,16 @@ impl ActivePrompt {
         }
         self.start = Some(time::Ticks::now());
         let addrs = if self.dns.is_empty() {
-            let ip = match unsafe { resolver::resolve(self.site.dns_label) } {
-                Ok(ip) => ip,
+            let ips = match unsafe { resolver::resolve(self.site.dns_label) } {
+                Ok(ips) => ips,
                 Err(err) => {
                     print_string(c"FATAL: resolving host: ", &err.as_string());
                     return Err(ort_error(ErrorKind::DnsResolveFailed, ""));
                 }
             };
-            vec![SocketAddr::new(IpAddr::V4(ip), self.site.port)]
+            ips.into_iter()
+                .map(|ip| SocketAddr::new(IpAddr::V4(ip), self.site.port))
+                .collect()
         } else {
             self.dns
                 .iter()
