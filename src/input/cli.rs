@@ -127,6 +127,7 @@ pub fn main<W: Write + Send>(
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
+                    &cfg,
                     &old_cfg.settings.unwrap_or_default(),
                     &env,
                     cli_opts,
@@ -139,6 +140,7 @@ pub fn main<W: Write + Send>(
             } else {
                 prompt::run_multi(
                     &api_key,
+                    &cfg,
                     &old_cfg.settings.unwrap_or_default(),
                     cli_opts,
                     site,
@@ -158,6 +160,7 @@ pub fn main<W: Write + Send>(
             let messages = cli_opts.messages()?;
             agent::run(
                 &api_key,
+                &cfg,
                 &old_cfg.settings.unwrap_or_default(),
                 &env,
                 cli_opts,
@@ -168,6 +171,7 @@ pub fn main<W: Write + Send>(
         }
         args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
+            &cfg,
             &old_cfg.settings.unwrap_or_default(),
             &env,
             cli_opts,
@@ -177,6 +181,7 @@ pub fn main<W: Write + Send>(
         ),
         args::Cmd::List(args) => list::run(
             &api_key,
+            &cfg,
             old_cfg.settings.unwrap_or_default(),
             args,
             site,

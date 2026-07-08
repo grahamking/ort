@@ -25,6 +25,7 @@ const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
 
 pub fn run<W: Write + Send>(
     api_key: &str,
+    cfg: &config::Cfg,
     settings: config::Settings,
     opts: args::ListOpts,
     site: &'static Site,
@@ -45,7 +46,7 @@ pub fn run<W: Write + Send>(
             })
             .collect()
     };
-    let reader = match http::list_models(api_key, site.host, site.list_url, addrs) {
+    let reader = match http::list_models(api_key, &cfg.base_url, addrs) {
         Ok(r) => r,
         Err(err) => {
             print_string(c"FATAL running list_models: ", &err.as_string());
@@ -157,7 +158,7 @@ pub fn run<W: Write + Send>(
 }
 
 /// The prefix of this string until the first double quote.
-/// Slugs never contain a doube quote.
+/// Slugs never contain a double quote.
 fn until_quote(s: &str) -> Option<&str> {
     let mut qp = 0;
     let len = s.len();

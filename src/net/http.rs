@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025,2026 Graham King
 
 use core::net::SocketAddr;
 
@@ -49,11 +49,12 @@ const LIST_REQ_MIDDLE: &[u8] = concat!(
 
 pub fn list_models(
     api_key: &str,
-    host: &'static str,
-    list_url: &'static str,
+    base_url: &str,
     addrs: Vec<SocketAddr>,
 ) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
+
+    let (host, _port, base_path) = split_url(base_url);
     let mut tls = TlsStream::connect(tcp, host)?;
 
     // Built request on the stack, zero alloc
@@ -61,6 +62,7 @@ pub fn list_models(
     let mut req = [0u8; 384];
 
     // GET <list_url> HTTP/1.1\r\n
+    let list_url = base_path.to_string() + "/models";
     let mut start = 0;
     let mut end = GET.len();
     req[start..end].copy_from_slice(GET);
@@ -124,12 +126,13 @@ const CHAT_REQ_MIDDLE: &[u8] = concat!(
 
 pub fn chat_completions(
     api_key: &str,
-    host: &'static str,
-    chat_completions_url: &'static str,
+    base_url: &str,
     addrs: Vec<SocketAddr>,
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
+
+    let (host, _port, base_path) = split_url(base_url);
     let mut tls = TlsStream::connect(tcp, host)?;
 
     let body = json_body.as_bytes();
@@ -139,6 +142,7 @@ pub fn chat_completions(
     let mut req = [0u8; 512];
 
     // POST <chat_completions_url> HTTP/1.1\r\n
+    let chat_completions_url = base_path.to_string() + "/chat/completions";
     let mut start = 0;
     let mut end = POST.len();
     req[start..end].copy_from_slice(POST);
@@ -328,4 +332,64 @@ fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
         ErrorKind::HttpConnectError,
         "'connect' failed on all of the IP addresses",
     ))
+}
+
+/// "https://openrouter.ai:443/api/v1" => ("openrouter.ai", 443, "/api/v1")
+fn split_url(base_url: &str) -> (&str, u16, &str) {
+    let mut host_start = 0;
+    let mut host_end = base_url.len();
+
+    let mut port_start = 0;
+    let mut port_end = 0;
+
+    let mut base_path_start = 0;
+    let base_path_end = base_url.len();
+
+    if base_url.starts_with("https://") {
+        host_start += "https://".len();
+        base_path_start = host_start;
+    }
+    if let Some(ps) = base_url[host_start..host_end].find(":") {
+        host_end = host_start + ps;
+        port_start = host_start + ps + 1;
+    }
+    if let Some(path_start) = base_url[base_path_start..base_path_end].find("/") {
+        if port_start == 0 {
+            // If there's no port, the host stops where the path starts
+            host_end = base_path_start + path_start;
+        }
+        port_end = base_path_start + path_start;
+        base_path_start += path_start;
+    }
+
+    let host = &base_url[host_start..host_end];
+    // TODO parse from port_start..port_end
+    // Extract string to num from common/json_parser.json parse_u32 into common/utils
+    let port = 443;
+    let base_path = &base_url[base_path_start..base_path_end];
+    (host, port, base_path)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    pub fn test_split_url() {
+        let input = "https://openrouter.ai:443/api/v1";
+        let (host, port, base) = super::split_url(input);
+        assert_eq!(host, "openrouter.ai");
+        assert_eq!(port, 443);
+        assert_eq!(base, "/api/v1");
+
+        let input = "https://openrouter.ai/api/v1";
+        let (host, port, base) = super::split_url(input);
+        assert_eq!(host, "openrouter.ai");
+        assert_eq!(port, 443);
+        assert_eq!(base, "/api/v1");
+
+        let input = "openrouter.ai/api/v1";
+        let (host, port, base) = super::split_url(input);
+        assert_eq!(host, "openrouter.ai");
+        assert_eq!(port, 443);
+        assert_eq!(base, "/api/v1");
+    }
 }

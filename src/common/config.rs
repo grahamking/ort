@@ -49,6 +49,7 @@ pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> 
 }
 
 // Will replace ConfigFile
+#[derive(Clone)]
 pub struct Cfg {
     pub base_url: String,
     pub api_key: Option<String>,

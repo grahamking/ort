@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 use core::{ffi::c_void, mem::MaybeUninit};
 
 use crate::Role;
+use crate::common::config::Cfg;
 use crate::common::data::Content;
 use crate::common::stats::Stats;
 use crate::common::tools::{self};
@@ -30,6 +31,7 @@ use crate::{
 
 pub fn run<W: Write + Send>(
     api_key: &str,
+    cfg: &Cfg,
     settings: &config::Settings,
     env: &Env,
     mut opts: PromptOpts,
@@ -94,6 +96,7 @@ pub fn run<W: Write + Send>(
         while has_tool_call {
             has_tool_call = run_single(
                 api_key,
+                cfg,
                 settings,
                 env,
                 opts.clone(),
@@ -144,6 +147,7 @@ fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
 #[allow(clippy::too_many_arguments)]
 fn run_single<W: Write + Send>(
     api_key: &str,
+    cfg: &Cfg,
     settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
@@ -156,6 +160,7 @@ fn run_single<W: Write + Send>(
     let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
+        cfg,
         settings.dns.clone(),
         opts,
         messages.clone(),

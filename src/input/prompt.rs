@@ -23,7 +23,7 @@ use crate::{Context as _, OrtError, chunked};
 use crate::ChatCompletionsResponse;
 use crate::OrtResult;
 use crate::build_body;
-use crate::common::config;
+use crate::common::config::{self, Cfg};
 use crate::common::dir;
 use crate::common::file;
 use crate::common::io::{ReadLine, Write};
@@ -66,6 +66,7 @@ impl Drop for EpollFd {
 #[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
     api_key: &str,
+    cfg: &Cfg,
     settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
@@ -98,6 +99,7 @@ pub fn run<W: Write + Send>(
 
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
+        cfg,
         settings.dns.clone(),
         opts,
         messages,
@@ -191,6 +193,7 @@ pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
 /// pane to populate the context, then run with the new prompt.
 pub fn run_continue<W: Write + Send>(
     api_key: &str,
+    cfg: &Cfg,
     settings: &config::Settings,
     env: &Env,
     mut opts: crate::PromptOpts,
@@ -206,6 +209,7 @@ pub fn run_continue<W: Write + Send>(
 
     run(
         api_key,
+        cfg,
         settings,
         env,
         opts,
@@ -219,6 +223,7 @@ pub fn run_continue<W: Write + Send>(
 
 pub fn run_multi<W: Write + Send>(
     api_key: &str,
+    cfg: &Cfg,
     settings: &config::Settings,
     opts: PromptOpts,
     site: &'static Site,
@@ -250,6 +255,7 @@ pub fn run_multi<W: Write + Send>(
 
         let mut active_prompt = ActivePrompt::new(
             api_key.to_string(),
+            cfg,
             settings.dns.clone(),
             opts.clone(),
             messages.clone(),
@@ -344,6 +350,7 @@ pub trait PromptReader: ReadLine + AsFd {}
 
 pub(in crate::input) struct ActivePrompt {
     api_key: String,
+    cfg: Cfg,
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
@@ -374,6 +381,7 @@ impl ActivePrompt {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: String,
+        cfg: &Cfg,
         dns: Vec<String>,
         opts: PromptOpts,
         messages: Vec<Message>,
@@ -384,6 +392,7 @@ impl ActivePrompt {
     ) -> OrtResult<Self> {
         Ok(ActivePrompt {
             api_key,
+            cfg: cfg.clone(),
             dns,
             site,
             messages,
@@ -454,19 +463,14 @@ impl ActivePrompt {
                 })
                 .collect()
         };
-        let mut buf_reader = match http::chat_completions(
-            &self.api_key,
-            self.site.host,
-            self.site.chat_completions_url,
-            addrs,
-            &body,
-        ) {
-            Ok(r) => r,
-            Err(err) => {
-                print_string(c"FATAL running chat_completions: ", &err.as_string());
-                return Err(ort_error(ErrorKind::Other, "running chat_completions"));
-            }
-        };
+        let mut buf_reader =
+            match http::chat_completions(&self.api_key, &self.cfg.base_url, addrs, &body) {
+                Ok(r) => r,
+                Err(err) => {
+                    print_string(c"FATAL running chat_completions: ", &err.as_string());
+                    return Err(ort_error(ErrorKind::Other, "running chat_completions"));
+                }
+            };
 
         match http::skip_header(&mut buf_reader) {
             Ok(true) => {
