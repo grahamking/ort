@@ -6,8 +6,7 @@
 
 extern crate alloc;
 use alloc::borrow::Cow;
-use alloc::string::String;
-use alloc::vec;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::common::json_parser::{JsonField, autoparser};
@@ -16,6 +15,16 @@ use crate::{ErrorKind, OrtResult, PromptOpts, cli::Env, common::utils, ort_error
 const DEFAULT_SAVE_TO_FILE: bool = true;
 
 pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
+    match read_config_file(env, filename)? {
+        Some(cfg_str) => {
+            ConfigFile::from_json(&cfg_str).map_err(|_| ort_error(ErrorKind::ConfigParseFailed, ""))
+        }
+        None => Ok(ConfigFile::default()),
+    }
+}
+
+/// Read a file from the XDG config dir
+pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> {
     let mut config_file = [0u8; 64];
 
     // Write the config directory into `config_file`
@@ -33,26 +42,70 @@ pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
 
     let config_file = unsafe { str::from_utf8_unchecked(&config_file[..end]) };
     match utils::filename_read_to_string(config_file) {
-        Ok(cfg_str) => {
-            ConfigFile::from_json(&cfg_str).map_err(|_| ort_error(ErrorKind::ConfigParseFailed, ""))
-        }
-        Err("NOT FOUND") => Ok(ConfigFile::default()),
+        Ok(cfg_str) => Ok(Some(cfg_str)),
+        Err("NOT FOUND") => Ok(None),
         Err(_e) => Err(ort_error(ErrorKind::ConfigReadFailed, "")),
+    }
+}
+
+// Will replace ConfigFile
+pub struct Cfg {
+    pub base_url: String,
+    pub api_key: Option<String>,
+}
+
+impl Cfg {
+    pub fn load(env: &Env, filename: &str) -> OrtResult<Cfg> {
+        match read_config_file(env, filename)? {
+            Some(cfg_str) => Self::from_str(&cfg_str),
+            None => Ok(Self::default()),
+        }
+    }
+
+    pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
+        let mut api_key = None;
+        let mut base_url = "";
+        for line in cfg.lines() {
+            let (key, value) = line
+                .split_once(":")
+                .map(|(k, v)| (k.trim(), v.trim()))
+                .unwrap();
+            match key {
+                "api_key" => api_key = Some(value),
+                "base_url" => base_url = value,
+                _ => {
+                    return Err(ort_error(
+                        ErrorKind::ConfigReadFailed,
+                        "Invalid key in cfg file",
+                    ));
+                }
+            }
+        }
+        Ok(Cfg {
+            base_url: base_url.to_string(),
+            api_key: api_key.map(|k| k.to_string()),
+        })
+    }
+
+    pub fn default() -> Cfg {
+        Cfg {
+            api_key: None,
+            base_url: "openrouter.ai/api/v1".to_string(),
+        }
+    }
+
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.api_key.as_deref()
     }
 }
 
 #[derive(Default)]
 pub struct ConfigFile {
     pub settings: Option<Settings>,
-    pub keys: Vec<ApiKey>,
     pub prompt_opts: Option<PromptOpts>,
 }
 
 impl ConfigFile {
-    /// Get the API key. There should only be one.
-    pub fn get_api_key(&self) -> Option<String> {
-        self.keys.first().as_ref().map(|k| k.value.clone())
-    }
     pub fn _save_to_file(&self) -> bool {
         self.settings
             .as_ref()
@@ -62,7 +115,6 @@ impl ConfigFile {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut fields = [
             JsonField::new_raw("settings"),
-            JsonField::new_vec_raw("keys"),
             JsonField::new_raw("prompt_opts"),
         ];
         autoparser(json, &mut fields)?;
@@ -73,14 +125,7 @@ impl ConfigFile {
             .map(Settings::from_json)
             .transpose()?;
 
-        let mut keys = vec![];
-        if let Some(keys_str) = fields[1].get_vec_raw() {
-            for k in keys_str {
-                keys.push(ApiKey::from_json(&k)?);
-            }
-        }
-
-        let prompt_opts = fields[2]
+        let prompt_opts = fields[1]
             .get_raw()
             .as_deref()
             .map(PromptOpts::from_json)
@@ -88,7 +133,6 @@ impl ConfigFile {
 
         Ok(ConfigFile {
             settings,
-            keys,
             prompt_opts,
         })
     }
@@ -125,30 +169,6 @@ impl Settings {
             save_to_file: fields[0].get_bool().unwrap_or(default.save_to_file),
             dns: fields[1].get_vec_string().unwrap_or_default(),
         })
-    }
-}
-
-// The unit tests in output/from_json.rs need PartialEq
-#[derive(Debug, PartialEq)]
-pub struct ApiKey {
-    name: String,
-    value: String,
-}
-
-impl ApiKey {
-    pub fn new(name: String, value: String) -> Self {
-        ApiKey { name, value }
-    }
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_simple_string("name"),
-            JsonField::new_string("value"),
-        ];
-        autoparser(json, &mut fields)?;
-        Ok(ApiKey::new(
-            fields[0].get_string().expect("Missing ApiKey name"),
-            fields[1].get_string().expect("Missing ApiKey value"),
-        ))
     }
 }
 
@@ -207,20 +227,8 @@ pub fn xdg_dir(
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    use alloc::string::ToString;
 
     use super::*;
-
-    #[test]
-    fn api_key() {
-        let s = r#"{"name":"openrouter","value":"sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef"}"#;
-        let got = ApiKey::from_json(s).unwrap();
-        let expect = ApiKey::new(
-            "openrouter".to_string(),
-            "sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef".to_string(),
-        );
-        assert_eq!(got, expect);
-    }
 
     #[test]
     fn settings() {
@@ -237,7 +245,6 @@ mod tests {
     fn config_file() {
         let s = r#"
 {
-    "keys": [{"name": "openrouter", "value": "sk-or-v1-abcd1234"}],
     "settings": {
         "save_to_file": true,
         "dns": ["104.18.2.115", "104.18.3.115"]
@@ -254,7 +261,6 @@ mod tests {
 }
 "#;
         let cfg = ConfigFile::from_json(s).unwrap();
-        assert_eq!(cfg.keys.len(), 1);
         assert!(cfg.settings.is_some());
         assert!(cfg.prompt_opts.is_some());
     }

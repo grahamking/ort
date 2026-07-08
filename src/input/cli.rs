@@ -82,24 +82,23 @@ pub fn main<W: Write + Send>(
         _ => site::OPENROUTER,
     };
 
+    // Load ~/.config/ort/cfg
+    // TODO: Flag to pass on cmd line: '-c ort-dev.cfg'
+    let cfg = config::Cfg::load(&env, "ort.cfg")?;
+
     // Load ~/.config/ort.json or nrt.json
-    let cfg = config::load_config(&env, site.config_filename)?;
+    let old_cfg = config::load_config(&env, site.config_filename)?;
 
     // Fail fast if key missing
-    let api_key_ref = match site.name {
-        "OpenRouter" => env.OPENROUTER_API_KEY.unwrap_or_default(),
-        "NVIDIA" => env.NVIDIA_API_KEY.unwrap_or_default(),
-        "MOCK" => "test",
-        _ => panic!("unknown site"),
-    };
+    let api_key_ref = env.OPENROUTER_API_KEY.unwrap_or_default();
     let mut api_key = api_key_ref.to_string();
     if api_key.is_empty() {
         api_key = match cfg.get_api_key() {
-            Some(k) => k,
+            Some(k) => k.to_string(),
             None => {
                 return Err(ort_error(
                     ErrorKind::MissingApiKey,
-                    "OPENROUTER_API_KEY or NVIDIA_API_KEY is not set.",
+                    "api_key not in ort.cfg and OPENROUTER_API_KEY is not set.",
                 ));
             }
         }
@@ -120,7 +119,7 @@ pub fn main<W: Write + Send>(
     let cmd_result = match cmd {
         args::Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
-                cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+                cli_opts.merge(old_cfg.prompt_opts.unwrap_or_default());
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
@@ -128,7 +127,7 @@ pub fn main<W: Write + Send>(
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
-                    &cfg.settings.unwrap_or_default(),
+                    &old_cfg.settings.unwrap_or_default(),
                     &env,
                     cli_opts,
                     site,
@@ -140,7 +139,7 @@ pub fn main<W: Write + Send>(
             } else {
                 prompt::run_multi(
                     &api_key,
-                    &cfg.settings.unwrap_or_default(),
+                    &old_cfg.settings.unwrap_or_default(),
                     cli_opts,
                     site,
                     messages,
@@ -150,7 +149,7 @@ pub fn main<W: Write + Send>(
         }
         args::Cmd::Agent(mut cli_opts) => {
             if cli_opts.merge_config {
-                cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+                cli_opts.merge(old_cfg.prompt_opts.unwrap_or_default());
             } else {
                 cli_opts.merge(PromptOpts::default());
             }
@@ -159,7 +158,7 @@ pub fn main<W: Write + Send>(
             let messages = cli_opts.messages()?;
             agent::run(
                 &api_key,
-                &cfg.settings.unwrap_or_default(),
+                &old_cfg.settings.unwrap_or_default(),
                 &env,
                 cli_opts,
                 site,
@@ -169,16 +168,20 @@ pub fn main<W: Write + Send>(
         }
         args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
             &api_key,
-            &cfg.settings.unwrap_or_default(),
+            &old_cfg.settings.unwrap_or_default(),
             &env,
             cli_opts,
             site,
             !is_terminal,
             w,
         ),
-        args::Cmd::List(args) => {
-            list::run(&api_key, cfg.settings.unwrap_or_default(), args, site, w)
-        }
+        args::Cmd::List(args) => list::run(
+            &api_key,
+            old_cfg.settings.unwrap_or_default(),
+            args,
+            site,
+            w,
+        ),
     };
     cmd_result.map(|_| 0)
 }
