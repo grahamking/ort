@@ -247,5 +247,5 @@ NVIDIA runs a model hub at [build.nvidia.com](https://build.nvidia.com) with som
 1. Create an account and get an API key at build.nvidia.com.
 1. Create a new config file in `XDG_CONFIG_HOME` and run ort as `ort --cfg <new_config>`. Set `base_url: integrate.api.nvidia.com/v1` and set `api_key: <here>`.
 1. If you cache the IP address is must be the IP of `integrate.api.nvidia.com` (AWS load balancer). That's optional.
-1. `ort --cfg nrt.cfg list` should now work
+1. `ort list --cfg nrt.cfg` should now work
 
