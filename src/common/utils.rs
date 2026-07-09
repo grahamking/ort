@@ -135,6 +135,33 @@ pub(crate) fn float_to_string(mut f: f64, significant_digits: usize) -> String {
     result
 }
 
+/// Parse a positive number
+pub fn parse_u32(b: &[u8]) -> Result<u32, &'static str> {
+    let mut val: u32 = 0;
+    let mut read_any = false;
+    let len = b.len();
+    let mut i = 0;
+    while i < len {
+        let c = b[i];
+        if c.is_ascii_digit() {
+            read_any = true;
+            let digit = (c - b'0') as u32;
+            // Overflow-safe accumulation
+            if val > (u32::MAX - digit) / 10 {
+                return Err("u32 overflow");
+            }
+            val = val * 10 + digit;
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    if !read_any {
+        return Err("expected integer");
+    }
+    Ok(val)
+}
+
 #[allow(unused)]
 pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
     let hex: alloc::string::String = v

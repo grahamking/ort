@@ -10,12 +10,12 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 
 use crate::OrtResult;
-use crate::PromptOpts;
 use crate::Write;
+use crate::common::buf_read;
 use crate::common::config;
-use crate::common::{buf_read, site};
 use crate::input::agent;
 use crate::input::args;
+use crate::input::args::Cmd;
 use crate::input::list;
 use crate::input::prompt;
 use crate::syscall;
@@ -25,7 +25,7 @@ const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
 
 // Keep default mode in sync with common/data.rs DEFAULT_MODEL
-const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
+const USAGE: &str = "Usage: ort [--cfg ort.cfg] [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
 Defaults: -m nvidia/nemotron-3-super-120b-a12b:free -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
@@ -76,35 +76,6 @@ pub fn main<W: Write + Send>(
     is_terminal: bool,
     w: &mut W,
 ) -> OrtResult<c_int> {
-    let site = match args[0].split('/').next_back().unwrap() {
-        "nrt" => site::NVIDIA,
-        "mrt" => site::MOCK,
-        _ => site::OPENROUTER,
-    };
-
-    // Load ~/.config/ort.json or nrt.json
-    let cfg = config::load_config(&env, site.config_filename)?;
-
-    // Fail fast if key missing
-    let api_key_ref = match site.name {
-        "OpenRouter" => env.OPENROUTER_API_KEY.unwrap_or_default(),
-        "NVIDIA" => env.NVIDIA_API_KEY.unwrap_or_default(),
-        "MOCK" => "test",
-        _ => panic!("unknown site"),
-    };
-    let mut api_key = api_key_ref.to_string();
-    if api_key.is_empty() {
-        api_key = match cfg.get_api_key() {
-            Some(k) => k,
-            None => {
-                return Err(ort_error(
-                    ErrorKind::MissingApiKey,
-                    "OPENROUTER_API_KEY or NVIDIA_API_KEY is not set.",
-                ));
-            }
-        }
-    };
-
     let cmd = match parse_args(args, &env) {
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
@@ -116,69 +87,67 @@ pub fn main<W: Write + Send>(
             return Err(err.into());
         }
     };
+    let config_file = match &cmd {
+        Cmd::List(opts) => opts.config_file.as_deref(),
+        Cmd::Prompt(opts) | Cmd::Agent(opts) | Cmd::ContinueConversation(opts) => {
+            opts.config_file.as_deref()
+        }
+    };
+    let cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg"))?;
+
+    // Fail fast if key missing
+    let api_key_ref = env.OPENROUTER_API_KEY.unwrap_or_default();
+    let mut api_key = api_key_ref.to_string();
+    if api_key.is_empty() {
+        api_key = match cfg.get_api_key() {
+            Some(k) => k.to_string(),
+            None => {
+                return Err(ort_error(
+                    ErrorKind::MissingApiKey,
+                    "api_key not in ort.cfg and OPENROUTER_API_KEY is not set.",
+                ));
+            }
+        }
+    };
 
     let cmd_result = match cmd {
         args::Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
-                cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+                cli_opts.merge(&cfg);
             } else {
-                cli_opts.merge(PromptOpts::default());
+                cli_opts.merge(&config::Cfg::default());
             }
             let messages = cli_opts.messages()?;
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
-                    &cfg.settings.unwrap_or_default(),
+                    &cfg,
                     &env,
                     cli_opts,
-                    site,
                     messages,
                     alloc::vec![],
                     !is_terminal,
                     w,
                 )
             } else {
-                prompt::run_multi(
-                    &api_key,
-                    &cfg.settings.unwrap_or_default(),
-                    cli_opts,
-                    site,
-                    messages,
-                    w,
-                )
+                prompt::run_multi(&api_key, &cfg, cli_opts, messages, w)
             }
         }
         args::Cmd::Agent(mut cli_opts) => {
             if cli_opts.merge_config {
-                cli_opts.merge(cfg.prompt_opts.unwrap_or_default());
+                cli_opts.merge(&cfg);
             } else {
-                cli_opts.merge(PromptOpts::default());
+                cli_opts.merge(&config::Cfg::default());
             }
             // Agent mode always includes server-side web tools
             cli_opts.include_web_tools = Some(true);
             let messages = cli_opts.messages()?;
-            agent::run(
-                &api_key,
-                &cfg.settings.unwrap_or_default(),
-                &env,
-                cli_opts,
-                site,
-                messages,
-                w,
-            )
+            agent::run(&api_key, &cfg, &env, cli_opts, messages, w)
         }
-        args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
-            &api_key,
-            &cfg.settings.unwrap_or_default(),
-            &env,
-            cli_opts,
-            site,
-            !is_terminal,
-            w,
-        ),
-        args::Cmd::List(args) => {
-            list::run(&api_key, cfg.settings.unwrap_or_default(), args, site, w)
+        args::Cmd::ContinueConversation(cli_opts) => {
+            prompt::run_continue(&api_key, &cfg, &env, cli_opts, !is_terminal, w)
         }
+        args::Cmd::List(args) => list::run(&api_key, &cfg, args, w),
     };
     cmd_result.map(|_| 0)
 }

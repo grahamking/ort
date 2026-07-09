@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 use core::{ffi::c_void, mem::MaybeUninit};
 
 use crate::Role;
+use crate::common::config::Cfg;
 use crate::common::data::Content;
 use crate::common::stats::Stats;
 use crate::common::tools::{self};
@@ -21,7 +22,7 @@ use crate::ort_error;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
-    common::{config, data::Tool, error, site::Site},
+    common::{data::Tool, error},
     input::prompt::ActivePrompt,
     output::{OutputWriter, agent::AgentWriter, last_writer::LastWriter},
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
@@ -30,10 +31,9 @@ use crate::{
 
 pub fn run<W: Write + Send>(
     api_key: &str,
-    settings: &config::Settings,
+    cfg: &Cfg,
     env: &Env,
     mut opts: PromptOpts,
-    site: &'static Site,
     // This contains the system prompt
     // It grows to contain the whole conversation
     mut messages: Vec<crate::Message>,
@@ -94,10 +94,9 @@ pub fn run<W: Write + Send>(
         while has_tool_call {
             has_tool_call = run_single(
                 api_key,
-                settings,
+                cfg,
                 env,
                 opts.clone(),
-                site,
                 &mut messages,
                 tools::ALL_TOOLS,
                 &mut output_writer,
@@ -144,10 +143,9 @@ fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
 #[allow(clippy::too_many_arguments)]
 fn run_single<W: Write + Send>(
     api_key: &str,
-    settings: &config::Settings,
+    cfg: &Cfg,
     env: &Env,
     opts: PromptOpts,
-    site: &'static Site,
     messages: &mut Vec<Message>,
     tools: &[&'static Tool],
     output_writer: &mut AgentWriter<W>,
@@ -156,12 +154,11 @@ fn run_single<W: Write + Send>(
     let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
-        settings.dns.clone(),
+        cfg,
         opts,
         messages.clone(),
         tools.to_vec(),
         0,
-        site,
         Some(env),
     )?;
     active_prompt.start()?;

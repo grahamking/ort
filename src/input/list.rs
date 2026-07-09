@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025,2026 Graham King
 
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -10,7 +10,6 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::common::site::Site;
 use crate::utils::print_string;
 use crate::{
     Context, OrtResult, Read, Write, chunked,
@@ -25,27 +24,26 @@ const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
 
 pub fn run<W: Write + Send>(
     api_key: &str,
-    settings: config::Settings,
+    cfg: &config::Cfg,
     opts: args::ListOpts,
-    site: &'static Site,
     w: &mut W,
 ) -> OrtResult<()> {
-    let addrs = if settings.dns.is_empty() {
-        let ips = unsafe { resolver::resolve(site.dns_label)? };
+    let (host, port, base_path) = http::split_url(&cfg.base_url);
+    let addrs = if cfg.dns.is_empty() {
+        let ips = unsafe { resolver::resolve(host)? };
         ips.into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), site.port))
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
             .collect()
     } else {
-        settings
-            .dns
+        cfg.dns
             .iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                SocketAddr::new(IpAddr::V4(ip_addr), site.port)
+                SocketAddr::new(IpAddr::V4(ip_addr), port)
             })
             .collect()
     };
-    let reader = match http::list_models(api_key, site.host, site.list_url, addrs) {
+    let reader = match http::list_models(api_key, host, base_path, addrs) {
         Ok(r) => r,
         Err(err) => {
             print_string(c"FATAL running list_models: ", &err.as_string());
@@ -157,7 +155,7 @@ pub fn run<W: Write + Send>(
 }
 
 /// The prefix of this string until the first double quote.
-/// Slugs never contain a doube quote.
+/// Slugs never contain a double quote.
 fn until_quote(s: &str) -> Option<&str> {
     let mut qp = 0;
     let len = s.len();

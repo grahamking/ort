@@ -4,18 +4,43 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+use core::str::FromStr;
+
 extern crate alloc;
-use alloc::borrow::Cow;
-use alloc::string::String;
-use alloc::vec;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::common::json_parser::{JsonField, autoparser};
-use crate::{ErrorKind, OrtResult, PromptOpts, cli::Env, common::utils, ort_error};
+use crate::{ErrorKind, OrtResult, cli::Env, common::utils, ort_error};
+use crate::{Priority, ReasoningEffort};
 
+/// Needed for the "-c" continue option to work so default enable.
+/// Disable it for privacy / diskless.
 const DEFAULT_SAVE_TO_FILE: bool = true;
 
+/// Quiet disables showing the stats. I love the stats!
+const DEFAULT_QUIET: bool = false;
+
+/// Don't show reasoning by default, because if there are words I have to
+/// read them, and I just want the answer.
+const DEFAULT_SHOW_REASONING: bool = false;
+
+/// Allowing the model to search is very very useful, but it makes responses
+/// slower, so make it opt-in.
+const DEFAULT_INCLUDE_WEB_TOOLS: bool = false;
+
+/*
 pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
+    match read_config_file(env, filename)? {
+        Some(cfg_str) => {
+            ConfigFile::from_json(&cfg_str).map_err(|_| ort_error(ErrorKind::ConfigParseFailed, ""))
+        }
+        None => Ok(ConfigFile::default()),
+    }
+}
+*/
+
+/// Read a file from the XDG config dir
+pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> {
     let mut config_file = [0u8; 64];
 
     // Write the config directory into `config_file`
@@ -33,122 +58,163 @@ pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
 
     let config_file = unsafe { str::from_utf8_unchecked(&config_file[..end]) };
     match utils::filename_read_to_string(config_file) {
-        Ok(cfg_str) => {
-            ConfigFile::from_json(&cfg_str).map_err(|_| ort_error(ErrorKind::ConfigParseFailed, ""))
-        }
-        Err("NOT FOUND") => Ok(ConfigFile::default()),
+        Ok(cfg_str) => Ok(Some(cfg_str)),
+        Err("NOT FOUND") => Ok(None),
         Err(_e) => Err(ort_error(ErrorKind::ConfigReadFailed, "")),
     }
 }
 
-#[derive(Default)]
-pub struct ConfigFile {
-    pub settings: Option<Settings>,
-    pub keys: Vec<ApiKey>,
-    pub prompt_opts: Option<PromptOpts>,
-}
+// Will replace ConfigFile
+#[derive(Clone, Default)]
+pub struct Cfg {
+    /// Address and path base of the server. "https://" is optional and implied.
+    /// Include the "/v1". No trailing slash.
+    /// e.g.
+    /// - "openrouter.ai/api/v1"
+    /// - "https://localhost:8000/v1"
+    pub base_url: String,
 
-impl ConfigFile {
-    /// Get the API key. There should only be one.
-    pub fn get_api_key(&self) -> Option<String> {
-        self.keys.first().as_ref().map(|k| k.value.clone())
-    }
-    pub fn _save_to_file(&self) -> bool {
-        self.settings
-            .as_ref()
-            .map(|s| s.save_to_file)
-            .unwrap_or(DEFAULT_SAVE_TO_FILE)
-    }
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_raw("settings"),
-            JsonField::new_vec_raw("keys"),
-            JsonField::new_raw("prompt_opts"),
-        ];
-        autoparser(json, &mut fields)?;
+    pub api_key: Option<String>,
 
-        let settings = fields[0]
-            .get_raw()
-            .as_deref()
-            .map(Settings::from_json)
-            .transpose()?;
-
-        let mut keys = vec![];
-        if let Some(keys_str) = fields[1].get_vec_raw() {
-            for k in keys_str {
-                keys.push(ApiKey::from_json(&k)?);
-            }
-        }
-
-        let prompt_opts = fields[2]
-            .get_raw()
-            .as_deref()
-            .map(PromptOpts::from_json)
-            .transpose()?;
-
-        Ok(ConfigFile {
-            settings,
-            keys,
-            prompt_opts,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct Settings {
     /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
     pub save_to_file: bool,
-    /// IP addresses of openrouter.ai or integrate.api.nvidia.com.
+
+    /// IP addresses of domain in base_url (usually openrouter.ai).
     /// Saves time resolving them.
     pub dns: Vec<String>,
+
+    /// Default model. Usually passed on the cmd line as '-m <model_id>'
+    pub model: Option<String>,
+
+    /// System prompt if not given at the cmd line
+    pub system_prompt: Option<String>,
+
+    /// Quiet means don't show stats at the end. Helpful for scripts / pipelines
+    pub quiet: bool,
+
+    /// Show reasoning output. -rr on the cmd line.
+    pub show_reasoning: bool,
+
+    /// Preferred provider slug.
+    pub provider: Option<String>,
+
+    /// How to choose a provider: price, latency, throughput
+    pub priority: Option<Priority>,
+
+    /// Include web_search and web_fetch server-side tools
+    pub include_web_tools: bool,
+
+    /// How much thinking to do. -r flag.
+    pub effort: Option<ReasoningEffort>,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            save_to_file: DEFAULT_SAVE_TO_FILE,
-            dns: Vec::new(),
+impl Cfg {
+    pub fn load(env: &Env, filename: &str) -> OrtResult<Cfg> {
+        match read_config_file(env, filename)? {
+            Some(cfg_str) => Self::from_str(&cfg_str),
+            None => Ok(Self::default()),
         }
     }
-}
 
-impl Settings {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_bool("save_to_file"),
-            JsonField::new_vec_string("dns"),
-        ];
-        autoparser(json, &mut fields)?;
+    pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
+        let mut api_key = None;
+        let mut base_url = None;
+        let mut save_to_file = DEFAULT_SAVE_TO_FILE;
+        let mut dns = Vec::new();
+        let mut model = None;
+        let mut system_prompt = None;
+        let mut quiet = DEFAULT_QUIET;
+        let mut show_reasoning = DEFAULT_SHOW_REASONING;
+        let mut provider = None;
+        let mut priority = None;
+        let mut include_web_tools = DEFAULT_INCLUDE_WEB_TOOLS;
+        let mut effort = None;
 
-        let default = Settings::default();
-        Ok(Settings {
-            save_to_file: fields[0].get_bool().unwrap_or(default.save_to_file),
-            dns: fields[1].get_vec_string().unwrap_or_default(),
+        for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
+            if line.as_bytes()[0] == b'#' {
+                // comment
+                continue;
+            }
+            let (key, value) = line
+                .split_once(":")
+                .map(|(k, v)| (k.trim(), v.trim()))
+                .unwrap();
+            match key {
+                "api_key" => api_key = Some(value.to_string()),
+                "base_url" => base_url = Some(value.to_string()),
+                "save_to_file" => save_to_file = value == "true",
+                "dns" => {
+                    dns = value.split(",").map(|ip| ip.trim().to_string()).collect();
+                }
+                "model" => model = Some(value.to_string()),
+                "system_prompt" => system_prompt = Some(value.to_string()),
+                "quiet" => quiet = value == "true",
+                "show_reasoning" => show_reasoning = value == "true",
+                "provider" => provider = Some(value.to_string()),
+                "priority" => {
+                    let p = Priority::from_str(value).map_err(|_| {
+                        ort_error(
+                            ErrorKind::ConfigParseFailed,
+                            "Invalid priority field. Must be price, latency or throughput",
+                        )
+                    })?;
+                    priority = Some(p);
+                }
+                "effort" => {
+                    let r = ReasoningEffort::from_str(value).map_err(|_| {
+                        ort_error(
+                            ErrorKind::ConfigParseFailed,
+                            "Invalid effort field. Must be low, medium, high, etc.",
+                        )
+                    })?;
+                    effort = Some(r);
+                }
+                "include_web_tools" => include_web_tools = value == "true",
+                _ => {
+                    /*
+                    return Err(ort_error(
+                        ErrorKind::ConfigReadFailed,
+                        "Invalid key in cfg file",
+                    ));
+                    */
+                    // Temp while I port
+                    continue;
+                }
+            }
+        }
+        let Some(base_url) = base_url else {
+            return Err(ort_error(ErrorKind::MissingBaseURL, ""));
+        };
+        Ok(Cfg {
+            base_url,
+            api_key,
+            save_to_file,
+            dns,
+            model,
+            system_prompt,
+            quiet,
+            show_reasoning,
+            priority,
+            provider,
+            include_web_tools,
+            effort,
         })
     }
-}
 
-// The unit tests in output/from_json.rs need PartialEq
-#[derive(Debug, PartialEq)]
-pub struct ApiKey {
-    name: String,
-    value: String,
-}
-
-impl ApiKey {
-    pub fn new(name: String, value: String) -> Self {
-        ApiKey { name, value }
+    pub fn default() -> Cfg {
+        Cfg {
+            base_url: "openrouter.ai/api/v1".to_string(),
+            save_to_file: DEFAULT_SAVE_TO_FILE,
+            dns: Vec::new(),
+            quiet: DEFAULT_QUIET,
+            show_reasoning: DEFAULT_SHOW_REASONING,
+            include_web_tools: DEFAULT_INCLUDE_WEB_TOOLS,
+            ..Default::default()
+        }
     }
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_simple_string("name"),
-            JsonField::new_string("value"),
-        ];
-        autoparser(json, &mut fields)?;
-        Ok(ApiKey::new(
-            fields[0].get_string().expect("Missing ApiKey name"),
-            fields[1].get_string().expect("Missing ApiKey value"),
-        ))
+
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.api_key.as_deref()
     }
 }
 
@@ -207,55 +273,49 @@ pub fn xdg_dir(
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    use alloc::string::ToString;
+
+    use crate::ReasoningEffort;
 
     use super::*;
 
     #[test]
-    fn api_key() {
-        let s = r#"{"name":"openrouter","value":"sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef"}"#;
-        let got = ApiKey::from_json(s).unwrap();
-        let expect = ApiKey::new(
-            "openrouter".to_string(),
-            "sk-or-v1-a123b456c789d012a345b8032470394876576573242374098174093274abcdef".to_string(),
-        );
-        assert_eq!(got, expect);
-    }
-
-    #[test]
-    fn settings() {
-        let s = r#"{
-    "save_to_file": true,
-    "dns": ["104.18.2.115", "104.18.3.115"]
-}"#;
-        let settings = Settings::from_json(s).unwrap();
-        assert!(settings.save_to_file);
-        assert_eq!(settings.dns, ["104.18.2.115", "104.18.3.115"]);
-    }
-
-    #[test]
-    fn config_file() {
+    fn cfg_file() {
         let s = r#"
-{
-    "keys": [{"name": "openrouter", "value": "sk-or-v1-abcd1234"}],
-    "settings": {
-        "save_to_file": true,
-        "dns": ["104.18.2.115", "104.18.3.115"]
-    },
-    "prompt_opts": {
-        "model": "google/gemma-3n-e4b-it:free",
-        "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
-        "quiet": false,
-        "show_reasoning": false,
-        "reasoning": {
-            "enabled": false
-        }
-    }
-}
+api_key: THE-KEY
+base_url: openrouter.ai/api/v1
+save_to_file: false
+dns: 104.18.2.115, 104.18.3.115
+model: openai/gpt-oss-20b:free
+system_prompt: Make your answer concise but complete. No yapping. Direct professional tone. No emoji.
+quiet: false
+show_reasoning: true
+provider: openai
+priority: price
+include_web_tools: true
+effort: low
 "#;
-        let cfg = ConfigFile::from_json(s).unwrap();
-        assert_eq!(cfg.keys.len(), 1);
-        assert!(cfg.settings.is_some());
-        assert!(cfg.prompt_opts.is_some());
+        let cfg = Cfg::from_str(s).unwrap();
+        assert_eq!(cfg.base_url, "openrouter.ai/api/v1");
+        assert_eq!(cfg.api_key.as_deref(), Some("THE-KEY"));
+        assert!(!cfg.save_to_file);
+
+        assert_eq!(cfg.dns.len(), 2);
+        for ip in cfg.dns {
+            assert!(ip == "104.18.2.115" || ip == "104.18.3.115");
+        }
+
+        assert_eq!(cfg.model.as_deref(), Some("openai/gpt-oss-20b:free"));
+        assert_eq!(
+            cfg.system_prompt.as_deref(),
+            Some(
+                "Make your answer concise but complete. No yapping. Direct professional tone. No emoji."
+            )
+        );
+        assert!(!cfg.quiet);
+        assert!(cfg.show_reasoning);
+        assert_eq!(cfg.provider.as_deref(), Some("openai"));
+        assert_eq!(cfg.priority, Some(Priority::Price));
+        assert!(cfg.include_web_tools);
+        assert_eq!(cfg.effort, Some(ReasoningEffort::Low));
     }
 }

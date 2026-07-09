@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025,2026 Graham King
 
 use core::net::SocketAddr;
 
@@ -49,11 +49,12 @@ const LIST_REQ_MIDDLE: &[u8] = concat!(
 
 pub fn list_models(
     api_key: &str,
-    host: &'static str,
-    list_url: &'static str,
+    host: &str,
+    base_path: &str,
     addrs: Vec<SocketAddr>,
 ) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
+
     let mut tls = TlsStream::connect(tcp, host)?;
 
     // Built request on the stack, zero alloc
@@ -61,6 +62,7 @@ pub fn list_models(
     let mut req = [0u8; 384];
 
     // GET <list_url> HTTP/1.1\r\n
+    let list_url = base_path.to_string() + "/models";
     let mut start = 0;
     let mut end = GET.len();
     req[start..end].copy_from_slice(GET);
@@ -124,8 +126,8 @@ const CHAT_REQ_MIDDLE: &[u8] = concat!(
 
 pub fn chat_completions(
     api_key: &str,
-    host: &'static str,
-    chat_completions_url: &'static str,
+    host: &str,
+    base_path: &str,
     addrs: Vec<SocketAddr>,
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
@@ -139,6 +141,7 @@ pub fn chat_completions(
     let mut req = [0u8; 512];
 
     // POST <chat_completions_url> HTTP/1.1\r\n
+    let chat_completions_url = base_path.to_string() + "/chat/completions";
     let mut start = 0;
     let mut end = POST.len();
     req[start..end].copy_from_slice(POST);
@@ -310,6 +313,42 @@ pub fn skip_header<T: Read + Write>(
     Ok(is_chunked)
 }
 
+/// Extract host, port and path components from a URL.
+/// The port is optional and defaults to 443.
+/// "https://openrouter.ai:443/api/v1" => ("openrouter.ai", 443, "/api/v1")
+pub fn split_url(url: &str) -> (&str, u16, &str) {
+    let mut host_start = 0;
+    let mut host_end = url.len();
+
+    let mut port_start = 0;
+    let mut port_end = 0;
+
+    let mut path_start = 0;
+    let path_end = url.len();
+
+    if url.starts_with("https://") {
+        host_start += "https://".len();
+        path_start = host_start;
+    }
+    if let Some(port_s) = url[host_start..host_end].find(":") {
+        host_end = host_start + port_s;
+        port_start = host_start + port_s + 1;
+    }
+    if let Some(path_s) = url[path_start..path_end].find("/") {
+        if port_start == 0 {
+            // If there's no port, the host stops where the path starts
+            host_end = path_start + path_s;
+        }
+        port_end = path_start + path_s;
+        path_start += path_s;
+    }
+
+    let host = &url[host_start..host_end];
+    let port = utils::parse_u32(&url.as_bytes()[port_start..port_end]).unwrap_or(443);
+    let base_path = &url[path_start..path_end];
+    (host, port as u16, base_path)
+}
+
 /// Attempt to connect to all the SocketAddr in order.
 /// The addresses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
@@ -328,4 +367,28 @@ fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
         ErrorKind::HttpConnectError,
         "'connect' failed on all of the IP addresses",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    pub fn test_split_url() {
+        let input = "openrouter.ai/api/v1";
+        let (host, port, base) = super::split_url(input);
+        assert_eq!(host, "openrouter.ai");
+        assert_eq!(port, 443);
+        assert_eq!(base, "/api/v1");
+
+        let input = "https://openrouter.ai/api/v1";
+        let (host, port, base) = super::split_url(input);
+        assert_eq!(host, "openrouter.ai");
+        assert_eq!(port, 443);
+        assert_eq!(base, "/api/v1");
+
+        let input = "https://openrouter.ai:8443/api/v1";
+        let (host, port, base) = super::split_url(input);
+        assert_eq!(host, "openrouter.ai");
+        assert_eq!(port, 8443);
+        assert_eq!(base, "/api/v1");
+    }
 }

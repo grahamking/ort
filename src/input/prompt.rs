@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025, 2026 Graham King
 
 use core::cmp::max;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -23,12 +23,11 @@ use crate::{Context as _, OrtError, chunked};
 use crate::ChatCompletionsResponse;
 use crate::OrtResult;
 use crate::build_body;
-use crate::common::config;
+use crate::common::config::{self, Cfg};
 use crate::common::dir;
 use crate::common::file;
 use crate::common::io::{ReadLine, Write};
 use crate::common::resolver;
-use crate::common::site::Site;
 use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
@@ -66,10 +65,9 @@ impl Drop for EpollFd {
 #[allow(clippy::too_many_arguments)]
 pub fn run<W: Write + Send>(
     api_key: &str,
-    settings: &config::Settings,
+    cfg: &Cfg,
     env: &Env,
     opts: PromptOpts,
-    site: &'static Site,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
     is_pipe_output: bool, // Are we redirecting stdout?
@@ -85,7 +83,7 @@ pub fn run<W: Write + Send>(
         Box::new(ConsoleWriter::new(w_core, show_reasoning, is_quiet))
     };
 
-    let mut last_writer = if settings.save_to_file {
+    let mut last_writer = if cfg.save_to_file {
         Some(LastWriter::new(
             opts.clone(),
             messages.clone(),
@@ -98,12 +96,11 @@ pub fn run<W: Write + Send>(
 
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
-        settings.dns.clone(),
+        cfg,
         opts,
         messages,
         tools.clone(),
         0,
-        site,
         Some(env),
     )?;
     active_prompt.start()?;
@@ -191,25 +188,23 @@ pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
 /// pane to populate the context, then run with the new prompt.
 pub fn run_continue<W: Write + Send>(
     api_key: &str,
-    settings: &config::Settings,
+    cfg: &Cfg,
     env: &Env,
     mut opts: crate::PromptOpts,
-    site: &'static Site,
     is_pipe_output: bool,
     w: &mut W,
 ) -> OrtResult<()> {
     let mut last = load_last_data(env)?;
 
-    opts.merge(last.opts);
+    opts.merge_opts(last.opts);
     last.messages
         .push(crate::Message::user(opts.prompt.take().unwrap()));
 
     run(
         api_key,
-        settings,
+        cfg,
         env,
         opts,
-        site,
         last.messages,
         last.tools,
         is_pipe_output,
@@ -219,9 +214,8 @@ pub fn run_continue<W: Write + Send>(
 
 pub fn run_multi<W: Write + Send>(
     api_key: &str,
-    settings: &config::Settings,
+    cfg: &Cfg,
     opts: PromptOpts,
-    site: &'static Site,
     messages: Vec<crate::Message>,
     w: &mut W,
 ) -> OrtResult<()> {
@@ -250,12 +244,11 @@ pub fn run_multi<W: Write + Send>(
 
         let mut active_prompt = ActivePrompt::new(
             api_key.to_string(),
-            settings.dns.clone(),
+            cfg,
             opts.clone(),
             messages.clone(),
             vec![],
             idx,
-            site,
             None,
         )?;
         active_prompt.start()?;
@@ -344,10 +337,9 @@ pub trait PromptReader: ReadLine + AsFd {}
 
 pub(in crate::input) struct ActivePrompt {
     api_key: String,
-    dns: Vec<String>,
+    cfg: Cfg,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
-    site: &'static Site,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
 
@@ -374,18 +366,16 @@ impl ActivePrompt {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: String,
-        dns: Vec<String>,
+        cfg: &Cfg,
         opts: PromptOpts,
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
         model_idx: usize,
-        site: &'static Site,
         env: Option<&Env>,
     ) -> OrtResult<Self> {
         Ok(ActivePrompt {
             api_key,
-            dns,
-            site,
+            cfg: cfg.clone(),
             messages,
             tools,
             model_idx,
@@ -398,7 +388,7 @@ impl ActivePrompt {
                     .cloned()
                     .expect("Missing model name"),
                 // Provider doesn't make sense for build.nvidia.com
-                provider: site.name.to_string(),
+                provider: "".to_string(),
                 ..Default::default()
             },
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
@@ -433,9 +423,10 @@ impl ActivePrompt {
         if let Some(l) = self.logger.as_mut() {
             l.log(&body);
         }
+        let (host, port, base_path) = http::split_url(&self.cfg.base_url);
         self.start = Some(time::Ticks::now());
-        let addrs = if self.dns.is_empty() {
-            let ips = match unsafe { resolver::resolve(self.site.dns_label) } {
+        let addrs = if self.cfg.dns.is_empty() {
+            let ips = match unsafe { resolver::resolve(host) } {
                 Ok(ips) => ips,
                 Err(err) => {
                     print_string(c"FATAL: resolving host: ", &err.as_string());
@@ -443,30 +434,26 @@ impl ActivePrompt {
                 }
             };
             ips.into_iter()
-                .map(|ip| SocketAddr::new(IpAddr::V4(ip), self.site.port))
+                .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
                 .collect()
         } else {
-            self.dns
+            self.cfg
+                .dns
                 .iter()
                 .map(|a| {
                     let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                    SocketAddr::new(IpAddr::V4(ip_addr), self.site.port)
+                    SocketAddr::new(IpAddr::V4(ip_addr), port)
                 })
                 .collect()
         };
-        let mut buf_reader = match http::chat_completions(
-            &self.api_key,
-            self.site.host,
-            self.site.chat_completions_url,
-            addrs,
-            &body,
-        ) {
-            Ok(r) => r,
-            Err(err) => {
-                print_string(c"FATAL running chat_completions: ", &err.as_string());
-                return Err(ort_error(ErrorKind::Other, "running chat_completions"));
-            }
-        };
+        let mut buf_reader =
+            match http::chat_completions(&self.api_key, host, base_path, addrs, &body) {
+                Ok(r) => r,
+                Err(err) => {
+                    print_string(c"FATAL running chat_completions: ", &err.as_string());
+                    return Err(ort_error(ErrorKind::Other, "running chat_completions"));
+                }
+            };
 
         match http::skip_header(&mut buf_reader) {
             Ok(true) => {

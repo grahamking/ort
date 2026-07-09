@@ -23,6 +23,8 @@ pub enum ErrorKind {
     ConfigReadFailed,
     MissingHomeDir,
     MissingSystemPrompt,
+    // Config file does not contain base_url field
+    MissingBaseURL,
 
     // Conversation/history
     HistoryMissing,
@@ -142,6 +144,7 @@ impl ErrorKind {
             ErrorKind::ConfigReadFailed => "ConfigReadFailed",
             ErrorKind::MissingHomeDir => "MissingHomeDir",
             ErrorKind::MissingSystemPrompt => "MissingSystemPrompt",
+            ErrorKind::MissingBaseURL => "MissingBaseURL",
             ErrorKind::HistoryMissing => "HistoryMissing",
             ErrorKind::HistoryParseFailed => "HistoryParseFailed",
             ErrorKind::HistoryReadFailed => "HistoryReadFailed",

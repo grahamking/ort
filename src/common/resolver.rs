@@ -36,7 +36,8 @@ const DNS_PACKET_SUFFIX: [u8; 4] = [
 /// This is only called if .config/ort.json's settings/dns is not set. Which you should set.
 /// # Safety
 /// System programming is for everyone
-pub unsafe fn resolve(label: &[u8]) -> OrtResult<Vec<Ipv4Addr>> {
+pub unsafe fn resolve(host: &str) -> OrtResult<Vec<Ipv4Addr>> {
+    let label: &[u8] = &host_to_dns_label(host);
     // socket
     let sock_fd = syscall::socket(AF_INET, SOCK_DGRAM, 0);
     if sock_fd <= 0 {
@@ -121,6 +122,23 @@ pub unsafe fn resolve(label: &[u8]) -> OrtResult<Vec<Ipv4Addr>> {
     Ok(result)
 }
 
+// Converts a host string into a DNS label which is each component (split on '.')
+// prefixed by it's length, with a null bytes at the end.
+// Example:
+//  Input: "openrouter.ai"
+//  Output: vec![10, b'o', b'p', b'e', b'n', b'r', b'o', b'u', b't', b'e', b'r',
+//               2, b'a', b'i',
+//               0]
+fn host_to_dns_label(host: &str) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::with_capacity(host.len() + 3);
+    for part in host.split(".") {
+        out.push(part.len() as u8);
+        out.extend_from_slice(part.as_bytes());
+    }
+    out.push(0);
+    out
+}
+
 fn resolver_ip_address() -> OrtResult<u32> {
     // /etc/resolv.conf is POSIX so error if it doesn't exist.
     let resolv_conf = utils::filename_read_to_string("/etc/resolv.conf").map_err(|_err| {
@@ -151,4 +169,30 @@ fn ip_str_to_u32(s: &str) -> Option<u32> {
             Some(((acc << 8) | x.parse::<u8>().ok()? as u32, i + 1))
         })
         .and_then(|(v, i)| (i == 4).then_some(v.to_be()))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    pub fn test_host_to_dns_label() {
+        let input = "openrouter.ai";
+        let expected = &[
+            10, b'o', b'p', b'e', b'n', b'r', b'o', b'u', b't', b'e', b'r', 2, b'a', b'i', 0,
+        ];
+        let output = super::host_to_dns_label(input);
+        assert_eq!(output, expected);
+
+        let input = "integrate.api.nvidia.com";
+        let expected = &[
+            9, b'i', b'n', b't', b'e', b'g', b'r', b'a', b't', b'e', 3, b'a', b'p', b'i', 6, b'n',
+            b'v', b'i', b'd', b'i', b'a', 3, b'c', b'o', b'm', 0,
+        ];
+        let output = super::host_to_dns_label(input);
+        assert_eq!(output, expected);
+
+        let input = "localhost";
+        let expected = &[9, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't', 0];
+        let output = super::host_to_dns_label(input);
+        assert_eq!(output, expected);
+    }
 }
