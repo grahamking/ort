@@ -10,7 +10,6 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::common::site::Site;
 use crate::utils::print_string;
 use crate::{
     Context, OrtResult, Read, Write, chunked,
@@ -28,12 +27,11 @@ pub fn run<W: Write + Send>(
     cfg: &config::Cfg,
     settings: config::Settings,
     opts: args::ListOpts,
-    site: &'static Site,
     w: &mut W,
 ) -> OrtResult<()> {
     let (host, port, base_path) = http::split_url(&cfg.base_url);
     let addrs = if settings.dns.is_empty() {
-        let ips = unsafe { resolver::resolve(site.dns_label)? };
+        let ips = unsafe { resolver::resolve(host)? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
             .collect()

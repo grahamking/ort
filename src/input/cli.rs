@@ -131,7 +131,6 @@ pub fn main<W: Write + Send>(
                     &old_cfg.settings.unwrap_or_default(),
                     &env,
                     cli_opts,
-                    site,
                     messages,
                     alloc::vec![],
                     !is_terminal,
@@ -143,7 +142,6 @@ pub fn main<W: Write + Send>(
                     &cfg,
                     &old_cfg.settings.unwrap_or_default(),
                     cli_opts,
-                    site,
                     messages,
                     w,
                 )
@@ -164,7 +162,6 @@ pub fn main<W: Write + Send>(
                 &old_cfg.settings.unwrap_or_default(),
                 &env,
                 cli_opts,
-                site,
                 messages,
                 w,
             )
@@ -175,7 +172,6 @@ pub fn main<W: Write + Send>(
             &old_cfg.settings.unwrap_or_default(),
             &env,
             cli_opts,
-            site,
             !is_terminal,
             w,
         ),
@@ -184,7 +180,6 @@ pub fn main<W: Write + Send>(
             &cfg,
             old_cfg.settings.unwrap_or_default(),
             args,
-            site,
             w,
         ),
     };

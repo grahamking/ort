@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025, 2026 Graham King
 
 use core::cmp::max;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -28,7 +28,6 @@ use crate::common::dir;
 use crate::common::file;
 use crate::common::io::{ReadLine, Write};
 use crate::common::resolver;
-use crate::common::site::Site;
 use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
@@ -70,7 +69,6 @@ pub fn run<W: Write + Send>(
     settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
-    site: &'static Site,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
     is_pipe_output: bool, // Are we redirecting stdout?
@@ -105,7 +103,6 @@ pub fn run<W: Write + Send>(
         messages,
         tools.clone(),
         0,
-        site,
         Some(env),
     )?;
     active_prompt.start()?;
@@ -197,7 +194,6 @@ pub fn run_continue<W: Write + Send>(
     settings: &config::Settings,
     env: &Env,
     mut opts: crate::PromptOpts,
-    site: &'static Site,
     is_pipe_output: bool,
     w: &mut W,
 ) -> OrtResult<()> {
@@ -213,7 +209,6 @@ pub fn run_continue<W: Write + Send>(
         settings,
         env,
         opts,
-        site,
         last.messages,
         last.tools,
         is_pipe_output,
@@ -226,7 +221,6 @@ pub fn run_multi<W: Write + Send>(
     cfg: &Cfg,
     settings: &config::Settings,
     opts: PromptOpts,
-    site: &'static Site,
     messages: Vec<crate::Message>,
     w: &mut W,
 ) -> OrtResult<()> {
@@ -261,7 +255,6 @@ pub fn run_multi<W: Write + Send>(
             messages.clone(),
             vec![],
             idx,
-            site,
             None,
         )?;
         active_prompt.start()?;
@@ -354,7 +347,6 @@ pub(in crate::input) struct ActivePrompt {
     dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
-    site: &'static Site,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
 
@@ -387,14 +379,12 @@ impl ActivePrompt {
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
         model_idx: usize,
-        site: &'static Site,
         env: Option<&Env>,
     ) -> OrtResult<Self> {
         Ok(ActivePrompt {
             api_key,
             cfg: cfg.clone(),
             dns,
-            site,
             messages,
             tools,
             model_idx,
@@ -407,7 +397,7 @@ impl ActivePrompt {
                     .cloned()
                     .expect("Missing model name"),
                 // Provider doesn't make sense for build.nvidia.com
-                provider: site.name.to_string(),
+                provider: "".to_string(),
                 ..Default::default()
             },
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
@@ -445,7 +435,7 @@ impl ActivePrompt {
         let (host, port, base_path) = http::split_url(&self.cfg.base_url);
         self.start = Some(time::Ticks::now());
         let addrs = if self.dns.is_empty() {
-            let ips = match unsafe { resolver::resolve(self.site.dns_label) } {
+            let ips = match unsafe { resolver::resolve(host) } {
                 Ok(ips) => ips,
                 Err(err) => {
                     print_string(c"FATAL: resolving host: ", &err.as_string());

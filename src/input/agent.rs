@@ -22,7 +22,7 @@ use crate::ort_error;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
-    common::{config, data::Tool, error, site::Site},
+    common::{config, data::Tool, error},
     input::prompt::ActivePrompt,
     output::{OutputWriter, agent::AgentWriter, last_writer::LastWriter},
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
@@ -35,7 +35,6 @@ pub fn run<W: Write + Send>(
     settings: &config::Settings,
     env: &Env,
     mut opts: PromptOpts,
-    site: &'static Site,
     // This contains the system prompt
     // It grows to contain the whole conversation
     mut messages: Vec<crate::Message>,
@@ -100,7 +99,6 @@ pub fn run<W: Write + Send>(
                 settings,
                 env,
                 opts.clone(),
-                site,
                 &mut messages,
                 tools::ALL_TOOLS,
                 &mut output_writer,
@@ -151,7 +149,6 @@ fn run_single<W: Write + Send>(
     settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
-    site: &'static Site,
     messages: &mut Vec<Message>,
     tools: &[&'static Tool],
     output_writer: &mut AgentWriter<W>,
@@ -166,7 +163,6 @@ fn run_single<W: Write + Send>(
         messages.clone(),
         tools.to_vec(),
         0,
-        site,
         Some(env),
     )?;
     active_prompt.start()?;
