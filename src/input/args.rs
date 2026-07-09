@@ -28,6 +28,7 @@ const MAX_CONCURRENT_MODELS: usize = 10;
 const FILE_INDICATOR: u8 = b'@';
 
 pub struct ListOpts {
+    pub config_file: Option<String>,
     pub is_json: bool,
 }
 
@@ -47,6 +48,7 @@ pub fn parse_prompt_args(
     // or default.
     let mut prompt_parts: Vec<String> = Vec::new();
 
+    let mut config_file = None;
     let mut models: Vec<String> = vec![];
     let mut system: Option<String> = None;
     let mut priority: Option<Priority> = None;
@@ -77,6 +79,13 @@ pub fn parse_prompt_args(
         match arg.as_str() {
             "-h" | "--help" => {
                 return Err(ArgParseError::show_help());
+            }
+            "--cfg" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -c"));
+                }
+                config_file = Some(args[i].clone());
             }
             "-m" => {
                 i += 1;
@@ -255,6 +264,7 @@ pub fn parse_prompt_args(
     }
 
     let prompt_opts = PromptOpts {
+        config_file,
         prompt: Some(prompt),
         models,
         provider,
@@ -278,12 +288,20 @@ pub fn parse_prompt_args(
 }
 
 pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
+    let mut config_file = None;
     let mut is_json = false;
 
     let mut i = 2;
     while i < args.len() {
         let arg = &args[i];
         match arg.as_str() {
+            "--cfg" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -c"));
+                }
+                config_file = Some(args[i].clone());
+            }
             "-json" => is_json = true,
             x => {
                 return Err(ArgParseError::new(
@@ -294,7 +312,10 @@ pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
         i += 1;
     }
 
-    Ok(Cmd::List(ListOpts { is_json }))
+    Ok(Cmd::List(ListOpts {
+        config_file,
+        is_json,
+    }))
 }
 
 #[derive(Debug)]

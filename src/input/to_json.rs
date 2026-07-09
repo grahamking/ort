@@ -497,6 +497,7 @@ mod tests {
     #[test]
     fn test_build_body() {
         let opts = PromptOpts {
+            config_file: None,
             prompt: None,
             models: vec!["google/gemma-3n-e4b-it:free".to_string()],
             provider: Some("google-ai-studio".to_string()),

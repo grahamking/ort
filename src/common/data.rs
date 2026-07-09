@@ -262,6 +262,8 @@ impl LastData {
 
 #[derive(Clone)]
 pub struct PromptOpts {
+    pub config_file: Option<String>,
+
     pub prompt: Option<String>,
     /// Model IDs, e.g. 'moonshotai/kimi-k2'
     pub models: Vec<String>,
@@ -290,6 +292,7 @@ pub struct PromptOpts {
 impl Default for PromptOpts {
     fn default() -> Self {
         Self {
+            config_file: None,
             prompt: None,
             models: vec![DEFAULT_MODEL.to_string()],
             provider: None,
@@ -382,6 +385,7 @@ impl PromptOpts {
             .transpose()?;
 
         Ok(PromptOpts {
+            config_file: None,
             prompt: fields[0].get_string(),
             models: fields[1].get_string().map(|m| vec![m]).unwrap_or_default(),
             provider: fields[2].get_string(),

@@ -16,6 +16,7 @@ use crate::common::buf_read;
 use crate::common::config;
 use crate::input::agent;
 use crate::input::args;
+use crate::input::args::Cmd;
 use crate::input::list;
 use crate::input::prompt;
 use crate::syscall;
@@ -25,7 +26,7 @@ const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
 
 // Keep default mode in sync with common/data.rs DEFAULT_MODEL
-const USAGE: &str = "Usage: ort [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
+const USAGE: &str = "Usage: ort [--cfg ort.cfg] [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
 Defaults: -m nvidia/nemotron-3-super-120b-a12b:free -s omitted ; -p omitted\n\
 Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
 
@@ -76,9 +77,24 @@ pub fn main<W: Write + Send>(
     is_terminal: bool,
     w: &mut W,
 ) -> OrtResult<c_int> {
-    // Load ~/.config/ort/cfg
-    // TODO: Flag to pass on cmd line: '-c ort-dev.cfg'
-    let cfg = config::Cfg::load(&env, "ort.cfg")?;
+    let cmd = match parse_args(args, &env) {
+        Ok(cmd) => cmd,
+        Err(err) if err.is_help() => {
+            print_usage();
+            return Ok(0);
+        }
+        Err(err) => {
+            print_usage();
+            return Err(err.into());
+        }
+    };
+    let config_file = match &cmd {
+        Cmd::List(opts) => opts.config_file.as_deref(),
+        Cmd::Prompt(opts) | Cmd::Agent(opts) | Cmd::ContinueConversation(opts) => {
+            opts.config_file.as_deref()
+        }
+    };
+    let cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg"))?;
 
     // Load ~/.config/ort.json or nrt.json
     let old_cfg = config::load_config(&env, "ort.json")?;
@@ -95,18 +111,6 @@ pub fn main<W: Write + Send>(
                     "api_key not in ort.cfg and OPENROUTER_API_KEY is not set.",
                 ));
             }
-        }
-    };
-
-    let cmd = match parse_args(args, &env) {
-        Ok(cmd) => cmd,
-        Err(err) if err.is_help() => {
-            print_usage();
-            return Ok(0);
-        }
-        Err(err) => {
-            print_usage();
-            return Err(err.into());
         }
     };
 
