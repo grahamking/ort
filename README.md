@@ -97,75 +97,50 @@ Stats printed at the end:
 
 ## Config file
 
-The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.json`, which is usually `~/.config/ort.json`. There are also some settings you can use to go faster such as `dns`.
+The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.cfg`, which is usually `~/.config/ort.cfg`. There are also some settings you can use to go faster such as `dns`.
+
+To choose a different config file use e.g. `--cfg ort_nvidia.cfg`. The file must still be in `XDG_CONFIG_HOME`. This replaces the pre 0.5.0 approach of switching based on the binary name. Make bash aliases!
+
+Here are all the possible fields for doc purposes. You likely don't want to set all this, and some are somewhat contradictory (don't set both provider and priority).
 
 ```
-{
-    "keys": [{"name": "openrouter", "value": "sk-..."}],
-    "settings": {
-        "save_to_file": true,
-        "dns": ["104.18.2.115", "104.18.3.115"]
-    },
-    "prompt_opts": {
-        "model": "deepseek/deepseek-r1-0528",
-        "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
-        "priority": "latency",
-        "quiet": false,
-        "show_reasoning": false,
-        "reasoning": {
-            "enabled": true,
-            "effort": "medium"
-        }
-    }
-}
+# Comments must start with # as first char
+base_url: openrouter.ai/api/v1
+# Or set env var OPENROUTER_API_KEY
+api_key: sk-PASTE-KEY-HERE
+# -m
+model: openai/gpt-oss-120b
+# -s
+system_prompt: Make your answer concise but complete. No yapping. Direct professional tone. No emoji.
+# -q
+quiet: false
+# -rr
+show_reasoning: false
+# -ws
+include_web_tools: false
+# -r
+effort: low
+# -pr
+provider: baseten
+# -p
+priority: latency
+
+# These two only available in config file
+
+# Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
+save_to_file: true
+
+# The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Highly recommend setting.
+dns: 104.18.2.115, 104.18.3.115
 ```
 
-Here are the settings that are not available on the command line:
-
-- `save_to_file`: Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
-- `dns`: The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Allows up to 16 addresses, although fewer is probably better.
+Migrating from pre 0.5.0: ort previously had a JSON configuration file. Hopefully the field mapping is obvious. You'll also need to delete the contents of `~/.cache/ort`.
 
 ## Performance
 
 Make sure to set the `dns` entry in config file. This saves a DNS query to at least the local resolver (typically `systemd-resolved`), possibly all the way to root servers.
 
 Non-reasoning models are much faster (and cheaper!) than reasoning models.
-
-## Reasoning model configuration
-
-Here's what I got from the models I use regularly.
-
-Required reasoning, MUST pass `-r low|medium|high` flag:
-- openai/gpt-5.1 (pass `-r none` for no reasoning, it's both required and optional)
-- openai/gpt-5
-- openai/gpt-5-mini
-- openai/gpt-5-nano
-- openai/gpt-oss-120b
-- moonshotai/kimi-k2-thinking
-- minimax/minimax-m2
-- google/gemini-2.5-pro
-- google/gemini-3-pro-preview
-
-Optional reasoning with effort, pass `-r off|low|medium|high`:
-
-- deepseek/deepseek-v3.1-terminus
-- google/gemini-2.5-flash
-- openai/gpt-oss-20b
-- z-ai/glm-4.6
-
-Optional reasoning with tokens, pass e.g `-r off|4096`:
-
-- anthropic/claude-sonnet-4.5 # and other Anthropic models
-- baidu/ernie-4.5-300b-a47b # I never see any reasoning from this model so not sure. Seems 'smarter' with -r.
-
-Always fixed reasoning, cannot be configured or disabled:
-
-- qwen/qwen3-235b-a22b-thinking-2507
-
-No reasoning:
-
-- qwen/qwen3-235b-a22b-07-25
-- moonshotai/kimi-k2-0905
 
 # Agent mode (experimental)
 
@@ -269,31 +244,7 @@ MIT Licence.
 NVIDIA runs a model hub at [build.nvidia.com](https://build.nvidia.com) with some free quota.
 
 1. Create an account and get an API key at build.nvidia.com.
-1. Copy or symlink the `ort` binary to `nrt`. Yes, it keys off it's own name (argv[0]).
-1. Copy or create config file `~/.config/nrt.json`. It is identical to `ort.json` except the API key is called "nvidia", and if you cache the IP address is must be the IP of `integrate.api.nvidia.com` (AWS load balancer). That's optional, can delete the `"dns"` entry below.
-1. Run it: `nrt -m nvidia/nemotron-3-nano-30b-a3b -rr "Write a limerick about GPUs"`.
-
-Example `nrt.json`:
-```
-{
-    "keys": [
-        {"name": "nvidia", "value": "nvapi-<REST_HERE>"}
-    ],
-    "settings": {
-        "save_to_file": true,
-        "dns": ["75.2.113.119", "99.83.136.103"]
-    },
-    "prompt_opts": {
-        "model": "nvidia/nemotron-3-nano-30b-a3b",
-        "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
-        "quiet": false,
-        "show_reasoning": false,
-        "reasoning": {
-            "enabled": false,
-        }
-    }
-}
-```
-
-List all available models: `nrt list`
+1. Create a new config file in `XDG_CONFIG_HOME` and run ort as `ort --cfg <new_config>`. Set `base_url: integrate.api.nvidia.com/v1` and set `api_key: <here>`.
+1. If you cache the IP address is must be the IP of `integrate.api.nvidia.com` (AWS load balancer). That's optional.
+1. `ort --cfg nrt.cfg list` should now work
 

@@ -131,6 +131,10 @@ impl Cfg {
         let mut effort = None;
 
         for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
+            if line.as_bytes()[0] == b'#' {
+                // comment
+                continue;
+            }
             let (key, value) = line
                 .split_once(":")
                 .map(|(k, v)| (k.trim(), v.trim()))
