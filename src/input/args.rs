@@ -131,7 +131,8 @@ pub fn parse_prompt_args(
             }
             "-r" => {
                 i += 1;
-                let r_cfg = ReasoningEffort::from_str(args[i].as_str()).unwrap();
+                let r_cfg = ReasoningEffort::from_str(args[i].as_str())
+                    .map_err(|_| ArgParseError::new_str("Invalid -r value"))?;
                 effort = Some(r_cfg);
                 i += 1;
             }

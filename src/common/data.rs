@@ -484,7 +484,7 @@ impl FromStr for ReasoningEffort {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use ReasoningEffort::*;
         match s.to_lowercase().as_str() {
-            "none" => Ok(ReasoningEffort::None),
+            "none" | "off" => Ok(ReasoningEffort::None),
             "low" => Ok(Low),
             "medium" => Ok(Medium),
             "high" => Ok(High),
