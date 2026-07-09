@@ -87,6 +87,7 @@ pub fn parse_prompt_args(
                     return Err(ArgParseError::new_str("Missing value for -c"));
                 }
                 config_file = Some(args[i].clone());
+                i += 1;
             }
             "-m" => {
                 i += 1;
