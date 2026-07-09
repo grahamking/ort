@@ -196,7 +196,7 @@ pub fn run_continue<W: Write + Send>(
 ) -> OrtResult<()> {
     let mut last = load_last_data(env)?;
 
-    opts.merge(last.opts);
+    opts.merge_opts(last.opts);
     last.messages
         .push(crate::Message::user(opts.prompt.take().unwrap()));
 

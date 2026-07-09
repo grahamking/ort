@@ -14,13 +14,11 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::common::base64;
 use crate::common::json_parser::{JsonField, Parser, autoparser};
+use crate::common::{base64, config};
 use crate::utils::filename_read_to_bytes;
 use crate::{ErrorKind, OrtResult, ort_error};
 
-const DEFAULT_SHOW_REASONING: bool = false;
-const DEFAULT_QUIET: bool = false;
 const IMAGE_EXT: [&str; 4] = ["jpg", "JPG", "png", "PNG"];
 
 // Keep in sync with src/input/cli.rs
@@ -267,14 +265,14 @@ pub struct PromptOpts {
     pub prompt: Option<String>,
     /// Model IDs, e.g. 'moonshotai/kimi-k2'
     pub models: Vec<String>,
-    /// Prefered provider slug
+    /// Preferred provider slug
     pub provider: Option<String>,
     /// System prompt
     pub system: Option<String>,
     /// How to choose a provider
     pub priority: Option<Priority>,
-    /// Reasoning config
-    pub reasoning: Option<ReasoningConfig>,
+    /// Reasoning effort level
+    pub effort: Option<ReasoningEffort>,
     /// Show reasoning output
     pub show_reasoning: Option<bool>,
     /// Don't show stats after request
@@ -298,7 +296,7 @@ impl Default for PromptOpts {
             provider: None,
             system: None,
             priority: None,
-            reasoning: Some(ReasoningConfig::default()),
+            effort: Some(ReasoningEffort::default()),
             show_reasoning: Some(false),
             quiet: Some(false),
             merge_config: true,
@@ -313,9 +311,34 @@ impl PromptOpts {
     // Replace any blank or None fields on Self with values from other
     // or with the defaults.
     // After this call a PromptOpts is ready to use.
-    pub fn merge(&mut self, o: PromptOpts) {
+    pub fn merge(&mut self, cfg: &config::Cfg) {
+        if self.models.is_empty()
+            && let Some(cfg_model) = cfg.model.as_ref()
+        {
+            // We don't merge the models, otherwise we'd try to query both the
+            // cmd line one, and the config file default.
+            self.models = vec![cfg_model.to_string()];
+        }
+        if let Some(provider) = cfg.provider.as_ref() {
+            self.provider.get_or_insert(provider.to_string());
+        }
+        if let Some(system) = cfg.system_prompt.as_ref() {
+            self.system.get_or_insert(system.to_string());
+        }
+        if let Some(priority) = cfg.priority {
+            self.priority.get_or_insert(priority);
+        }
+        self.quiet.get_or_insert(cfg.quiet);
+        self.show_reasoning.get_or_insert(cfg.show_reasoning);
+        self.include_web_tools.get_or_insert(cfg.include_web_tools);
+        if let Some(effort) = cfg.effort {
+            self.effort.get_or_insert(effort);
+        }
+    }
+
+    pub fn merge_opts(&mut self, o: PromptOpts) {
         self.prompt.get_or_insert(o.prompt.unwrap_or_default());
-        self.quiet.get_or_insert(o.quiet.unwrap_or(DEFAULT_QUIET));
+        self.quiet.get_or_insert(o.quiet.unwrap_or(false));
         if self.models.is_empty() {
             // We don't merge the models, otherwise we'd try to query both the
             // cmd line one, and the config file default.
@@ -330,10 +353,9 @@ impl PromptOpts {
         if let Some(priority) = o.priority {
             self.priority.get_or_insert(priority);
         }
-        self.reasoning
-            .get_or_insert(o.reasoning.unwrap_or_default());
+        self.effort.get_or_insert(o.effort.unwrap_or_default());
         self.show_reasoning
-            .get_or_insert(o.show_reasoning.unwrap_or(DEFAULT_SHOW_REASONING));
+            .get_or_insert(o.show_reasoning.unwrap_or(false));
         self.include_web_tools
             .get_or_insert(o.include_web_tools.unwrap_or_default());
         self.files.extend(o.files);
@@ -365,7 +387,7 @@ impl PromptOpts {
             JsonField::new_simple_string("provider"),
             JsonField::new_string("system"),
             JsonField::new_simple_string("priority"),
-            JsonField::new_raw("reasoning"),
+            JsonField::new_simple_string("effort"),
             JsonField::new_bool("show_reasoning"),
             JsonField::new_bool("quiet"),
             JsonField::new_bool("merge_config"),
@@ -378,10 +400,10 @@ impl PromptOpts {
             .as_deref()
             .map(Priority::from_str)
             .transpose()?;
-        let reasoning = fields[5]
-            .get_raw()
+        let effort = fields[5]
+            .get_string()
             .as_deref()
-            .map(ReasoningConfig::from_json)
+            .map(ReasoningEffort::from_str)
             .transpose()?;
 
         Ok(PromptOpts {
@@ -391,7 +413,7 @@ impl PromptOpts {
             provider: fields[2].get_string(),
             system: fields[3].get_string(),
             priority,
-            reasoning,
+            effort,
             show_reasoning: fields[6].get_bool(),
             quiet: fields[7].get_bool(),
             merge_config: fields[8].get_bool().unwrap_or(true),
@@ -403,7 +425,7 @@ impl PromptOpts {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Priority {
     Price,
     #[default]
@@ -434,57 +456,6 @@ impl FromStr for Priority {
     }
 }
 
-#[derive(Default, Debug, Clone)]
-pub struct ReasoningConfig {
-    pub enabled: bool,
-    pub effort: Option<ReasoningEffort>,
-    pub tokens: Option<u32>,
-}
-
-impl ReasoningConfig {
-    pub fn off() -> Self {
-        Self {
-            enabled: false,
-            ..Default::default()
-        }
-    }
-
-    pub fn from_json(json: &str) -> Result<ReasoningConfig, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_bool("enabled"),
-            JsonField::new_string("effort"),
-            JsonField::new_int("tokens"),
-        ];
-        autoparser(json, &mut fields)?;
-
-        let mut effort = None;
-        if let Some(v) = fields[1].get_string() {
-            let e = if v.eq_ignore_ascii_case("none") {
-                ReasoningEffort::None
-            } else if v.eq_ignore_ascii_case("low") {
-                ReasoningEffort::Low
-            } else if v.eq_ignore_ascii_case("medium") {
-                ReasoningEffort::Medium
-            } else if v.eq_ignore_ascii_case("high") {
-                ReasoningEffort::High
-            } else if v.eq_ignore_ascii_case("xhigh") {
-                ReasoningEffort::XHigh
-            } else {
-                return Err("invalid effort".into());
-            };
-            effort = Some(e);
-        }
-
-        Ok(ReasoningConfig {
-            effort,
-            enabled: fields[0]
-                .get_bool()
-                .ok_or("missing required field: enabled")?,
-            tokens: fields[2].get_int(),
-        })
-    }
-}
-
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ReasoningEffort {
     None, // GPT 5.x only
@@ -503,6 +474,22 @@ impl ReasoningEffort {
             ReasoningEffort::Medium => "medium",
             ReasoningEffort::High => "high",
             ReasoningEffort::XHigh => "xhigh",
+        }
+    }
+}
+
+impl FromStr for ReasoningEffort {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use ReasoningEffort::*;
+        match s.to_lowercase().as_str() {
+            "none" => Ok(ReasoningEffort::None),
+            "low" => Ok(Low),
+            "medium" => Ok(Medium),
+            "high" => Ok(High),
+            "xhigh" => Ok(XHigh),
+            _ => Err("Effort: Invalid string value"),
         }
     }
 }
@@ -1105,39 +1092,6 @@ mod tests {
     use crate::LastData;
 
     #[test]
-    fn rp1() {
-        let cfg = ReasoningConfig::from_json(r#"{"enabled": false}"#).unwrap();
-        assert!(!cfg.enabled);
-        assert!(cfg.effort.is_none());
-        assert!(cfg.tokens.is_none());
-    }
-
-    #[test]
-    fn rp2() {
-        let cfg = ReasoningConfig::from_json(r#"{"enabled": true, "effort": "medium"}"#).unwrap();
-        assert!(cfg.enabled);
-        assert_eq!(cfg.effort, Some(ReasoningEffort::Medium));
-        assert!(cfg.tokens.is_none());
-    }
-
-    #[test]
-    fn rp3() {
-        let cfg = ReasoningConfig::from_json(r#"{"enabled": true, "tokens": 2048}"#).unwrap();
-        assert!(cfg.enabled);
-        assert_eq!(cfg.tokens, Some(2048));
-        assert!(cfg.effort.is_none());
-    }
-
-    #[test]
-    fn rp4() {
-        let cfg = ReasoningConfig::from_json(r#"{"enabled":true,"effort":"high","tokens":null}"#)
-            .unwrap();
-        assert!(cfg.enabled);
-        assert_eq!(cfg.effort, Some(ReasoningEffort::High));
-        assert!(cfg.tokens.is_none());
-    }
-
-    #[test]
     fn cpo1() {
         let s = r#"
  {
@@ -1146,14 +1100,14 @@ mod tests {
      "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
      "show_reasoning": false,
      "include_web_tools": true,
-     "reasoning": { "enabled": false },
+     "effort": "high",
      "merge_config": true
  }
  "#;
         let opts = PromptOpts::from_json(s).unwrap();
         assert!(!opts.show_reasoning.unwrap());
         assert_eq!(opts.models, vec!["google/gemma-3n-e4b-it:free"]);
-        assert!(!opts.reasoning.unwrap().enabled);
+        assert_eq!(opts.effort, Some(ReasoningEffort::High));
         assert!(opts.merge_config);
         assert!(opts.include_web_tools.unwrap());
     }
@@ -1161,16 +1115,12 @@ mod tests {
     #[test]
     fn cpo2() {
         let s = r#"
-    {"model":"openai/gpt-5","provider":"openai","system":"Make your answer concise but complete. No yapping. Direct professional tone. No emoji.","priority":null,"reasoning":{"enabled":true,"effort":"high","tokens":null},"show_reasoning":false,"quiet":true}
+    {"model":"openai/gpt-5","provider":"openai","system":"Make your answer concise but complete. No yapping. Direct professional tone. No emoji.","priority":null,"effort":"high","show_reasoning":false,"quiet":true}
     "#;
         let opts = PromptOpts::from_json(s).unwrap();
         assert!(!opts.show_reasoning.unwrap());
         assert_eq!(opts.models, vec!["openai/gpt-5"]);
-        assert!(opts.reasoning.as_ref().unwrap().enabled);
-        assert_eq!(
-            opts.reasoning.as_ref().unwrap().effort,
-            Some(ReasoningEffort::High)
-        );
+        assert_eq!(opts.effort, Some(ReasoningEffort::High));
     }
 
     #[test]

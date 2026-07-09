@@ -8,7 +8,7 @@ extern crate alloc;
 use alloc::string::String;
 
 use crate::{
-    ErrorKind, Message, OrtResult, PromptOpts, Write,
+    ErrorKind, Message, OrtResult, PromptOpts, ReasoningEffort, Write,
     common::data::{Content, Tool, ToolCall, ToolParameter},
     ort_error,
 };
@@ -50,29 +50,18 @@ pub fn build_body(
     }
 
     w.write_str(", \"reasoning\": ")?;
-    match &opts.reasoning {
+    match &opts.effort {
         // No -r and nothing in config file
-        None => {
-            w.write_str("{\"enabled\": false}")?;
-        }
         // cli "-r off" or config file '"enabled": false'
-        Some(r_cfg) if !r_cfg.enabled => {
+        None | Some(ReasoningEffort::None) => {
             w.write_str("{\"enabled\": false}")?;
         }
         // Reasoning on
-        Some(r_cfg) => match (r_cfg.effort, r_cfg.tokens) {
-            (Some(effort), _) => {
-                w.write_str("{\"exclude\": false, \"enabled\": true, \"effort\":")?;
-                write_json_str_simple(w, effort.as_str())?;
-                w.write_char('}')?;
-            }
-            (_, Some(tokens)) => {
-                w.write_str("{\"exclude\": false, \"enabled\": true, \"max_tokens\":")?;
-                write_u32(w, tokens)?;
-                w.write_char('}')?;
-            }
-            _ => unreachable!("Reasoning effort and tokens cannot both be null"),
-        },
+        Some(effort) => {
+            w.write_str("{\"exclude\": false, \"enabled\": true, \"effort\":")?;
+            write_json_str_simple(w, effort.as_str())?;
+            w.write_char('}')?;
+        }
     };
 
     w.write_str(", \"messages\":")?;
@@ -143,25 +132,14 @@ impl PromptOpts {
             w.write_str("\"priority\":")?;
             write_json_str_simple(w, p.as_str())?;
         }
-        if let Some(ref rc) = self.reasoning {
+        if let Some(ref eff) = self.effort {
             if !first {
                 w.write_char(',')?;
             } else {
                 first = false;
             }
-            w.write_str("\"reasoning\":{")?;
-            // always include enabled
-            w.write_str("\"enabled\":")?;
-            write_bool(w, rc.enabled)?;
-            if let Some(ref eff) = rc.effort {
-                w.write_str(",\"effort\":")?;
-                write_json_str_simple(w, eff.as_str())?;
-            }
-            if let Some(tokens) = rc.tokens {
-                w.write_str(",\"tokens\":")?;
-                write_u32(w, tokens)?;
-            }
-            w.write_char('}')?;
+            w.write_str("\"effort\":")?;
+            write_json_str_simple(w, eff.as_str())?;
         }
         if let Some(show) = self.show_reasoning {
             if !first {
@@ -202,6 +180,7 @@ fn write_bool<W: Write>(w: &mut W, v: bool) -> OrtResult<usize> {
     }
 }
 
+/*
 fn write_u32<W: Write>(w: &mut W, mut n: u32) -> OrtResult<usize> {
     if n == 0 {
         return w.write_str("0");
@@ -215,6 +194,7 @@ fn write_u32<W: Write>(w: &mut W, mut n: u32) -> OrtResult<usize> {
     }
     w.write(&buf[i..])
 }
+*/
 
 impl Message {
     pub fn write_json_array<W: Write>(msgs: &[Message], w: &mut W) -> OrtResult<()> {
@@ -491,7 +471,6 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::ReasoningConfig;
     use crate::common::tools::ALL_TOOLS;
 
     #[test]
@@ -503,7 +482,7 @@ mod tests {
             provider: Some("google-ai-studio".to_string()),
             system: Some("System prompt here".to_string()),
             priority: None,
-            reasoning: Some(ReasoningConfig::off()),
+            effort: None,
             show_reasoning: Some(false),
             quiet: None,
             merge_config: false,

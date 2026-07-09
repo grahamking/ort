@@ -10,7 +10,6 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 
 use crate::OrtResult;
-use crate::PromptOpts;
 use crate::Write;
 use crate::common::buf_read;
 use crate::common::config;
@@ -96,9 +95,6 @@ pub fn main<W: Write + Send>(
     };
     let cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg"))?;
 
-    // Load ~/.config/ort.json or nrt.json
-    let old_cfg = config::load_config(&env, "ort.json")?;
-
     // Fail fast if key missing
     let api_key_ref = env.OPENROUTER_API_KEY.unwrap_or_default();
     let mut api_key = api_key_ref.to_string();
@@ -117,9 +113,9 @@ pub fn main<W: Write + Send>(
     let cmd_result = match cmd {
         args::Cmd::Prompt(mut cli_opts) => {
             if cli_opts.merge_config {
-                cli_opts.merge(old_cfg.prompt_opts.unwrap_or_default());
+                cli_opts.merge(&cfg);
             } else {
-                cli_opts.merge(PromptOpts::default());
+                cli_opts.merge(&config::Cfg::default());
             }
             let messages = cli_opts.messages()?;
             if cli_opts.models.len() == 1 {
@@ -139,9 +135,9 @@ pub fn main<W: Write + Send>(
         }
         args::Cmd::Agent(mut cli_opts) => {
             if cli_opts.merge_config {
-                cli_opts.merge(old_cfg.prompt_opts.unwrap_or_default());
+                cli_opts.merge(&cfg);
             } else {
-                cli_opts.merge(PromptOpts::default());
+                cli_opts.merge(&config::Cfg::default());
             }
             // Agent mode always includes server-side web tools
             cli_opts.include_web_tools = Some(true);

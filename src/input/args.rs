@@ -6,6 +6,8 @@
 //!
 //! All the command line argument parsing
 
+use core::str::FromStr;
+
 extern crate alloc;
 use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
@@ -14,7 +16,6 @@ use alloc::vec::Vec;
 
 use crate::Priority;
 use crate::PromptOpts;
-use crate::ReasoningConfig;
 use crate::ReasoningEffort;
 use crate::cli::Env;
 use crate::common::utils;
@@ -53,7 +54,7 @@ pub fn parse_prompt_args(
     let mut system: Option<String> = None;
     let mut priority: Option<Priority> = None;
     let mut quiet: Option<bool> = None;
-    let mut reasoning: Option<ReasoningConfig> = None;
+    let mut effort: Option<ReasoningEffort> = None;
     let mut show_reasoning: Option<bool> = None;
     let mut provider: Option<String> = None;
     let mut continue_conversation = false;
@@ -129,50 +130,8 @@ pub fn parse_prompt_args(
             }
             "-r" => {
                 i += 1;
-                let r_cfg = match args[i].as_str() {
-                    "off" => ReasoningConfig {
-                        enabled: false,
-                        ..Default::default()
-                    },
-                    "none" => ReasoningConfig {
-                        enabled: true,
-                        effort: Some(ReasoningEffort::None),
-                        ..Default::default()
-                    },
-                    "low" => ReasoningConfig {
-                        enabled: true,
-                        effort: Some(ReasoningEffort::Low),
-                        ..Default::default()
-                    },
-                    "medium" | "med" => ReasoningConfig {
-                        enabled: true,
-                        effort: Some(ReasoningEffort::Medium),
-                        ..Default::default()
-                    },
-                    "high" => ReasoningConfig {
-                        enabled: true,
-                        effort: Some(ReasoningEffort::High),
-                        ..Default::default()
-                    },
-                    "xhigh" => ReasoningConfig {
-                        enabled: true,
-                        effort: Some(ReasoningEffort::XHigh),
-                        ..Default::default()
-                    },
-                    n_str => match n_str.parse::<u32>() {
-                        Ok(n) => ReasoningConfig {
-                            enabled: true,
-                            tokens: Some(n),
-                            ..Default::default()
-                        },
-                        Err(_) => {
-                            return Err(ArgParseError::new_str(
-                                "Invalid -r value. Must be off|low|medium|high|xhigh|<num-tokens>",
-                            ));
-                        }
-                    },
-                };
-                reasoning = Some(r_cfg);
+                let r_cfg = ReasoningEffort::from_str(args[i].as_str()).unwrap();
+                effort = Some(r_cfg);
                 i += 1;
             }
             "-rr" => {
@@ -270,7 +229,7 @@ pub fn parse_prompt_args(
         provider,
         system,
         priority,
-        reasoning,
+        effort,
         show_reasoning,
         quiet,
         merge_config,
