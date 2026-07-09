@@ -22,7 +22,7 @@ use crate::ort_error;
 use crate::{
     ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
     cli::Env,
-    common::{config, data::Tool, error},
+    common::{data::Tool, error},
     input::prompt::ActivePrompt,
     output::{OutputWriter, agent::AgentWriter, last_writer::LastWriter},
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
@@ -32,7 +32,6 @@ use crate::{
 pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
-    settings: &config::Settings,
     env: &Env,
     mut opts: PromptOpts,
     // This contains the system prompt
@@ -96,7 +95,6 @@ pub fn run<W: Write + Send>(
             has_tool_call = run_single(
                 api_key,
                 cfg,
-                settings,
                 env,
                 opts.clone(),
                 &mut messages,
@@ -146,7 +144,6 @@ fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
 fn run_single<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
-    settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
     messages: &mut Vec<Message>,
@@ -158,7 +155,6 @@ fn run_single<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
-        settings.dns.clone(),
         opts,
         messages.clone(),
         tools.to_vec(),

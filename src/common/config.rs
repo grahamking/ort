@@ -62,6 +62,10 @@ pub struct Cfg {
 
     /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
     pub save_to_file: bool,
+
+    /// IP addresses of domain in base_url (usually openrouter.ai).
+    /// Saves time resolving them.
+    pub dns: Vec<String>,
 }
 
 impl Cfg {
@@ -76,6 +80,8 @@ impl Cfg {
         let mut api_key = None;
         let mut base_url = "";
         let mut save_to_file = DEFAULT_SAVE_TO_FILE;
+        let mut dns = Vec::new();
+
         for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
             let (key, value) = line
                 .split_once(":")
@@ -85,6 +91,9 @@ impl Cfg {
                 "api_key" => api_key = Some(value),
                 "base_url" => base_url = value,
                 "save_to_file" => save_to_file = value == "true",
+                "dns" => {
+                    dns = value.split(",").map(|ip| ip.trim().to_string()).collect();
+                }
                 _ => {
                     /*
                     return Err(ort_error(
@@ -101,6 +110,7 @@ impl Cfg {
             base_url: base_url.to_string(),
             api_key: api_key.map(|k| k.to_string()),
             save_to_file,
+            dns,
         })
     }
 
@@ -109,6 +119,7 @@ impl Cfg {
             api_key: None,
             base_url: "openrouter.ai/api/v1".to_string(),
             save_to_file: DEFAULT_SAVE_TO_FILE,
+            dns: Vec::new(),
         }
     }
 
@@ -119,52 +130,21 @@ impl Cfg {
 
 #[derive(Default)]
 pub struct ConfigFile {
-    pub settings: Option<Settings>,
     pub prompt_opts: Option<PromptOpts>,
 }
 
 impl ConfigFile {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_raw("settings"),
-            JsonField::new_raw("prompt_opts"),
-        ];
+        let mut fields = [JsonField::new_raw("prompt_opts")];
         autoparser(json, &mut fields)?;
 
-        let settings = fields[0]
-            .get_raw()
-            .as_deref()
-            .map(Settings::from_json)
-            .transpose()?;
-
-        let prompt_opts = fields[1]
+        let prompt_opts = fields[0]
             .get_raw()
             .as_deref()
             .map(PromptOpts::from_json)
             .transpose()?;
 
-        Ok(ConfigFile {
-            settings,
-            prompt_opts,
-        })
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct Settings {
-    /// IP addresses of openrouter.ai or integrate.api.nvidia.com.
-    /// Saves time resolving them.
-    pub dns: Vec<String>,
-}
-
-impl Settings {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [JsonField::new_vec_string("dns")];
-        autoparser(json, &mut fields)?;
-
-        Ok(Settings {
-            dns: fields[0].get_vec_string().unwrap_or_default(),
-        })
+        Ok(ConfigFile { prompt_opts })
     }
 }
 
@@ -227,21 +207,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn settings() {
-        let s = r#"{
-    "dns": ["104.18.2.115", "104.18.3.115"]
-}"#;
-        let settings = Settings::from_json(s).unwrap();
-        assert_eq!(settings.dns, ["104.18.2.115", "104.18.3.115"]);
-    }
-
-    #[test]
     fn json_config_file() {
         let s = r#"
 {
-    "settings": {
-        "dns": ["104.18.2.115", "104.18.3.115"]
-    },
     "prompt_opts": {
         "model": "google/gemma-3n-e4b-it:free",
         "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
@@ -254,7 +222,6 @@ mod tests {
 }
 "#;
         let cfg = ConfigFile::from_json(s).unwrap();
-        assert!(cfg.settings.is_some());
         assert!(cfg.prompt_opts.is_some());
     }
 
@@ -270,5 +237,9 @@ dns: 104.18.2.115, 104.18.3.115
         assert_eq!(cfg.base_url, "openrouter.ai/api/v1");
         assert_eq!(cfg.api_key.as_deref(), Some("THE-KEY"));
         assert!(!cfg.save_to_file);
+        assert_eq!(cfg.dns.len(), 2);
+        for ip in cfg.dns {
+            assert!(ip == "104.18.2.115" || ip == "104.18.3.115");
+        }
     }
 }

@@ -66,7 +66,6 @@ impl Drop for EpollFd {
 pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
-    settings: &config::Settings,
     env: &Env,
     opts: PromptOpts,
     messages: Vec<Message>,
@@ -98,7 +97,6 @@ pub fn run<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
-        settings.dns.clone(),
         opts,
         messages,
         tools.clone(),
@@ -191,7 +189,6 @@ pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
 pub fn run_continue<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
-    settings: &config::Settings,
     env: &Env,
     mut opts: crate::PromptOpts,
     is_pipe_output: bool,
@@ -206,7 +203,6 @@ pub fn run_continue<W: Write + Send>(
     run(
         api_key,
         cfg,
-        settings,
         env,
         opts,
         last.messages,
@@ -219,7 +215,6 @@ pub fn run_continue<W: Write + Send>(
 pub fn run_multi<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
-    settings: &config::Settings,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     w: &mut W,
@@ -250,7 +245,6 @@ pub fn run_multi<W: Write + Send>(
         let mut active_prompt = ActivePrompt::new(
             api_key.to_string(),
             cfg,
-            settings.dns.clone(),
             opts.clone(),
             messages.clone(),
             vec![],
@@ -344,7 +338,6 @@ pub trait PromptReader: ReadLine + AsFd {}
 pub(in crate::input) struct ActivePrompt {
     api_key: String,
     cfg: Cfg,
-    dns: Vec<String>,
     // Note we do not use the prompt from here, it should be in `messages` by now
     opts: PromptOpts,
     messages: Vec<Message>,
@@ -374,7 +367,6 @@ impl ActivePrompt {
     pub fn new(
         api_key: String,
         cfg: &Cfg,
-        dns: Vec<String>,
         opts: PromptOpts,
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
@@ -384,7 +376,6 @@ impl ActivePrompt {
         Ok(ActivePrompt {
             api_key,
             cfg: cfg.clone(),
-            dns,
             messages,
             tools,
             model_idx,
@@ -434,7 +425,7 @@ impl ActivePrompt {
         }
         let (host, port, base_path) = http::split_url(&self.cfg.base_url);
         self.start = Some(time::Ticks::now());
-        let addrs = if self.dns.is_empty() {
+        let addrs = if self.cfg.dns.is_empty() {
             let ips = match unsafe { resolver::resolve(host) } {
                 Ok(ips) => ips,
                 Err(err) => {
@@ -446,7 +437,8 @@ impl ActivePrompt {
                 .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
                 .collect()
         } else {
-            self.dns
+            self.cfg
+                .dns
                 .iter()
                 .map(|a| {
                     let ip_addr = a.parse::<Ipv4Addr>().unwrap();

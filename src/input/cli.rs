@@ -126,7 +126,6 @@ pub fn main<W: Write + Send>(
                 prompt::run(
                     &api_key,
                     &cfg,
-                    &old_cfg.settings.unwrap_or_default(),
                     &env,
                     cli_opts,
                     messages,
@@ -135,14 +134,7 @@ pub fn main<W: Write + Send>(
                     w,
                 )
             } else {
-                prompt::run_multi(
-                    &api_key,
-                    &cfg,
-                    &old_cfg.settings.unwrap_or_default(),
-                    cli_opts,
-                    messages,
-                    w,
-                )
+                prompt::run_multi(&api_key, &cfg, cli_opts, messages, w)
             }
         }
         args::Cmd::Agent(mut cli_opts) => {
@@ -154,32 +146,12 @@ pub fn main<W: Write + Send>(
             // Agent mode always includes server-side web tools
             cli_opts.include_web_tools = Some(true);
             let messages = cli_opts.messages()?;
-            agent::run(
-                &api_key,
-                &cfg,
-                &old_cfg.settings.unwrap_or_default(),
-                &env,
-                cli_opts,
-                messages,
-                w,
-            )
+            agent::run(&api_key, &cfg, &env, cli_opts, messages, w)
         }
-        args::Cmd::ContinueConversation(cli_opts) => prompt::run_continue(
-            &api_key,
-            &cfg,
-            &old_cfg.settings.unwrap_or_default(),
-            &env,
-            cli_opts,
-            !is_terminal,
-            w,
-        ),
-        args::Cmd::List(args) => list::run(
-            &api_key,
-            &cfg,
-            old_cfg.settings.unwrap_or_default(),
-            args,
-            w,
-        ),
+        args::Cmd::ContinueConversation(cli_opts) => {
+            prompt::run_continue(&api_key, &cfg, &env, cli_opts, !is_terminal, w)
+        }
+        args::Cmd::List(args) => list::run(&api_key, &cfg, args, w),
     };
     cmd_result.map(|_| 0)
 }

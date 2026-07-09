@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025,2026 Graham King
 
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -25,19 +25,17 @@ const MAX_TOTAL_SLUG_LEN: usize = 16 * 1024;
 pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &config::Cfg,
-    settings: config::Settings,
     opts: args::ListOpts,
     w: &mut W,
 ) -> OrtResult<()> {
     let (host, port, base_path) = http::split_url(&cfg.base_url);
-    let addrs = if settings.dns.is_empty() {
+    let addrs = if cfg.dns.is_empty() {
         let ips = unsafe { resolver::resolve(host)? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
             .collect()
     } else {
-        settings
-            .dns
+        cfg.dns
             .iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();

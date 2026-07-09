@@ -65,13 +65,6 @@ impl JsonField {
         }
     }
 
-    pub fn new_vec_string(name: &'static str) -> JsonField {
-        JsonField {
-            name,
-            value: JsonValue::VecString(None),
-        }
-    }
-
     fn parse(&mut self, p: &mut Parser) -> Result<(), Cow<'static, str>> {
         match &mut self.value {
             JsonValue::SimpleString(inner) => {
@@ -99,28 +92,6 @@ impl JsonField {
                 let v = p.value_slice()?;
                 // figure out lifetimes and keep as &str
                 inner.replace(v.to_string());
-            }
-            JsonValue::VecString(inner) => {
-                if !p.try_consume(b'[') {
-                    return Err("Expected array".into());
-                }
-                p.skip_ws();
-                let mut v = vec![];
-                // If the array isn't empty..
-                if !p.try_consume(b']') {
-                    loop {
-                        v.push(p.parse_string()?);
-                        p.skip_ws();
-                        if p.try_consume(b',') {
-                            continue;
-                        }
-                        p.skip_ws();
-                        if p.try_consume(b']') {
-                            break;
-                        }
-                    }
-                }
-                inner.replace(v);
             }
             JsonValue::VecRaw(inner) => {
                 if !p.try_consume(b'[') {
@@ -184,13 +155,6 @@ impl JsonField {
         }
     }
 
-    pub fn get_vec_string(&mut self) -> Option<Vec<String>> {
-        match &mut self.value {
-            JsonValue::VecString(v) => core::mem::take(v),
-            _ => None,
-        }
-    }
-
     pub fn get_vec_raw(&mut self) -> Option<Vec<String>> {
         match &mut self.value {
             JsonValue::VecRaw(v) => core::mem::take(v),
@@ -208,7 +172,6 @@ impl JsonField {
                 | JsonValue::Bool(None)
                 | JsonValue::Raw(None)
                 | JsonValue::VecRaw(None)
-                | JsonValue::VecString(None)
         )
     }
 }
@@ -230,8 +193,6 @@ pub enum JsonValue {
     /// Don't use for string because the delimiter is included, which
     /// for strings is '"'.
     Raw(Option<String>),
-
-    VecString(Option<Vec<String>>),
 
     /// Includes the delimiter ('[', '{', '"', etc).
     VecRaw(Option<Vec<String>>),
