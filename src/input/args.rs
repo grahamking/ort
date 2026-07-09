@@ -262,8 +262,12 @@ pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                     return Err(ArgParseError::new_str("Missing value for -c"));
                 }
                 config_file = Some(args[i].clone());
+                i += 1;
             }
-            "-json" => is_json = true,
+            "-json" => {
+                is_json = true;
+                i += 1;
+            }
             x => {
                 return Err(ArgParseError::new(
                     "Invalid list argument: ".to_string() + x,
