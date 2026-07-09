@@ -51,8 +51,17 @@ pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> 
 // Will replace ConfigFile
 #[derive(Clone)]
 pub struct Cfg {
+    /// Address and path base of the server. "https://" is optional and implied.
+    /// Include the "/v1". No trailing slash.
+    /// e.g.
+    /// - "openrouter.ai/api/v1"
+    /// - "https://localhost:8000/v1"
     pub base_url: String,
+
     pub api_key: Option<String>,
+
+    /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
+    pub save_to_file: bool,
 }
 
 impl Cfg {
@@ -66,7 +75,8 @@ impl Cfg {
     pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
         let mut api_key = None;
         let mut base_url = "";
-        for line in cfg.lines() {
+        let mut save_to_file = DEFAULT_SAVE_TO_FILE;
+        for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
             let (key, value) = line
                 .split_once(":")
                 .map(|(k, v)| (k.trim(), v.trim()))
@@ -74,17 +84,23 @@ impl Cfg {
             match key {
                 "api_key" => api_key = Some(value),
                 "base_url" => base_url = value,
+                "save_to_file" => save_to_file = value == "true",
                 _ => {
+                    /*
                     return Err(ort_error(
                         ErrorKind::ConfigReadFailed,
                         "Invalid key in cfg file",
                     ));
+                    */
+                    // Temp while I port
+                    continue;
                 }
             }
         }
         Ok(Cfg {
             base_url: base_url.to_string(),
             api_key: api_key.map(|k| k.to_string()),
+            save_to_file,
         })
     }
 
@@ -92,6 +108,7 @@ impl Cfg {
         Cfg {
             api_key: None,
             base_url: "openrouter.ai/api/v1".to_string(),
+            save_to_file: DEFAULT_SAVE_TO_FILE,
         }
     }
 
@@ -107,12 +124,6 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-    pub fn _save_to_file(&self) -> bool {
-        self.settings
-            .as_ref()
-            .map(|s| s.save_to_file)
-            .unwrap_or(DEFAULT_SAVE_TO_FILE)
-    }
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut fields = [
             JsonField::new_raw("settings"),
@@ -139,36 +150,20 @@ impl ConfigFile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Settings {
-    /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
-    pub save_to_file: bool,
     /// IP addresses of openrouter.ai or integrate.api.nvidia.com.
     /// Saves time resolving them.
     pub dns: Vec<String>,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            save_to_file: DEFAULT_SAVE_TO_FILE,
-            dns: Vec::new(),
-        }
-    }
-}
-
 impl Settings {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_bool("save_to_file"),
-            JsonField::new_vec_string("dns"),
-        ];
+        let mut fields = [JsonField::new_vec_string("dns")];
         autoparser(json, &mut fields)?;
 
-        let default = Settings::default();
         Ok(Settings {
-            save_to_file: fields[0].get_bool().unwrap_or(default.save_to_file),
-            dns: fields[1].get_vec_string().unwrap_or_default(),
+            dns: fields[0].get_vec_string().unwrap_or_default(),
         })
     }
 }
@@ -234,20 +229,17 @@ mod tests {
     #[test]
     fn settings() {
         let s = r#"{
-    "save_to_file": true,
     "dns": ["104.18.2.115", "104.18.3.115"]
 }"#;
         let settings = Settings::from_json(s).unwrap();
-        assert!(settings.save_to_file);
         assert_eq!(settings.dns, ["104.18.2.115", "104.18.3.115"]);
     }
 
     #[test]
-    fn config_file() {
+    fn json_config_file() {
         let s = r#"
 {
     "settings": {
-        "save_to_file": true,
         "dns": ["104.18.2.115", "104.18.3.115"]
     },
     "prompt_opts": {
@@ -264,5 +256,19 @@ mod tests {
         let cfg = ConfigFile::from_json(s).unwrap();
         assert!(cfg.settings.is_some());
         assert!(cfg.prompt_opts.is_some());
+    }
+
+    #[test]
+    fn cfg_file() {
+        let s = r#"
+api_key: THE-KEY
+base_url: openrouter.ai/api/v1
+save_to_file: false
+dns: 104.18.2.115, 104.18.3.115
+"#;
+        let cfg = Cfg::from_str(s).unwrap();
+        assert_eq!(cfg.base_url, "openrouter.ai/api/v1");
+        assert_eq!(cfg.api_key.as_deref(), Some("THE-KEY"));
+        assert!(!cfg.save_to_file);
     }
 }

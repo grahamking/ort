@@ -84,7 +84,7 @@ pub fn run<W: Write + Send>(
         Box::new(ConsoleWriter::new(w_core, show_reasoning, is_quiet))
     };
 
-    let mut last_writer = if settings.save_to_file {
+    let mut last_writer = if cfg.save_to_file {
         Some(LastWriter::new(
             opts.clone(),
             messages.clone(),
