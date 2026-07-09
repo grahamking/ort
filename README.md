@@ -101,10 +101,11 @@ The API key and defaults can be stored in `${XDG_CONFIG_HOME}/ort.cfg`, which is
 
 To choose a different config file use e.g. `--cfg ort_nvidia.cfg`. The file must still be in `XDG_CONFIG_HOME`. This replaces the pre 0.5.0 approach of switching based on the binary name. Make bash aliases!
 
-Here are all the possible fields for doc purposes. You likely don't want to set all this, and some are somewhat contradictory (don't set both provider and priority).
+Here are all the possible fields for doc purposes. You likely don't want to set all this, and some are somewhat contradictory (don't set both provider and priority). The CLI flags take precedence over the config settings, but only if you set them. For example if you put `provider:` in your `ort.cfg`, and don't pass `-pr <other>` on the cmd line, it will try using that provider for everything.
 
 ```
 # Comments must start with # as first char
+# This is the default, don't need to set
 base_url: openrouter.ai/api/v1
 # Or set env var OPENROUTER_API_KEY
 api_key: sk-PASTE-KEY-HERE

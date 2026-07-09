@@ -13,6 +13,9 @@ use alloc::vec::Vec;
 use crate::{ErrorKind, OrtResult, cli::Env, common::utils, ort_error};
 use crate::{Priority, ReasoningEffort};
 
+/// To use a different endpoint set `base_url` in `${XDG_CONFIG_HOME}/ort.cfg`
+const DEFAULT_BASE_URL: &str = "openrouter.ai/api/v1";
+
 /// Needed for the "-c" continue option to work so default enable.
 /// Disable it for privacy / diskless.
 const DEFAULT_SAVE_TO_FILE: bool = true;
@@ -118,7 +121,7 @@ impl Cfg {
 
     pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
         let mut api_key = None;
-        let mut base_url = None;
+        let mut base_url = DEFAULT_BASE_URL.to_string();
         let mut save_to_file = DEFAULT_SAVE_TO_FILE;
         let mut dns = Vec::new();
         let mut model = None;
@@ -141,7 +144,7 @@ impl Cfg {
                 .unwrap();
             match key {
                 "api_key" => api_key = Some(value.to_string()),
-                "base_url" => base_url = Some(value.to_string()),
+                "base_url" => base_url = value.to_string(),
                 "save_to_file" => save_to_file = value == "true",
                 "dns" => {
                     dns = value.split(",").map(|ip| ip.trim().to_string()).collect();
@@ -182,9 +185,6 @@ impl Cfg {
                 }
             }
         }
-        let Some(base_url) = base_url else {
-            return Err(ort_error(ErrorKind::MissingBaseURL, ""));
-        };
         Ok(Cfg {
             base_url,
             api_key,
@@ -203,7 +203,7 @@ impl Cfg {
 
     pub fn default() -> Cfg {
         Cfg {
-            base_url: "openrouter.ai/api/v1".to_string(),
+            base_url: DEFAULT_BASE_URL.to_string(),
             save_to_file: DEFAULT_SAVE_TO_FILE,
             dns: Vec::new(),
             quiet: DEFAULT_QUIET,
