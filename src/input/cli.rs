@@ -12,8 +12,8 @@ use alloc::string::{String, ToString};
 use crate::OrtResult;
 use crate::PromptOpts;
 use crate::Write;
+use crate::common::buf_read;
 use crate::common::config;
-use crate::common::{buf_read, site};
 use crate::input::agent;
 use crate::input::args;
 use crate::input::list;
@@ -76,18 +76,12 @@ pub fn main<W: Write + Send>(
     is_terminal: bool,
     w: &mut W,
 ) -> OrtResult<c_int> {
-    let site = match args[0].split('/').next_back().unwrap() {
-        "nrt" => site::NVIDIA,
-        "mrt" => site::MOCK,
-        _ => site::OPENROUTER,
-    };
-
     // Load ~/.config/ort/cfg
     // TODO: Flag to pass on cmd line: '-c ort-dev.cfg'
     let cfg = config::Cfg::load(&env, "ort.cfg")?;
 
     // Load ~/.config/ort.json or nrt.json
-    let old_cfg = config::load_config(&env, site.config_filename)?;
+    let old_cfg = config::load_config(&env, "ort.json")?;
 
     // Fail fast if key missing
     let api_key_ref = env.OPENROUTER_API_KEY.unwrap_or_default();
