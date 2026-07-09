@@ -13,7 +13,6 @@ pub const OPENROUTER: &Site = &Site {
         2, b'a', b'i',
         0,
     ],
-    port: 443,
 };
 
 #[rustfmt::skip]
@@ -27,19 +26,16 @@ pub const NVIDIA: &Site = &Site {
         3, b'c', b'o', b'm',
         0,
     ],
-    port: 443,
 };
 
 pub const MOCK: &Site = &Site {
     name: "MOCK",
     config_filename: "mrt.json",
     dns_label: &[9, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't', 0],
-    port: 8000,
 };
 
 pub struct Site {
     pub name: &'static str,
     pub config_filename: &'static str,
     pub dns_label: &'static [u8],
-    pub port: u16,
 }

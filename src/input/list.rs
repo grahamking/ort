@@ -31,10 +31,11 @@ pub fn run<W: Write + Send>(
     site: &'static Site,
     w: &mut W,
 ) -> OrtResult<()> {
+    let (host, port, base_path) = http::split_url(&cfg.base_url);
     let addrs = if settings.dns.is_empty() {
         let ips = unsafe { resolver::resolve(site.dns_label)? };
         ips.into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), site.port))
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
             .collect()
     } else {
         settings
@@ -42,11 +43,11 @@ pub fn run<W: Write + Send>(
             .iter()
             .map(|a| {
                 let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                SocketAddr::new(IpAddr::V4(ip_addr), site.port)
+                SocketAddr::new(IpAddr::V4(ip_addr), port)
             })
             .collect()
     };
-    let reader = match http::list_models(api_key, &cfg.base_url, addrs) {
+    let reader = match http::list_models(api_key, host, base_path, addrs) {
         Ok(r) => r,
         Err(err) => {
             print_string(c"FATAL running list_models: ", &err.as_string());

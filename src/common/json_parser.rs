@@ -388,28 +388,9 @@ impl<'a> Parser<'a> {
         if self.peek() == Some(b'-') {
             return Err("negative not allowed");
         }
-        let mut val: u32 = 0;
-        let mut read_any = false;
-        let len = self.b.len();
-        while self.i < len {
-            let c = self.b[self.i];
-            if c.is_ascii_digit() {
-                read_any = true;
-                let digit = (c - b'0') as u32;
-                // Overflow-safe accumulation
-                if val > (u32::MAX - digit) / 10 {
-                    return Err("u32 overflow");
-                }
-                val = val * 10 + digit;
-                self.i += 1;
-            } else {
-                break;
-            }
-        }
-        if !read_any {
-            return Err("expected integer");
-        }
-        Ok(val)
+        let out = crate::utils::parse_u32(&self.b[self.i..])?;
+        self.i += if out == 0 { 1 } else { out.ilog10() + 1 } as usize;
+        Ok(out)
     }
 
     fn parse_f32(&mut self) -> Result<f32, &'static str> {

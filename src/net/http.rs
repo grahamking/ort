@@ -49,12 +49,12 @@ const LIST_REQ_MIDDLE: &[u8] = concat!(
 
 pub fn list_models(
     api_key: &str,
-    base_url: &str,
+    host: &str,
+    base_path: &str,
     addrs: Vec<SocketAddr>,
 ) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
 
-    let (host, _port, base_path) = split_url(base_url);
     let mut tls = TlsStream::connect(tcp, host)?;
 
     // Built request on the stack, zero alloc
@@ -126,13 +126,12 @@ const CHAT_REQ_MIDDLE: &[u8] = concat!(
 
 pub fn chat_completions(
     api_key: &str,
-    base_url: &str,
+    host: &str,
+    base_path: &str,
     addrs: Vec<SocketAddr>,
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
-
-    let (host, _port, base_path) = split_url(base_url);
     let mut tls = TlsStream::connect(tcp, host)?;
 
     let body = json_body.as_bytes();
@@ -314,6 +313,42 @@ pub fn skip_header<T: Read + Write>(
     Ok(is_chunked)
 }
 
+/// Extract host, port and path components from a URL.
+/// The port is optional and defaults to 443.
+/// "https://openrouter.ai:443/api/v1" => ("openrouter.ai", 443, "/api/v1")
+pub fn split_url(url: &str) -> (&str, u16, &str) {
+    let mut host_start = 0;
+    let mut host_end = url.len();
+
+    let mut port_start = 0;
+    let mut port_end = 0;
+
+    let mut path_start = 0;
+    let path_end = url.len();
+
+    if url.starts_with("https://") {
+        host_start += "https://".len();
+        path_start = host_start;
+    }
+    if let Some(port_s) = url[host_start..host_end].find(":") {
+        host_end = host_start + port_s;
+        port_start = host_start + port_s + 1;
+    }
+    if let Some(path_s) = url[path_start..path_end].find("/") {
+        if port_start == 0 {
+            // If there's no port, the host stops where the path starts
+            host_end = path_start + path_s;
+        }
+        port_end = path_start + path_s;
+        path_start += path_s;
+    }
+
+    let host = &url[host_start..host_end];
+    let port = utils::parse_u32(&url.as_bytes()[port_start..port_end]).unwrap_or(443);
+    let base_path = &url[path_start..path_end];
+    (host, port as u16, base_path)
+}
+
 /// Attempt to connect to all the SocketAddr in order.
 /// The addresses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
@@ -334,47 +369,11 @@ fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
     ))
 }
 
-/// "https://openrouter.ai:443/api/v1" => ("openrouter.ai", 443, "/api/v1")
-fn split_url(base_url: &str) -> (&str, u16, &str) {
-    let mut host_start = 0;
-    let mut host_end = base_url.len();
-
-    let mut port_start = 0;
-    let mut port_end = 0;
-
-    let mut base_path_start = 0;
-    let base_path_end = base_url.len();
-
-    if base_url.starts_with("https://") {
-        host_start += "https://".len();
-        base_path_start = host_start;
-    }
-    if let Some(ps) = base_url[host_start..host_end].find(":") {
-        host_end = host_start + ps;
-        port_start = host_start + ps + 1;
-    }
-    if let Some(path_start) = base_url[base_path_start..base_path_end].find("/") {
-        if port_start == 0 {
-            // If there's no port, the host stops where the path starts
-            host_end = base_path_start + path_start;
-        }
-        port_end = base_path_start + path_start;
-        base_path_start += path_start;
-    }
-
-    let host = &base_url[host_start..host_end];
-    // TODO parse from port_start..port_end
-    // Extract string to num from common/json_parser.json parse_u32 into common/utils
-    let port = 443;
-    let base_path = &base_url[base_path_start..base_path_end];
-    (host, port, base_path)
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
     pub fn test_split_url() {
-        let input = "https://openrouter.ai:443/api/v1";
+        let input = "openrouter.ai/api/v1";
         let (host, port, base) = super::split_url(input);
         assert_eq!(host, "openrouter.ai");
         assert_eq!(port, 443);
@@ -386,10 +385,10 @@ mod tests {
         assert_eq!(port, 443);
         assert_eq!(base, "/api/v1");
 
-        let input = "openrouter.ai/api/v1";
+        let input = "https://openrouter.ai:8443/api/v1";
         let (host, port, base) = super::split_url(input);
         assert_eq!(host, "openrouter.ai");
-        assert_eq!(port, 443);
+        assert_eq!(port, 8443);
         assert_eq!(base, "/api/v1");
     }
 }

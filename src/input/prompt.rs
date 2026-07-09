@@ -442,6 +442,7 @@ impl ActivePrompt {
         if let Some(l) = self.logger.as_mut() {
             l.log(&body);
         }
+        let (host, port, base_path) = http::split_url(&self.cfg.base_url);
         self.start = Some(time::Ticks::now());
         let addrs = if self.dns.is_empty() {
             let ips = match unsafe { resolver::resolve(self.site.dns_label) } {
@@ -452,19 +453,19 @@ impl ActivePrompt {
                 }
             };
             ips.into_iter()
-                .map(|ip| SocketAddr::new(IpAddr::V4(ip), self.site.port))
+                .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
                 .collect()
         } else {
             self.dns
                 .iter()
                 .map(|a| {
                     let ip_addr = a.parse::<Ipv4Addr>().unwrap();
-                    SocketAddr::new(IpAddr::V4(ip_addr), self.site.port)
+                    SocketAddr::new(IpAddr::V4(ip_addr), port)
                 })
                 .collect()
         };
         let mut buf_reader =
-            match http::chat_completions(&self.api_key, &self.cfg.base_url, addrs, &body) {
+            match http::chat_completions(&self.api_key, host, base_path, addrs, &body) {
                 Ok(r) => r,
                 Err(err) => {
                     print_string(c"FATAL running chat_completions: ", &err.as_string());
