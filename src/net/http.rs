@@ -4,13 +4,16 @@
 //! MIT License
 //! Copyright (c) 2025,2026 Graham King
 
+use core::cmp::min;
 use core::net::SocketAddr;
 
 extern crate alloc;
 use alloc::ffi::CString;
 use alloc::string::{String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::net::AsFd;
 use crate::{
     Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
     common::io::ReadLine, ort_error,
@@ -37,6 +40,39 @@ pub enum ResponseBody {
     Chunked,
     ContentLength(usize),
     UntilEof,
+}
+
+pub struct ContentLengthReader<R: Read> {
+    inner: R,
+    remaining: usize,
+}
+
+impl<R: Read> ContentLengthReader<R> {
+    pub fn new(inner: R, len: usize) -> Self {
+        Self {
+            inner,
+            remaining: len,
+        }
+    }
+}
+
+impl<R: Read> Read for ContentLengthReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
+        if self.remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+
+        let to_read = min(buf.len(), self.remaining);
+        let n = self.inner.read(&mut buf[..to_read])?;
+        self.remaining -= n;
+        Ok(n)
+    }
+}
+
+impl<R: Read + AsFd> AsFd for ContentLengthReader<R> {
+    fn as_fd(&self) -> i32 {
+        self.inner.as_fd()
+    }
 }
 
 // The constant part of the list request headers
@@ -315,6 +351,17 @@ pub fn skip_header<T: Read + Write>(
         if !has_content {
             return Err(HttpError::status(status.to_string()));
         }
+        if let Some(len) = content_length {
+            return match read_content_length_body(reader, len, &mut buffer) {
+                Ok(()) => Err(HttpError::new(
+                    status.to_string(),
+                    buffer.trim().to_string(),
+                )),
+                Err(err) => Err(HttpError::status(
+                    "Reading response body: ".to_string() + &err.as_string(),
+                )),
+            };
+        }
         match reader.read_line(&mut buffer) {
             Ok(_) => {
                 // TODO parse JSON. It looks like this:
@@ -334,6 +381,20 @@ pub fn skip_header<T: Read + Write>(
     } else {
         Ok(ResponseBody::UntilEof)
     }
+}
+
+fn read_content_length_body<R: Read>(
+    reader: &mut R,
+    len: usize,
+    buffer: &mut String,
+) -> OrtResult<()> {
+    let mut body = vec![0; len];
+    reader.read_exact(&mut body)?;
+
+    let body_str =
+        str::from_utf8(&body).map_err(|_| ort_error(ErrorKind::FormatError, "http body utf8"))?;
+    buffer.push_str(body_str);
+    Ok(())
 }
 
 /// Extract host, port and path components from a URL.
@@ -394,6 +455,31 @@ fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+
+    use super::*;
+
+    struct BytesReader {
+        data: Vec<u8>,
+        pos: usize,
+    }
+
+    impl Read for BytesReader {
+        fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
+            let remaining = self.data.len() - self.pos;
+            let count = remaining.min(buf.len());
+
+            if count == 0 {
+                return Ok(0);
+            }
+
+            buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
+            self.pos += count;
+            Ok(count)
+        }
+    }
+
     #[test]
     pub fn test_split_url() {
         let input = "openrouter.ai/api/v1";
@@ -413,5 +499,43 @@ mod tests {
         assert_eq!(host, "openrouter.ai");
         assert_eq!(port, 8443);
         assert_eq!(base, "/api/v1");
+    }
+
+    #[test]
+    pub fn content_length_reader_returns_eof_at_declared_len() {
+        let body = "First\nSecond";
+        let reader = BytesReader {
+            data: (body.to_string() + "EXTRA").into_bytes(),
+            pos: 0,
+        };
+        let limited = ContentLengthReader::new(reader, body.len());
+        let mut buffered = buf_read::OrtBufReader::new(limited);
+
+        let mut line = String::new();
+        assert_eq!(buffered.read_line(&mut line).unwrap(), "First\n".len());
+        assert_eq!(line, "First\n");
+
+        line.clear();
+        assert_eq!(buffered.read_line(&mut line).unwrap(), "Second".len());
+        assert_eq!(line, "Second");
+
+        line.clear();
+        assert_eq!(buffered.read_line(&mut line).unwrap(), 0);
+        assert!(line.is_empty());
+    }
+
+    #[test]
+    pub fn read_content_length_body_does_not_wait_for_newline() {
+        let body = r#"{"error":"bad request"}"#;
+        let mut reader = BytesReader {
+            data: (body.to_string() + "EXTRA").into_bytes(),
+            pos: 0,
+        };
+        let mut out = String::new();
+
+        read_content_length_body(&mut reader, body.len(), &mut out).unwrap();
+
+        assert_eq!(out, body);
+        assert_eq!(reader.pos, body.len());
     }
 }

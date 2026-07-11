@@ -15,6 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
+use crate::common::buf_read::OrtBufReader;
 use crate::common::data::{Tool, ToolCall};
 use crate::net::AsFd;
 use crate::output::logger::Logger;
@@ -31,7 +32,7 @@ use crate::common::resolver;
 use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
-use crate::http;
+use crate::http::{self, ContentLengthReader};
 use crate::ort_error;
 use crate::output::OutputWriter;
 use crate::output::last_writer::LastWriter;
@@ -457,11 +458,17 @@ impl ActivePrompt {
 
         match http::skip_header(&mut buf_reader) {
             Ok(http::ResponseBody::Chunked) => {
-                // Transfer encoding chunked, this is the common case
+                // Transfer encoding chunked, this is what OpenRouter does.
                 let chunk_reader = chunked::read::<_, MAX_CHUNK_SIZE>(buf_reader);
                 self.reader = Some(Box::new(chunk_reader));
             }
-            Ok(http::ResponseBody::ContentLength(_)) | Ok(http::ResponseBody::UntilEof) => {
+            Ok(http::ResponseBody::ContentLength(len)) => {
+                // Content-Length with keep-alive. Stop at the body length.
+                // Rare except for upstream errors which are non-streaming.
+                let content_reader = ContentLengthReader::new(buf_reader, len);
+                self.reader = Some(Box::new(OrtBufReader::new(content_reader)));
+            }
+            Ok(http::ResponseBody::UntilEof) => {
                 // OpenRouter does chunked. Only seen this on local dev server.
                 self.reader = Some(Box::new(buf_reader));
             }
