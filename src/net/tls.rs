@@ -182,17 +182,20 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
         exts.extend_from_slice(&sg);
     }
 
-    // signature_algorithms: minimal list
+    // cert signature_algorithms
+    // we don't validate signatures so support can be broad
     {
+        const RSA_PKCS1_SHA256: u16 = 0x0401;
         const ECDSA_SECP256R1_SHA256: u16 = 0x0403;
         const RSA_PSS_RSAE_SHA256: u16 = 0x0804;
-        const RSA_PKCS1_SHA256: u16 = 0x0401;
+        const ED25519: u16 = 0x0807;
 
-        let mut sa = Vec::with_capacity(2 + 6);
-        put_u16(&mut sa, 6);
+        let mut sa = Vec::with_capacity(2 + 8);
+        put_u16(&mut sa, 8);
         put_u16(&mut sa, ECDSA_SECP256R1_SHA256);
         put_u16(&mut sa, RSA_PSS_RSAE_SHA256);
         put_u16(&mut sa, RSA_PKCS1_SHA256);
+        put_u16(&mut sa, ED25519);
 
         put_u16(&mut exts, EXT_SIGNATURE_ALGS);
         put_u16(&mut exts, sa.len() as u16);
@@ -414,7 +417,8 @@ impl<T: Read + Write> TlsStream<T> {
         while !p.is_empty() {
             let (mtyp, body, full) = match read_handshake_message(&mut p) {
                 Ok(x) => x,
-                Err(_) => {
+                Err(err) => {
+                    crate::utils::print_string(c"read_handshake_message error: ", &err.as_string());
                     return Err(ort_error(ErrorKind::TlsBadHandshakeFragment, ""));
                 }
             };
@@ -794,13 +798,21 @@ fn read_record_cipher<R: Read>(
     debug_print("read_record_cipher plaintext hdr", &hdr);
     debug_print("read_record_cipher plaintext", &out);
 
-    if out.is_empty() {
-        return Ok((typ, ciphertext, 0));
-    }
-    // Strip inner content-type byte
-    let inner_type = *out.last().unwrap();
-    out.truncate(out.len() - 1);
+    let inner_type = strip_tls_inner_plaintext(&mut out);
     Ok((typ, out, inner_type))
+}
+
+// The inner_type should be the last byte of the packet, but padding is allowed.
+fn strip_tls_inner_plaintext(out: &mut Vec<u8>) -> u8 {
+    // Skip padding (0) bytes backwards from the end to find inner_type
+    let Some(inner_pos) = out.iter().rposition(|b| *b != 0) else {
+        // We didn't find any non-0 bytes
+        out.clear();
+        return 0;
+    };
+    let inner_type = out[inner_pos];
+    out.truncate(inner_pos);
+    inner_type
 }
 
 // ---------------------- Handshake parsing helpers ---------------------------
@@ -923,6 +935,7 @@ fn write_bytes_to_file(bytes: &[u8], file_path: &str) -> std::io::Result<()> {
 #[cfg(test)]
 pub mod tests {
     extern crate alloc;
+    use super::*;
     use alloc::vec::Vec;
 
     pub fn string_to_bytes(s: &str) -> [u8; 32] {
@@ -966,5 +979,27 @@ pub mod tests {
             b'A'..=b'F' => b - b'A' + 10,
             _ => panic!("invalid hex character"),
         }
+    }
+
+    #[test]
+    fn client_hello_advertises_ed25519_signature_algorithm() {
+        let client_pub = [7u8; 32];
+        let body = client_hello_body("localhost", &client_pub);
+        let ed25519_sig_alg_ext = [0x00, 0x0d, 0x00, 0x0a, 0x00, 0x08, 0x08, 0x07];
+
+        assert!(
+            body.windows(ed25519_sig_alg_ext.len())
+                .any(|window| window == ed25519_sig_alg_ext)
+        );
+    }
+
+    #[test]
+    fn strip_tls_inner_plaintext_removes_padding() {
+        let mut plaintext = alloc::vec![1, 2, 3, REC_TYPE_HANDSHAKE, 0, 0];
+
+        let inner_type = strip_tls_inner_plaintext(&mut plaintext);
+
+        assert_eq!(inner_type, REC_TYPE_HANDSHAKE);
+        assert_eq!(plaintext, alloc::vec![1, 2, 3]);
     }
 }

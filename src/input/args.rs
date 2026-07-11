@@ -262,11 +262,9 @@ pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
                     return Err(ArgParseError::new_str("Missing value for -c"));
                 }
                 config_file = Some(args[i].clone());
-                i += 1;
             }
             "-json" => {
                 is_json = true;
-                i += 1;
             }
             x => {
                 return Err(ArgParseError::new(
@@ -327,5 +325,33 @@ impl From<ArgParseError> for OrtError {
                 ort_error(ErrorKind::InvalidArguments, "See above")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| arg.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_list_args_accepts_cfg_and_json_in_either_order() {
+        let Cmd::List(opts) =
+            parse_list_args(&strings(&["ort", "list", "--cfg", "local", "-json"])).unwrap()
+        else {
+            panic!("expected list command");
+        };
+        assert_eq!(opts.config_file.as_deref(), Some("local"));
+        assert!(opts.is_json);
+
+        let Cmd::List(opts) =
+            parse_list_args(&strings(&["ort", "list", "-json", "--cfg", "local"])).unwrap()
+        else {
+            panic!("expected list command");
+        };
+        assert_eq!(opts.config_file.as_deref(), Some("local"));
+        assert!(opts.is_json);
     }
 }

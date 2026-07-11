@@ -23,8 +23,8 @@ use crate::{syscall, utils};
 const SOCKET_CONNECT_TIMEOUT_MS: i32 = 2000;
 
 const EXPECTED_HTTP_200: &str = "HTTP/1.1 200 OK";
-const CHUNKED_HEADER: &str = "Transfer-Encoding: chunked";
-const CONTENT_LENGTH_0: &str = "Content-Length: 0";
+const TRANSFER_ENCODING_HEADER: &str = "Transfer-Encoding";
+const CONTENT_LENGTH_HEADER_NAME: &str = "Content-Length";
 
 const POST: &[u8] = "POST ".as_bytes();
 const GET: &[u8] = "GET ".as_bytes();
@@ -32,6 +32,12 @@ const HTTP_1_1: &[u8] = " HTTP/1.1\r\n".as_bytes();
 const HOST_HEADER: &[u8] = "Host: ".as_bytes();
 const CONTENT_LENGTH_HEADER: &[u8] = "Content-Length: ".as_bytes();
 const CRLF: &[u8] = "\r\n".as_bytes();
+
+pub enum ResponseBody {
+    Chunked,
+    ContentLength(usize),
+    UntilEof,
+}
 
 // The constant part of the list request headers
 const LIST_REQ_MIDDLE: &[u8] = concat!(
@@ -247,7 +253,7 @@ impl From<HttpError> for OrtError {
 /// special handling.
 pub fn skip_header<T: Read + Write>(
     reader: &mut buf_read::OrtBufReader<TlsStream<T>>,
-) -> Result<bool, HttpError> {
+) -> Result<ResponseBody, HttpError> {
     let mut buffer = String::with_capacity(512);
     let status = match reader.read_line(&mut buffer) {
         Ok(0) => {
@@ -265,6 +271,7 @@ pub fn skip_header<T: Read + Write>(
 
     // Skip the rest of the headers
     let mut is_chunked = false;
+    let mut content_length = None;
     let mut has_content = true;
     buffer.clear();
     loop {
@@ -276,11 +283,21 @@ pub fn skip_header<T: Read + Write>(
             // end of headers
             break;
         }
-        if header == CHUNKED_HEADER {
-            is_chunked = true;
-        }
-        if header == CONTENT_LENGTH_0 {
-            has_content = false;
+        if let Some((name, value)) = header.split_once(':') {
+            let value = value.trim();
+            if name.eq_ignore_ascii_case(TRANSFER_ENCODING_HEADER)
+                && value.eq_ignore_ascii_case("chunked")
+            {
+                is_chunked = true;
+            }
+            if name.eq_ignore_ascii_case(CONTENT_LENGTH_HEADER_NAME)
+                && let Ok(len) = value.parse::<usize>()
+            {
+                content_length = Some(len);
+                if len == 0 {
+                    has_content = false;
+                }
+            }
         }
         //utils::print_string(c"HTTP response header: ", header);
 
@@ -310,7 +327,13 @@ pub fn skip_header<T: Read + Write>(
             _ => return Err(HttpError::status(status.to_string())),
         }
     }
-    Ok(is_chunked)
+    if is_chunked {
+        Ok(ResponseBody::Chunked)
+    } else if let Some(len) = content_length {
+        Ok(ResponseBody::ContentLength(len))
+    } else {
+        Ok(ResponseBody::UntilEof)
+    }
 }
 
 /// Extract host, port and path components from a URL.

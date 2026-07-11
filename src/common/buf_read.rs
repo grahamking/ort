@@ -33,10 +33,16 @@ impl<T: Read + AsFd> AsFd for OrtBufReader<T> {
 
 impl<R: Read> Read for OrtBufReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
+        if !self.buffer_consumed() {
+            let n = min(buf.len(), self.cap - self.pos);
+            buf[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+            self.pos += n;
+            return Ok(n);
+        }
         self.inner.read(buf)
     }
     fn read_exact(&mut self, buf: &mut [u8]) -> OrtResult<()> {
-        self.inner.read_exact(buf)
+        OrtBufReader::read_exact(self, buf)
     }
 }
 
@@ -276,6 +282,23 @@ mod tests {
         let mut out = String::new();
         let _res = candidate.read_line(&mut out).unwrap();
         assert_eq!(out, "First\n");
+    }
+
+    #[test]
+    fn test_read_uses_buffered_bytes_after_read_line() {
+        let reader = StringReader {
+            data: "Header\nBody".to_string(),
+            pos: 0,
+        };
+        let mut candidate = OrtBufReader::new(reader);
+        let mut line = String::new();
+        let _res = candidate.read_line(&mut line).unwrap();
+
+        let mut out = [0u8; 4];
+        let bytes_read = candidate.read(&mut out).unwrap();
+
+        assert_eq!(bytes_read, 4);
+        assert_eq!(&out, b"Body");
     }
 
     /// Test that read_line will refill the buffer and continue if the initial chunk does not

@@ -456,13 +456,13 @@ impl ActivePrompt {
             };
 
         match http::skip_header(&mut buf_reader) {
-            Ok(true) => {
+            Ok(http::ResponseBody::Chunked) => {
                 // Transfer encoding chunked, this is the common case
                 let chunk_reader = chunked::read::<_, MAX_CHUNK_SIZE>(buf_reader);
                 self.reader = Some(Box::new(chunk_reader));
             }
-            Ok(false) => {
-                // Not chunked encoding. I don't think we ever get here.
+            Ok(http::ResponseBody::ContentLength(_)) | Ok(http::ResponseBody::UntilEof) => {
+                // OpenRouter does chunked. Only seen this on local dev server.
                 self.reader = Some(Box::new(buf_reader));
             }
             Err(err) => {

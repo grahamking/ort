@@ -7,7 +7,8 @@
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::utils::print_string;
@@ -51,28 +52,42 @@ pub fn run<W: Write + Send>(
         }
     };
     let mut reader = buf_read::OrtBufReader::new(reader);
-    let is_chunked = http::skip_header(&mut reader)?;
+    let response_body = http::skip_header(&mut reader)?;
 
     if opts.is_json {
         // The full JSON. User should use `jq` or similar to pretty it.
-        if is_chunked {
-            // normal case
-            const MAX_CHUNK_SIZE: usize = 128 * 1024;
-            let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
-            while let Some(chunk) = chunked.next_chunk() {
-                let chunk = chunk?;
-                w.write_all(chunk.as_bytes()).context("write models JSON")?;
-            }
-        } else {
-            // I don't think this happens right now
-            let mut buf: [u8; 4096] = [0; 4096];
-            loop {
-                let bytes_read = reader.read(&mut buf).context("read models body")?;
-                if bytes_read == 0 {
-                    break;
+        match response_body {
+            http::ResponseBody::Chunked => {
+                // normal case
+                const MAX_CHUNK_SIZE: usize = 128 * 1024;
+                let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
+                while let Some(chunk) = chunked.next_chunk() {
+                    let chunk = chunk?;
+                    w.write_all(chunk.as_bytes()).context("write models JSON")?;
                 }
-                w.write_all(&buf[..bytes_read])
-                    .context("write models JSON")?;
+            }
+            http::ResponseBody::ContentLength(len) => {
+                let mut remaining = len;
+                let mut buf: [u8; 4096] = [0; 4096];
+                while remaining > 0 {
+                    let n = remaining.min(buf.len());
+                    reader
+                        .read_exact(&mut buf[..n])
+                        .context("read models body")?;
+                    w.write_all(&buf[..n]).context("write models JSON")?;
+                    remaining -= n;
+                }
+            }
+            http::ResponseBody::UntilEof => {
+                let mut buf: [u8; 4096] = [0; 4096];
+                loop {
+                    let bytes_read = reader.read(&mut buf).context("read models body")?;
+                    if bytes_read == 0 {
+                        break;
+                    }
+                    w.write_all(&buf[..bytes_read])
+                        .context("write models JSON")?;
+                }
             }
         }
         w.flush().context("flush models JSON")?;
@@ -80,54 +95,62 @@ pub fn run<W: Write + Send>(
         // 342 models as of Feb 16th 2026
         let mut slugs = Vec::with_capacity(400);
         let mut total_slug_len = 0;
-        if is_chunked {
-            // normal case, it's always chunked right now
-            let mut partial = String::with_capacity(2048);
-            const MAX_CHUNK_SIZE: usize = 128 * 1024;
-            let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
-            while let Some(chunk) = chunked.next_chunk() {
-                let chunk = chunk?;
-                for (pos, section) in chunk.split(r#""id":""#).enumerate() {
-                    let maybe_next_id = if pos == 0 && !partial.is_empty() {
-                        // We have a partial from previous iteration
-                        partial.push_str(section);
-                        until_quote(&partial)
-                    } else if pos == 0 {
-                        // `split` will return the part _before_ the first ID,
-                        // which doesn't have any slugs in it.
-                        continue;
-                    } else {
-                        // normal case, work directly on a ref into the chunk,
-                        // no alloc or copy
-                        until_quote(section)
-                    };
-                    match maybe_next_id {
-                        Some(slug) => {
-                            // The chunk ref is only valid for one iteration, so copy
-                            let mut slug_line = String::with_capacity(slug.len() + 1);
-                            slug_line.push_str(slug);
-                            slug_line.push('\n');
-                            total_slug_len += slug_line.len();
-                            slugs.push(slug_line);
-                            partial.clear();
-                        }
-                        None => {
-                            // The chunk split a model name, save it for next chunk
+        match response_body {
+            http::ResponseBody::Chunked => {
+                // normal case, it's always chunked right now
+                let mut partial = String::with_capacity(2048);
+                const MAX_CHUNK_SIZE: usize = 128 * 1024;
+                let mut chunked = chunked::read::<_, MAX_CHUNK_SIZE>(reader);
+                while let Some(chunk) = chunked.next_chunk() {
+                    let chunk = chunk?;
+                    for (pos, section) in chunk.split(r#""id":""#).enumerate() {
+                        let maybe_next_id = if pos == 0 && !partial.is_empty() {
+                            // We have a partial from previous iteration
                             partial.push_str(section);
+                            until_quote(&partial)
+                        } else if pos == 0 {
+                            // `split` will return the part _before_ the first ID,
+                            // which doesn't have any slugs in it.
+                            continue;
+                        } else {
+                            // normal case, work directly on a ref into the chunk,
+                            // no alloc or copy
+                            until_quote(section)
+                        };
+                        match maybe_next_id {
+                            Some(slug) => {
+                                // The chunk ref is only valid for one iteration, so copy
+                                push_slug(slug, &mut slugs, &mut total_slug_len);
+                                partial.clear();
+                            }
+                            None => {
+                                // The chunk split a model name, save it for next chunk
+                                partial.push_str(section);
+                            }
                         }
                     }
                 }
             }
-        } else {
-            // This case never happens (always chunked) so don't optimize
-            let mut models = String::with_capacity(512 * 1024);
-            reader
-                .read(unsafe { models.as_mut_vec().as_mut_slice() })
-                .context("read models body")?;
-            for slug in models.split(r#""id":""#).skip(1).filter_map(until_quote) {
-                let slug_line = slug.to_string() + "\n";
-                total_slug_len += slug_line.len();
-                slugs.push(slug_line);
+            http::ResponseBody::ContentLength(len) => {
+                let mut models = vec![0u8; len];
+                reader.read_exact(&mut models).context("read models body")?;
+                let models = core::str::from_utf8(&models)
+                    .map_err(|_| ort_error(ErrorKind::FormatError, "models JSON utf8"))?;
+                push_slugs(models, &mut slugs, &mut total_slug_len);
+            }
+            http::ResponseBody::UntilEof => {
+                let mut models = Vec::with_capacity(512 * 1024);
+                let mut buf: [u8; 4096] = [0; 4096];
+                loop {
+                    let bytes_read = reader.read(&mut buf).context("read models body")?;
+                    if bytes_read == 0 {
+                        break;
+                    }
+                    models.extend_from_slice(&buf[..bytes_read]);
+                }
+                let models = core::str::from_utf8(&models)
+                    .map_err(|_| ort_error(ErrorKind::FormatError, "models JSON utf8"))?;
+                push_slugs(models, &mut slugs, &mut total_slug_len);
             }
         };
 
@@ -152,6 +175,20 @@ pub fn run<W: Write + Send>(
         let _ = w.write(&out[..out_len]); // one syscall
     }
     Ok(())
+}
+
+fn push_slugs(models: &str, slugs: &mut Vec<String>, total_slug_len: &mut usize) {
+    for slug in models.split(r#""id":""#).skip(1).filter_map(until_quote) {
+        push_slug(slug, slugs, total_slug_len);
+    }
+}
+
+fn push_slug(slug: &str, slugs: &mut Vec<String>, total_slug_len: &mut usize) {
+    let mut slug_line = String::with_capacity(slug.len() + 1);
+    slug_line.push_str(slug);
+    slug_line.push('\n');
+    *total_slug_len += slug_line.len();
+    slugs.push(slug_line);
 }
 
 /// The prefix of this string until the first double quote.
