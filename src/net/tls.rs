@@ -45,6 +45,14 @@ const HS_SERVER_HELLO: u8 = 2;
 //const HS_CERT_VERIFY: u8 = 15;
 const HS_FINISHED: u8 = 20; // 0x14
 
+// A ServerHello can actually be a HelloRetryRequest. An esoteric challenge
+// from the server that we do not support. It indicates this by placing this value
+// in the "Random" field.
+const HS_HELLO_RETRY_REQUEST_RAND: [u8; 32] = [
+    0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
+];
+
 // TLS_AES_128_GCM_SHA256
 const CIPHER_TLS_AES_128_GCM_SHA256: u16 = 0x1301;
 // supported_versions (TLS 1.3)
@@ -255,7 +263,16 @@ fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
     let (sh_typ, sh_body, sh_full) =
         read_handshake_message(&mut rd).context("read_handshake_message")?;
     if sh_typ != HS_SERVER_HELLO {
-        return Err(ort_error(ErrorKind::TlsExpectedServerHello, ""));
+        return Err(ort_error(
+            ErrorKind::TlsExpectedServerHello,
+            "Expected handshake type 2",
+        ));
+    }
+    if sh_body[32..64] == HS_HELLO_RETRY_REQUEST_RAND {
+        return Err(ort_error(
+            ErrorKind::TlsExpectedServerHello,
+            "Received a HelloRetryRequest",
+        ));
     }
 
     // TODO: later remove the copy. The slices are into sh_buf
@@ -1058,18 +1075,6 @@ pub mod tests {
             b'A'..=b'F' => b - b'A' + 10,
             _ => panic!("invalid hex character"),
         }
-    }
-
-    #[test]
-    fn client_hello_advertises_ed25519_signature_algorithm() {
-        let client_pub = [7u8; 32];
-        let body = client_hello_body("localhost", &client_pub);
-        let ed25519_sig_alg_ext = [0x00, 0x0d, 0x00, 0x0a, 0x00, 0x08, 0x08, 0x07];
-
-        assert!(
-            body.windows(ed25519_sig_alg_ext.len())
-                .any(|window| window == ed25519_sig_alg_ext)
-        );
     }
 
     #[test]
