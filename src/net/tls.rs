@@ -299,12 +299,13 @@ impl<T: Read + Write> TlsStream<T> {
 
         let handshake = Self::derive_handshake_keys(&client_private_key, &sh_body, &transcript)?;
 
-        debug_print("MSG <- ChangeCipherSpec (dummy)", &[]);
-        Self::receive_dummy_change_cipher_spec(&mut io)?;
+        let mut first_encrypted_record = {
+            debug_print("MSG <- ChangeCipherSpec (dummy, optional)", &[]);
+            Self::skip_dummy_change_cipher_specs(&mut io)?
+        };
 
         let mut seq_dec_hs = 0u64;
         let mut seq_enc_hs = 0u64;
-
         let mut is_finished: bool = false;
         while !is_finished {
             debug_print("MSG <- Server flight", &[]);
@@ -313,6 +314,7 @@ impl<T: Read + Write> TlsStream<T> {
                 &mut seq_dec_hs,
                 &handshake,
                 &mut transcript,
+                &mut first_encrypted_record,
             )?;
         }
 
@@ -383,14 +385,20 @@ impl<T: Read + Write> TlsStream<T> {
         Ok(sh_body)
     }
 
-    fn receive_dummy_change_cipher_spec<R: Read>(io: &mut R) -> OrtResult<()> {
+    fn skip_dummy_change_cipher_specs<R: Read>(io: &mut R) -> OrtResult<Option<Record>> {
         // Some servers send TLS 1.2-style ChangeCipherSpec for middlebox compatibility.
-        let (typ, _) =
-            read_record_plain(io).context("read_record_plain for dummy change cipher")?;
-        if typ != REC_TYPE_CHANGE_CIPHER_SPEC {
-            return Err(ort_error(ErrorKind::TlsExpectedChangeCipherSpec, ""));
+        // TLS 1.3 peers are also allowed to omit this entirely, so stop at the
+        // first non-CCS record and hand it back to the encrypted-flight reader.
+        loop {
+            let record =
+                read_record_raw(io).context("read_record_raw for optional dummy change cipher")?;
+            if record.typ != REC_TYPE_CHANGE_CIPHER_SPEC {
+                return Ok(Some(record));
+            }
+            if record.body != [0x01] {
+                return Err(ort_error(ErrorKind::TlsExpectedChangeCipherSpec, ""));
+            }
         }
-        Ok(())
     }
 
     /// Should be called multiple times until it returns true.
@@ -400,13 +408,23 @@ impl<T: Read + Write> TlsStream<T> {
         seq_dec_hs: &mut u64,
         handshake: &HandshakeState,
         transcript: &mut Vec<u8>,
+        first_record: &mut Option<Record>,
     ) -> OrtResult<bool> {
-        let (typ, ct, _inner_type) = read_record_cipher(
-            io,
-            &handshake.aead_dec_hs,
-            &handshake.server_handshake_iv,
-            seq_dec_hs,
-        )?;
+        let (typ, ct, _inner_type) = if let Some(record) = first_record.take() {
+            read_record_cipher_from_record(
+                record,
+                &handshake.aead_dec_hs,
+                &handshake.server_handshake_iv,
+                seq_dec_hs,
+            )?
+        } else {
+            read_record_cipher(
+                io,
+                &handshake.aead_dec_hs,
+                &handshake.server_handshake_iv,
+                seq_dec_hs,
+            )?
+        };
         if typ != REC_TYPE_APPDATA {
             return Err(ort_error(ErrorKind::TlsExpectedEncryptedRecords, ""));
         }
@@ -700,6 +718,12 @@ impl<T: Read + Write + AsFd> AsFd for TlsStream<T> {
 
 // ---------------------- Record I/O helpers ----------------------------------
 
+struct Record {
+    hdr: [u8; 5],
+    typ: u8,
+    body: Vec<u8>,
+}
+
 fn write_record_plain<W: Write>(w: &mut W, typ: u8, body: &[u8]) -> OrtResult<()> {
     let mut hdr = [0u8; 5];
     hdr[0] = typ;
@@ -717,14 +741,20 @@ fn read_exact_n<R: Read>(r: &mut R, n: usize) -> OrtResult<Vec<u8>> {
 }
 
 fn read_record_plain<R: Read>(r: &mut R) -> OrtResult<(u8, Vec<u8>)> {
-    let hdr = read_exact_n(r, 5)?; // Record Header, e.g. 16 03 03 len
+    let record = read_record_raw(r)?;
+    //let _ = write_bytes_to_file(&[&hdr[..], &body].concat(), debug_filename);
+    Ok((record.typ, record.body))
+}
+
+fn read_record_raw<R: Read>(r: &mut R) -> OrtResult<Record> {
+    let mut hdr = [0u8; 5]; // Record Header, e.g. 16 03 03 len
+    r.read_exact(&mut hdr)?;
     let typ = hdr[0];
     let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
     let body = read_exact_n(r, len)?;
     debug_print("read_record_plain hdr", &hdr);
     debug_print("read_record_plain body", &body);
-    //let _ = write_bytes_to_file(&[&hdr[..], &body].concat(), debug_filename);
-    Ok((typ, body))
+    Ok(Record { hdr, typ, body })
 }
 
 fn write_record_cipher<W: Write>(
@@ -768,11 +798,20 @@ fn read_record_cipher<R: Read>(
     iv12: &[u8; 12],
     seq: &mut u64,
 ) -> OrtResult<(u8, Vec<u8>, u8)> {
-    let hdr = read_exact_n(r, 5)?;
-    let typ = hdr[0];
-    let len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;
-    let ciphertext = read_exact_n(r, len)?;
-    if len < AEAD_TAG_LEN {
+    let record = read_record_raw(r)?;
+    read_record_cipher_from_record(record, key, iv12, seq)
+}
+
+fn read_record_cipher_from_record(
+    record: Record,
+    key: &[u8; 16],
+    iv12: &[u8; 12],
+    seq: &mut u64,
+) -> OrtResult<(u8, Vec<u8>, u8)> {
+    let hdr = record.hdr;
+    let typ = record.typ;
+    let ciphertext = record.body;
+    if ciphertext.len() < AEAD_TAG_LEN {
         return Err(ort_error(ErrorKind::TlsRecordTooShort, "short record"));
     }
     debug_print("read_record_cipher hdr", &hdr);
@@ -938,6 +977,46 @@ pub mod tests {
     use super::*;
     use alloc::vec::Vec;
 
+    struct TestIo {
+        bytes: Vec<u8>,
+        pos: usize,
+    }
+
+    impl TestIo {
+        fn new(bytes: Vec<u8>) -> Self {
+            Self { bytes, pos: 0 }
+        }
+    }
+
+    impl Read for TestIo {
+        fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
+            let remaining = &self.bytes[self.pos..];
+            let len = cmp::min(buf.len(), remaining.len());
+            buf[..len].copy_from_slice(&remaining[..len]);
+            self.pos += len;
+            Ok(len)
+        }
+    }
+
+    impl Write for TestIo {
+        fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> OrtResult<()> {
+            Ok(())
+        }
+    }
+
+    fn plain_record(typ: u8, body: &[u8]) -> Vec<u8> {
+        let mut record = Vec::new();
+        record.push(typ);
+        record.extend_from_slice(&LEGACY_REC_VER.to_be_bytes());
+        record.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        record.extend_from_slice(body);
+        record
+    }
+
     pub fn string_to_bytes(s: &str) -> [u8; 32] {
         let mut bytes = s.as_bytes();
         if bytes.len() >= 2 && bytes[0] == b'0' && (bytes[1] == b'x' || bytes[1] == b'X') {
@@ -991,6 +1070,44 @@ pub mod tests {
             body.windows(ed25519_sig_alg_ext.len())
                 .any(|window| window == ed25519_sig_alg_ext)
         );
+    }
+
+    #[test]
+    fn skip_dummy_change_cipher_specs_accepts_no_ccs() {
+        let appdata = plain_record(REC_TYPE_APPDATA, &[1, 2, 3]);
+        let mut io = TestIo::new(appdata);
+
+        let record = TlsStream::<TestIo>::skip_dummy_change_cipher_specs(&mut io)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.typ, REC_TYPE_APPDATA);
+        assert_eq!(record.body, alloc::vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn skip_dummy_change_cipher_specs_skips_multiple_valid_ccs_records() {
+        let mut bytes = plain_record(REC_TYPE_CHANGE_CIPHER_SPEC, &[0x01]);
+        bytes.extend_from_slice(&plain_record(REC_TYPE_CHANGE_CIPHER_SPEC, &[0x01]));
+        bytes.extend_from_slice(&plain_record(REC_TYPE_APPDATA, &[4, 5, 6]));
+        let mut io = TestIo::new(bytes);
+
+        let record = TlsStream::<TestIo>::skip_dummy_change_cipher_specs(&mut io)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.typ, REC_TYPE_APPDATA);
+        assert_eq!(record.body, alloc::vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn skip_dummy_change_cipher_specs_rejects_invalid_ccs_record() {
+        let mut io = TestIo::new(plain_record(REC_TYPE_CHANGE_CIPHER_SPEC, &[0x02]));
+
+        match TlsStream::<TestIo>::skip_dummy_change_cipher_specs(&mut io) {
+            Ok(_) => panic!("invalid ChangeCipherSpec should fail"),
+            Err(err) => assert!(matches!(err.kind, ErrorKind::TlsExpectedChangeCipherSpec)),
+        }
     }
 
     #[test]
