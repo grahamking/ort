@@ -3,6 +3,21 @@
 - Add 'x-session-id' HTTP header to allow middle boxes and remote to track session. Persist it in last.json and across `-c` continue sessions.
   Try to make it a UUID like other agents.
 
+--- TLS
+GPT 5.5. suggestions for consideration.
+
+- Support handshake fragmentation across records at src/net/tls.rs:416. Large certificate chains or split server flights can currently produce TlsHandshakeBodyTooShort. `receive_server_encrypted_flight` expects complete handshake messages inside one decrypted record at src/net/tls.rs:416. Large certificate chains or servers that split records can trigger TlsHandshakeBodyTooShort. Keep a handshake buffer and parse only when the full 4 + len bytes have arrived.
+
+- Handle encrypted alerts safely at src/net/tls.rs:654. Check alert length before indexing plaintext[1], and treat close_notify as EOF where appropriate. Application reads index plaintext[1] without checking alert length at src/net/tls.rs:654. close_notify should probably become EOF, not TlsAlertReceived, especially for UntilEof HTTP bodies.
+
+- Reject unknown encrypted inner content types instead of treating them as app data at src/net/tls.rs:672. Also explicitly handle or reject KeyUpdate. Respect encrypted inner content types. The handshake path ignores _inner_type at src/net/tls.rs:404, and the app path treats unknown inner types as app data at src/net/tls.rs:672. Reject unknown types, handle encrypted alerts, and either implement or clearly fail on KeyUpdate.
+
+- Reject all-zero X25519 shared secrets after src/net/tls.rs:462. After x25519_agreement at src/net/tls.rs:462, check for all zeros. This is required by X25519 guidance and is cheap.
+
+- Enforce TLS record size limits in read_record_plain / read_record_cipher.
+
+- Fix zero-length read behavior in src/net/tls.rs:622: read(&mut []) should return Ok(0) without consuming a TLS record. Tighten record bounds and read semantics. Enforce TLS record size limits in read_record_plain / read_record_cipher, and make zero-length TlsStream::read return immediately instead of consuming a TLS record at src/net/tls.rs:622.
+
 --- Perf
 
 Performance ideas for the prompt path of ort, ordered by expected gain.
