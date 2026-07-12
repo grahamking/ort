@@ -64,7 +64,7 @@ const GROUP_X25519: u16 = 0x001d;
 const EXT_SERVER_NAME: u16 = 0x0000;
 const EXT_SUPPORTED_GROUPS: u16 = 0x000a;
 const EXT_SIGNATURE_ALGS: u16 = 0x000d;
-//const EXT_ALPN: u16 = 0x0010;
+const EXT_ALPN: u16 = 0x0010;
 const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
 //const EXT_PSK_MODES: u16 = 0x002d;
 const EXT_KEY_SHARE: u16 = 0x0033;
@@ -170,6 +170,14 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
         exts.extend_from_slice(&sni);
     }
 
+    // application_layer_protocol_negotiation: http/1.1
+    {
+        put_u16(&mut exts, EXT_ALPN);
+        put_u16(&mut exts, 11);
+        // protocol_name_list len u16 = 0x0009, protocol_name len u8 = 8, "http/1.1"
+        exts.extend_from_slice(&[0, 9, 8, b'h', b't', b't', b'p', b'/', b'1', b'.', b'1']);
+    }
+
     // supported_versions: TLS 1.3
     {
         let mut sv = Vec::with_capacity(3);
@@ -195,15 +203,21 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     {
         const RSA_PKCS1_SHA256: u16 = 0x0401;
         const ECDSA_SECP256R1_SHA256: u16 = 0x0403;
+        const RSA_PKCS1_SHA384: u16 = 0x0501;
+        const ECDSA_SECP384R1_SHA384: u16 = 0x0503;
         const RSA_PSS_RSAE_SHA256: u16 = 0x0804;
+        const RSA_PSS_RSAE_SHA384: u16 = 0x0805;
         const ED25519: u16 = 0x0807;
 
-        let mut sa = Vec::with_capacity(2 + 8);
-        put_u16(&mut sa, 8);
+        let mut sa = Vec::with_capacity(2 + 14);
+        put_u16(&mut sa, 14);
         put_u16(&mut sa, ECDSA_SECP256R1_SHA256);
         put_u16(&mut sa, RSA_PSS_RSAE_SHA256);
         put_u16(&mut sa, RSA_PKCS1_SHA256);
         put_u16(&mut sa, ED25519);
+        put_u16(&mut sa, ECDSA_SECP384R1_SHA384);
+        put_u16(&mut sa, RSA_PSS_RSAE_SHA384);
+        put_u16(&mut sa, RSA_PKCS1_SHA384);
 
         put_u16(&mut exts, EXT_SIGNATURE_ALGS);
         put_u16(&mut exts, sa.len() as u16);
