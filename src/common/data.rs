@@ -332,6 +332,9 @@ impl PromptOpts {
         if let Some(effort) = cfg.effort {
             self.effort.get_or_insert(effort);
         }
+        if self.files.is_empty() {
+            self.files = cfg.files.clone();
+        }
     }
 
     pub fn merge_opts(&mut self, o: PromptOpts) {

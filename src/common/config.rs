@@ -115,6 +115,9 @@ pub struct Cfg {
 
     /// How much thinking to do. -r flag.
     pub effort: Option<ReasoningEffort>,
+
+    /// Images to attach to the request.
+    pub files: Vec<String>,
 }
 
 impl Cfg {
@@ -138,6 +141,7 @@ impl Cfg {
         let mut priority = None;
         let mut include_web_tools = DEFAULT_INCLUDE_WEB_TOOLS;
         let mut effort = None;
+        let mut files = Vec::new();
 
         for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
             if line.as_bytes()[0] == b'#' {
@@ -157,6 +161,9 @@ impl Cfg {
                 }
                 "model" => {
                     models = value.split(",").map(|m| m.trim().to_string()).collect();
+                }
+                "files" => {
+                    files = value.split(",").map(|f| f.trim().to_string()).collect();
                 }
                 "system_prompt" => system_prompt = Some(value.to_string()),
                 "quiet" => quiet = value == "true",
@@ -206,6 +213,7 @@ impl Cfg {
             provider,
             include_web_tools,
             effort,
+            files,
         })
     }
 

@@ -1,3 +1,16 @@
+--- Refactor last / cfg / cli
+
+CLI has PromptOpts
+Config file has Cfg
+Running uses ActivePrompt (includes Cfg and PromptOps right now)
+
+Merge PromptOpts and Cfg. Do it by replacing PromptOpts with Cfg.
+. Add prompt filename (@name) to Cfg
+. Add `--private` to CLI and Cfg, replaces save_to_file. Disables last but also the .jsonl log.
+. Write an export to `.cfg` for Cfg. This will be used for continue functionality.
+
+config_file and merge_config to be handled separately, resolved before the process really starts.
+
 --- General
 
 - Add 'x-session-id' HTTP header to allow middle boxes and remote to track session. Persist it in last.json and across `-c` continue sessions.
