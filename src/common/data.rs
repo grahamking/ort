@@ -312,12 +312,10 @@ impl PromptOpts {
     // or with the defaults.
     // After this call a PromptOpts is ready to use.
     pub fn merge(&mut self, cfg: &config::Cfg) {
-        if self.models.is_empty()
-            && let Some(cfg_model) = cfg.model.as_ref()
-        {
+        if self.models.is_empty() {
             // We don't merge the models, otherwise we'd try to query both the
             // cmd line one, and the config file default.
-            self.models = vec![cfg_model.to_string()];
+            self.models = cfg.models.clone();
         }
         if let Some(provider) = cfg.provider.as_ref() {
             self.provider.get_or_insert(provider.to_string());

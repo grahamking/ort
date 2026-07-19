@@ -67,9 +67,11 @@ pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> 
     }
 }
 
-// Will replace ConfigFile
 #[derive(Clone, Default)]
 pub struct Cfg {
+    //
+    // These are config file only
+    //
     /// Address and path base of the server. "https://" is optional and implied.
     /// Include the "/v1". No trailing slash.
     /// e.g.
@@ -86,8 +88,12 @@ pub struct Cfg {
     /// Saves time resolving them.
     pub dns: Vec<String>,
 
+    //
+    // These are also on the command line
+    //
     /// Default model. Usually passed on the cmd line as '-m <model_id>'
-    pub model: Option<String>,
+    /// Can be multiple comma separated.
+    pub models: Vec<String>,
 
     /// System prompt if not given at the cmd line
     pub system_prompt: Option<String>,
@@ -124,7 +130,7 @@ impl Cfg {
         let mut base_url = DEFAULT_BASE_URL.to_string();
         let mut save_to_file = DEFAULT_SAVE_TO_FILE;
         let mut dns = Vec::new();
-        let mut model = None;
+        let mut models = Vec::new();
         let mut system_prompt = None;
         let mut quiet = DEFAULT_QUIET;
         let mut show_reasoning = DEFAULT_SHOW_REASONING;
@@ -149,7 +155,9 @@ impl Cfg {
                 "dns" => {
                     dns = value.split(",").map(|ip| ip.trim().to_string()).collect();
                 }
-                "model" => model = Some(value.to_string()),
+                "model" => {
+                    models = value.split(",").map(|m| m.trim().to_string()).collect();
+                }
                 "system_prompt" => system_prompt = Some(value.to_string()),
                 "quiet" => quiet = value == "true",
                 "show_reasoning" => show_reasoning = value == "true",
@@ -190,7 +198,7 @@ impl Cfg {
             api_key,
             save_to_file,
             dns,
-            model,
+            models,
             system_prompt,
             quiet,
             show_reasoning,
@@ -304,7 +312,7 @@ effort: low
             assert!(ip == "104.18.2.115" || ip == "104.18.3.115");
         }
 
-        assert_eq!(cfg.model.as_deref(), Some("openai/gpt-oss-20b:free"));
+        assert_eq!(cfg.models[0], "openai/gpt-oss-20b:free");
         assert_eq!(
             cfg.system_prompt.as_deref(),
             Some(
