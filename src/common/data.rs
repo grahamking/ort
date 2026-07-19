@@ -318,10 +318,17 @@ impl PromptOpts {
             self.models = cfg.models.clone();
         }
         if let Some(provider) = cfg.provider.as_ref() {
-            self.provider.get_or_insert(provider.to_string());
+            self.provider.get_or_insert_with(|| provider.to_string());
+        }
+        if let Some(prompt) = cfg.prompt.as_ref() {
+            self.prompt.get_or_insert_with(|| prompt.to_string());
+        }
+        if let Some(prompt_filename) = cfg.prompt_filename.as_ref() {
+            self.prompt_filename
+                .get_or_insert_with(|| prompt_filename.to_string());
         }
         if let Some(system) = cfg.system_prompt.as_ref() {
-            self.system.get_or_insert(system.to_string());
+            self.system.get_or_insert_with(|| system.to_string());
         }
         if let Some(priority) = cfg.priority {
             self.priority.get_or_insert(priority);

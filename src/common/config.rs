@@ -31,6 +31,10 @@ const DEFAULT_SHOW_REASONING: bool = false;
 /// slower, so make it opt-in.
 const DEFAULT_INCLUDE_WEB_TOOLS: bool = false;
 
+/// Prefixing the system prompt or user prompt with this byte means it's
+/// a filename, read the contents.
+const FILE_INDICATOR: u8 = b'@';
+
 /*
 pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
     match read_config_file(env, filename)? {
@@ -95,6 +99,16 @@ pub struct Cfg {
     /// Can be multiple comma separated.
     pub models: Vec<String>,
 
+    /// Prompt if not given at the cmd line.
+    /// Normally you would not set this.
+    /// For automated processes you may want to have the prompt in the cfg
+    /// file and check it in.
+    pub prompt: Option<String>,
+
+    // If the prompt is '@<filename>' we save filename in here.
+    // Putting the prompt in a file allows us agent mode to watch it with `inotify`.
+    pub prompt_filename: Option<String>,
+
     /// System prompt if not given at the cmd line
     pub system_prompt: Option<String>,
 
@@ -134,6 +148,8 @@ impl Cfg {
         let mut save_to_file = DEFAULT_SAVE_TO_FILE;
         let mut dns = Vec::new();
         let mut models = Vec::new();
+        let mut prompt = None;
+        let mut prompt_filename: Option<String> = None;
         let mut system_prompt = None;
         let mut quiet = DEFAULT_QUIET;
         let mut show_reasoning = DEFAULT_SHOW_REASONING;
@@ -165,6 +181,7 @@ impl Cfg {
                 "files" => {
                     files = value.split(",").map(|f| f.trim().to_string()).collect();
                 }
+                "prompt" => prompt = Some(value.to_string()),
                 "system_prompt" => system_prompt = Some(value.to_string()),
                 "quiet" => quiet = value == "true",
                 "show_reasoning" => show_reasoning = value == "true",
@@ -200,12 +217,26 @@ impl Cfg {
                 }
             }
         }
+
+        if let Some(p) = prompt.as_ref()
+            && p.bytes().next() == Some(FILE_INDICATOR)
+        {
+            let filename = &p[1..];
+            prompt_filename = Some(filename.to_string());
+            prompt =
+                Some(utils::filename_read_to_string(filename).map_err(|_| {
+                    ort_error(ErrorKind::ConfigParseFailed, "Invalid prompt filename")
+                })?);
+        }
+
         Ok(Cfg {
             base_url,
             api_key,
             save_to_file,
             dns,
             models,
+            prompt,
+            prompt_filename,
             system_prompt,
             quiet,
             show_reasoning,

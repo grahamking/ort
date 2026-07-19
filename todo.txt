@@ -11,6 +11,9 @@ Merge PromptOpts and Cfg. Do it by replacing PromptOpts with Cfg.
 
 config_file and merge_config to be handled separately, resolved before the process really starts.
 
+. system prompt variable substitution currently only happens if file loaded
+  make it always happen, after @file is resolved.
+
 --- General
 
 - Add 'x-session-id' HTTP header to allow middle boxes and remote to track session. Persist it in last.json and across `-c` continue sessions.
