@@ -15,12 +15,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::Priority;
-use crate::PromptOpts;
 use crate::ReasoningEffort;
 use crate::cli::Env;
+use crate::common::data::Message;
 use crate::common::utils;
 use crate::{ErrorKind, ort_error};
-use crate::{OrtError, syscall};
+use crate::{OrtError, OrtResult, syscall};
 
 const MAX_CONCURRENT_MODELS: usize = 10;
 
@@ -28,16 +28,66 @@ const MAX_CONCURRENT_MODELS: usize = 10;
 /// contents.
 const FILE_INDICATOR: u8 = b'@';
 
+pub enum Cmd {
+    List(ListOpts),
+    Prompt(PromptOpts),
+    Agent(PromptOpts),
+    ContinueConversation(PromptOpts),
+}
+
 pub struct ListOpts {
     pub config_file: Option<String>,
     pub is_json: bool,
 }
 
-pub enum Cmd {
-    List(ListOpts),
-    Prompt(crate::PromptOpts),
-    Agent(crate::PromptOpts),
-    ContinueConversation(crate::PromptOpts),
+#[derive(Clone)]
+pub struct PromptOpts {
+    pub config_file: Option<String>,
+
+    pub prompt: Option<String>,
+    /// Model IDs, e.g. 'moonshotai/kimi-k2'
+    pub models: Vec<String>,
+    /// Preferred provider slug
+    pub provider: Option<String>,
+    /// System prompt
+    pub system: Option<String>,
+    /// How to choose a provider
+    pub priority: Option<Priority>,
+    /// Reasoning effort level
+    pub effort: Option<ReasoningEffort>,
+    /// Show reasoning output
+    pub show_reasoning: Option<bool>,
+    /// Don't show stats after request
+    pub quiet: Option<bool>,
+    /// Images to attach to the request.
+    pub files: Vec<String>,
+    /// If the prompt is '@<filename>' we save filename in here
+    pub prompt_filename: Option<String>,
+    /// Include web_search and web_fetch server-side tools
+    pub include_web_tools: Option<bool>,
+    /// Do not write to disk. Disables the "-c" continue feature.
+    pub is_private: Option<bool>,
+}
+
+impl PromptOpts {
+    pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
+        // A Message is quite small, an enum and two Option<String>.
+        // Capacity 3 for:
+        // - System message (optional)
+        // - User message (required)
+        // - and the assistant message that LastWriter appends, to save a realloc.
+        let mut messages = Vec::with_capacity(3);
+        if let Some(sys) = self.system.clone() {
+            messages.push(crate::Message::system(sys));
+        };
+        let user_message = if self.files.is_empty() {
+            crate::Message::user(self.prompt.clone().unwrap())
+        } else {
+            crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
+        };
+        messages.push(user_message);
+        Ok(messages)
+    }
 }
 
 pub fn parse_prompt_args(
@@ -58,7 +108,6 @@ pub fn parse_prompt_args(
     let mut show_reasoning: Option<bool> = None;
     let mut provider: Option<String> = None;
     let mut continue_conversation = false;
-    let mut merge_config = true;
     let mut files: Vec<String> = vec![];
     let mut include_web_tools: Option<bool> = None;
     let mut is_private = None;
@@ -153,10 +202,6 @@ pub fn parse_prompt_args(
                 continue_conversation = true;
                 i += 1;
             }
-            "-nc" => {
-                merge_config = false;
-                i += 1;
-            }
             "-ws" => {
                 include_web_tools = Some(true);
                 i += 1;
@@ -239,7 +284,6 @@ pub fn parse_prompt_args(
         effort,
         show_reasoning,
         quiet,
-        merge_config,
         files,
         prompt_filename,
         include_web_tools,

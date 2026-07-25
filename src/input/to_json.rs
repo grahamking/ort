@@ -8,8 +8,11 @@ extern crate alloc;
 use alloc::string::String;
 
 use crate::{
-    ErrorKind, Message, OrtResult, PromptOpts, ReasoningEffort, Write,
-    common::data::{Content, Tool, ToolCall, ToolParameter},
+    ErrorKind, Message, OrtResult, ReasoningEffort, Write,
+    common::{
+        config::Cfg,
+        data::{Content, Tool, ToolCall, ToolParameter},
+    },
     ort_error,
 };
 
@@ -17,7 +20,7 @@ use crate::{
 /// The system and user prompts must already by in messages.
 pub fn build_body(
     idx: usize,
-    opts: &PromptOpts,
+    cfg: &Cfg,
     messages: &[Message],
     // Does not include server-side tools like web_search
     client_tools: &[&'static Tool],
@@ -28,17 +31,17 @@ pub fn build_body(
     let w = unsafe { string_buf.as_mut_vec() };
 
     w.write_str("{\"stream\": true, \"model\": ")?;
-    write_json_str(w, opts.models.get(idx).expect("Missing model"))?;
+    write_json_str(w, cfg.models.get(idx).expect("Missing model"))?;
 
-    if opts.priority.is_some() || opts.provider.is_some() {
+    if cfg.priority.is_some() || cfg.provider.is_some() {
         w.write_str(", \"provider\": {")?;
         let mut is_first = true;
-        if let Some(p) = opts.priority {
+        if let Some(p) = cfg.priority {
             w.write_str("\"sort\":")?;
             write_json_str_simple(w, p.as_str())?;
             is_first = false;
         }
-        if let Some(pr) = &opts.provider {
+        if let Some(pr) = &cfg.provider {
             if !is_first {
                 w.write_str(", ")?;
             }
@@ -50,7 +53,7 @@ pub fn build_body(
     }
 
     w.write_str(", \"reasoning\": ")?;
-    match &opts.effort {
+    match &cfg.effort {
         // No -r and nothing in config file
         // cli "-r off" or config file '"enabled": false'
         None | Some(ReasoningEffort::None) => {
@@ -68,7 +71,7 @@ pub fn build_body(
     Message::write_json_array(messages, w)?;
 
     w.write_str(", \"tools\":")?;
-    Tool::write_json_array(client_tools, opts.include_web_tools.unwrap_or_default(), w)?;
+    Tool::write_json_array(client_tools, cfg.include_web_tools, w)?;
 
     // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
     // This disables that parsing. Experimental, does not help.
@@ -79,99 +82,9 @@ pub fn build_body(
     Ok(string_buf)
 }
 
-impl PromptOpts {
-    pub fn to_json_writer<W: Write>(&self, writer: &mut W) -> OrtResult<()> {
-        let w = writer;
-
-        w.write_char('{')?;
-        let mut first = true;
-
-        if let Some(ref v) = self.prompt {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"prompt\":")?;
-            write_json_str(w, v)?;
-        }
-        // TODO: consider multi-model
-        if let Some(v) = self.models.first() {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"model\":")?;
-            write_json_str(w, v)?;
-        }
-        if let Some(ref v) = self.provider {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"provider\":")?;
-            write_json_str(w, v)?;
-        }
-        if let Some(ref v) = self.system {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"system\":")?;
-            write_json_str(w, v)?;
-        }
-        if let Some(ref p) = self.priority {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"priority\":")?;
-            write_json_str_simple(w, p.as_str())?;
-        }
-        if let Some(ref eff) = self.effort {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"effort\":")?;
-            write_json_str_simple(w, eff.as_str())?;
-        }
-        if let Some(show) = self.show_reasoning {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                first = false;
-            }
-            w.write_str("\"show_reasoning\":")?;
-            write_bool(w, show)?;
-        }
-        if let Some(quiet) = self.quiet {
-            if !first {
-                w.write_char(',')?;
-            } else {
-                //first = false;
-            }
-            w.write_str("\"quiet\":")?;
-            write_bool(w, quiet)?;
-        }
-
-        // merge_config
-        w.write_char(',')?;
-        w.write_str("\"merge_config\":")?;
-        write_bool(w, self.merge_config)?;
-
-        w.write_char('}')?;
-        Ok(())
-    }
-}
-
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
+/*
 fn write_bool<W: Write>(w: &mut W, v: bool) -> OrtResult<usize> {
     if v {
         w.write_str("true")
@@ -179,6 +92,7 @@ fn write_bool<W: Write>(w: &mut W, v: bool) -> OrtResult<usize> {
         w.write_str("false")
     }
 }
+*/
 
 /*
 fn write_u32<W: Write>(w: &mut W, mut n: u32) -> OrtResult<usize> {
@@ -471,31 +385,33 @@ mod tests {
     use alloc::vec;
 
     use super::*;
+    use crate::common::config::DEFAULT_BASE_URL;
     use crate::common::tools::ALL_TOOLS;
 
     #[test]
     fn test_build_body() {
-        let opts = PromptOpts {
-            config_file: None,
+        let cfg = Cfg {
+            api_key: None,
+            base_url: DEFAULT_BASE_URL.to_string(),
+            dns: vec![],
             prompt: None,
             models: vec!["google/gemma-3n-e4b-it:free".to_string()],
             provider: Some("google-ai-studio".to_string()),
-            system: Some("System prompt here".to_string()),
+            system_prompt: Some("System prompt here".to_string()),
             priority: None,
             effort: None,
-            show_reasoning: Some(false),
-            quiet: None,
-            merge_config: false,
+            show_reasoning: false,
+            quiet: false,
             prompt_filename: None,
             files: vec![], // TODO
-            include_web_tools: Some(true),
-            is_private: Some(false),
+            include_web_tools: true,
+            is_private: false,
         };
         let messages = vec![
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let got = match build_body(0, &opts, &messages, &[ALL_TOOLS[0]]) {
+        let got = match build_body(0, &cfg, &messages, &[ALL_TOOLS[0]]) {
             Ok(got) => got,
             Err(err) => {
                 panic!("{}", err.as_string());

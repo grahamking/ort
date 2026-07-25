@@ -14,8 +14,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::common::base64;
 use crate::common::json_parser::{JsonField, Parser, autoparser};
-use crate::common::{base64, config};
 use crate::utils::filename_read_to_bytes;
 use crate::{ErrorKind, OrtResult, ort_error};
 
@@ -210,7 +210,6 @@ impl Usage {
 }
 
 pub struct LastData {
-    pub opts: PromptOpts,
     pub messages: Vec<Message>,
     pub tools: Vec<&'static Tool>,
 }
@@ -224,218 +223,26 @@ impl LastData {
         }
 
         let mut fields = [
-            JsonField::new_raw("opts"),
             JsonField::new_vec_raw("messages"),
             JsonField::new_vec_raw("tools"),
         ];
         autoparser(json, &mut fields)?;
 
-        let opts = fields[0]
-            .get_raw()
-            .as_deref()
-            .map(PromptOpts::from_json)
-            .transpose()?;
-
         let mut messages = vec![];
-        if let Some(msg_vec) = fields[1].get_vec_raw() {
+        if let Some(msg_vec) = fields[0].get_vec_raw() {
             for m in msg_vec {
                 messages.push(Message::from_json(&m)?);
             }
         }
 
         let mut tools = vec![];
-        if let Some(tools_vec) = fields[2].get_vec_raw() {
+        if let Some(tools_vec) = fields[1].get_vec_raw() {
             for t in tools_vec {
                 tools.push(Tool::from_json(&t)?);
             }
         }
 
-        Ok(LastData {
-            opts: opts.expect("Missing prompt opts"),
-            messages,
-            tools,
-        })
-    }
-}
-
-#[derive(Clone)]
-pub struct PromptOpts {
-    pub config_file: Option<String>,
-
-    pub prompt: Option<String>,
-    /// Model IDs, e.g. 'moonshotai/kimi-k2'
-    pub models: Vec<String>,
-    /// Preferred provider slug
-    pub provider: Option<String>,
-    /// System prompt
-    pub system: Option<String>,
-    /// How to choose a provider
-    pub priority: Option<Priority>,
-    /// Reasoning effort level
-    pub effort: Option<ReasoningEffort>,
-    /// Show reasoning output
-    pub show_reasoning: Option<bool>,
-    /// Don't show stats after request
-    pub quiet: Option<bool>,
-    /// Whether to merge in the default settings from config file
-    pub merge_config: bool,
-    /// Images to attach to the request.
-    pub files: Vec<String>,
-    /// If the prompt is '@<filename>' we save filename in here
-    pub prompt_filename: Option<String>,
-    /// Include web_search and web_fetch server-side tools
-    pub include_web_tools: Option<bool>,
-    /// Do not write to disk. Disables the "-c" continue feature.
-    pub is_private: Option<bool>,
-}
-
-impl Default for PromptOpts {
-    fn default() -> Self {
-        Self {
-            config_file: None,
-            prompt: None,
-            models: vec![DEFAULT_MODEL.to_string()],
-            provider: None,
-            system: None,
-            priority: None,
-            effort: Some(ReasoningEffort::default()),
-            show_reasoning: Some(false),
-            quiet: Some(false),
-            merge_config: true,
-            files: vec![],
-            prompt_filename: None,
-            include_web_tools: None,
-            is_private: None,
-        }
-    }
-}
-
-impl PromptOpts {
-    // Replace any blank or None fields on Self with values from other
-    // or with the defaults.
-    // After this call a PromptOpts is ready to use.
-    pub fn merge(&mut self, cfg: &config::Cfg) {
-        if self.models.is_empty() {
-            // We don't merge the models, otherwise we'd try to query both the
-            // cmd line one, and the config file default.
-            self.models = cfg.models.clone();
-        }
-        if let Some(provider) = cfg.provider.as_ref() {
-            self.provider.get_or_insert_with(|| provider.to_string());
-        }
-        if let Some(prompt) = cfg.prompt.as_ref() {
-            self.prompt.get_or_insert_with(|| prompt.to_string());
-        }
-        if let Some(prompt_filename) = cfg.prompt_filename.as_ref() {
-            self.prompt_filename
-                .get_or_insert_with(|| prompt_filename.to_string());
-        }
-        if let Some(system) = cfg.system_prompt.as_ref() {
-            self.system.get_or_insert_with(|| system.to_string());
-        }
-        if let Some(priority) = cfg.priority {
-            self.priority.get_or_insert(priority);
-        }
-        self.quiet.get_or_insert(cfg.quiet);
-        self.show_reasoning.get_or_insert(cfg.show_reasoning);
-        self.include_web_tools.get_or_insert(cfg.include_web_tools);
-        if let Some(effort) = cfg.effort {
-            self.effort.get_or_insert(effort);
-        }
-        if self.files.is_empty() {
-            self.files = cfg.files.clone();
-        }
-        self.is_private
-            .get_or_insert(cfg.is_private.unwrap_or_default());
-    }
-
-    pub fn merge_opts(&mut self, o: PromptOpts) {
-        self.prompt.get_or_insert(o.prompt.unwrap_or_default());
-        self.quiet.get_or_insert(o.quiet.unwrap_or(false));
-        if self.models.is_empty() {
-            // We don't merge the models, otherwise we'd try to query both the
-            // cmd line one, and the config file default.
-            self.models = o.models;
-        }
-        if let Some(provider) = o.provider {
-            self.provider.get_or_insert(provider);
-        }
-        if let Some(system) = o.system {
-            self.system.get_or_insert(system);
-        }
-        if let Some(priority) = o.priority {
-            self.priority.get_or_insert(priority);
-        }
-        self.effort.get_or_insert(o.effort.unwrap_or_default());
-        self.show_reasoning
-            .get_or_insert(o.show_reasoning.unwrap_or(false));
-        self.include_web_tools
-            .get_or_insert(o.include_web_tools.unwrap_or_default());
-        self.files.extend(o.files);
-    }
-
-    pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
-        // A Message is quite small, an enum and two Option<String>.
-        // Capacity 3 for:
-        // - System message (optional)
-        // - User message (required)
-        // - and the assistant message that LastWriter appends, to save a realloc.
-        let mut messages = Vec::with_capacity(3);
-        if let Some(sys) = self.system.clone() {
-            messages.push(crate::Message::system(sys));
-        };
-        let user_message = if self.files.is_empty() {
-            crate::Message::user(self.prompt.clone().unwrap())
-        } else {
-            crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
-        };
-        messages.push(user_message);
-        Ok(messages)
-    }
-
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [
-            JsonField::new_string("prompt"),
-            JsonField::new_simple_string("model"),
-            JsonField::new_simple_string("provider"),
-            JsonField::new_string("system"),
-            JsonField::new_simple_string("priority"),
-            JsonField::new_simple_string("effort"),
-            JsonField::new_bool("show_reasoning"),
-            JsonField::new_bool("quiet"),
-            JsonField::new_bool("merge_config"),
-            JsonField::new_bool("include_web_tools"),
-        ];
-        autoparser(json, &mut fields)?;
-
-        let priority = fields[4]
-            .get_string()
-            .as_deref()
-            .map(Priority::from_str)
-            .transpose()?;
-        let effort = fields[5]
-            .get_string()
-            .as_deref()
-            .map(ReasoningEffort::from_str)
-            .transpose()?;
-
-        Ok(PromptOpts {
-            config_file: None,
-            prompt: fields[0].get_string(),
-            models: fields[1].get_string().map(|m| vec![m]).unwrap_or_default(),
-            provider: fields[2].get_string(),
-            system: fields[3].get_string(),
-            priority,
-            effort,
-            show_reasoning: fields[6].get_bool(),
-            quiet: fields[7].get_bool(),
-            merge_config: fields[8].get_bool().unwrap_or(true),
-            prompt_filename: None,
-            // TODO: store files in last json, so resume works with files
-            files: vec![],
-            include_web_tools: fields[9].get_bool(),
-            is_private: None, // this whole function is going away soon
-        })
+        Ok(LastData { messages, tools })
     }
 }
 
@@ -1106,44 +913,11 @@ mod tests {
     use crate::LastData;
 
     #[test]
-    fn cpo1() {
-        let s = r#"
- {
-     "prompt": "\n\nExample JSON 1: {\"enabled\": false}\n",
-     "model": "google/gemma-3n-e4b-it:free",
-     "system": "Make your answer concise but complete. No yapping. Direct professional tone. No emoji.",
-     "show_reasoning": false,
-     "include_web_tools": true,
-     "effort": "high",
-     "merge_config": true
- }
- "#;
-        let opts = PromptOpts::from_json(s).unwrap();
-        assert!(!opts.show_reasoning.unwrap());
-        assert_eq!(opts.models, vec!["google/gemma-3n-e4b-it:free"]);
-        assert_eq!(opts.effort, Some(ReasoningEffort::High));
-        assert!(opts.merge_config);
-        assert!(opts.include_web_tools.unwrap());
-    }
-
-    #[test]
-    fn cpo2() {
-        let s = r#"
-    {"model":"openai/gpt-5","provider":"openai","system":"Make your answer concise but complete. No yapping. Direct professional tone. No emoji.","priority":null,"effort":"high","show_reasoning":false,"quiet":true}
-    "#;
-        let opts = PromptOpts::from_json(s).unwrap();
-        assert!(!opts.show_reasoning.unwrap());
-        assert_eq!(opts.models, vec!["openai/gpt-5"]);
-        assert_eq!(opts.effort, Some(ReasoningEffort::High));
-    }
-
-    #[test]
     fn last_data() {
         let s = r#"
-{"opts":{"model":"google/gemma-3n-e4b-it:free","provider":"google-ai-studio","system":"Make your answer concise but complete. No yapping. Direct professional tone. No emoji.","priority":null,"reasoning":{"enabled":false,"effort":null,"tokens":null},"show_reasoning":false},"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there! 😊How can I help you today? I'm ready for anything – questions, stories, ideas, or just a friendly chat!Let me know what's on your mind. ✨"}]}
+{"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there! 😊How can I help you today? I'm ready for anything – questions, stories, ideas, or just a friendly chat!Let me know what's on your mind. ✨"}]}
 "#;
         let l = LastData::from_json(s).unwrap();
-        assert_eq!(l.opts.provider.as_deref(), Some("google-ai-studio"));
         assert_eq!(l.messages.len(), 2);
     }
 

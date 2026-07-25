@@ -9,7 +9,6 @@ use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 extern crate alloc;
 use alloc::boxed::Box;
-use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -19,28 +18,27 @@ use crate::common::buf_read::OrtBufReader;
 use crate::common::data::{Tool, ToolCall};
 use crate::net::AsFd;
 use crate::output::logger::Logger;
-use crate::{Context as _, OrtError, chunked};
+use crate::{OrtError, chunked};
 
 use crate::ChatCompletionsResponse;
+use crate::Message;
 use crate::OrtResult;
 use crate::build_body;
-use crate::common::config::{self, Cfg};
-use crate::common::dir;
-use crate::common::file;
+use crate::common::config::Cfg;
 use crate::common::io::{ReadLine, Write};
 use crate::common::resolver;
 use crate::common::stats::{self, Stats};
 use crate::common::time;
 use crate::common::utils;
 use crate::http::{self, ContentLengthReader};
+use crate::input::args::PromptOpts;
 use crate::ort_error;
-use crate::output::OutputWriter;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter};
+use crate::output::{OutputWriter, last_writer};
 use crate::syscall::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
 use crate::utils::print_string;
 use crate::{ErrorKind, LastData};
-use crate::{Message, PromptOpts};
 use crate::{Response, ThinkEvent};
 
 const EPOLL_WAIT_TIMEOUT_MS: i32 = 100;
@@ -68,29 +66,22 @@ pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
     env: &Env,
-    opts: PromptOpts,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: &mut W,
 ) -> OrtResult<()> {
-    let show_reasoning = opts.show_reasoning.unwrap();
-    let is_quiet = opts.quiet.unwrap_or_default();
-    //let model_name = opts.common.model.clone().unwrap();
-
     let mut output_writer: Box<dyn OutputWriter> = if is_pipe_output {
-        Box::new(FileWriter::new(w_core, show_reasoning, is_quiet))
+        Box::new(FileWriter::new(w_core, cfg.show_reasoning, cfg.quiet))
     } else {
-        Box::new(ConsoleWriter::new(w_core, show_reasoning, is_quiet))
+        Box::new(ConsoleWriter::new(w_core, cfg.show_reasoning, cfg.quiet))
     };
 
-    let mut last_writer = if !opts.is_private.unwrap_or_default() {
-        Some(LastWriter::new(
-            opts.clone(),
-            messages.clone(),
-            tools.clone(),
-            env,
-        )?)
+    let mut last_writer = if !cfg.is_private {
+        // Save the config so we use the same next time
+        let (last_cfg_path, last_cfg_len) = last_writer::last_path(env, ".cfg")?;
+        cfg.save(last_cfg_path, last_cfg_len)?;
+        Some(LastWriter::new(messages.clone(), tools.clone(), env)?)
     } else {
         None
     };
@@ -98,7 +89,6 @@ pub fn run<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
-        opts,
         messages,
         tools.clone(),
         0,
@@ -140,27 +130,8 @@ pub fn run<W: Write + Send>(
     Ok(())
 }
 
-/// The full path of the file where we stored the last conversation
-fn last_file(env: &Env) -> OrtResult<String> {
-    let mut last_path = [0u8; 128];
-    let cache_dir_end = config::cache_dir(env, &mut last_path)?;
-    last_path[cache_dir_end] = b'/';
-    let last_filename = utils::last_filename(env);
-    let start = cache_dir_end + 1;
-    let end = start + last_filename.len();
-    last_path[start..end].copy_from_slice(last_filename.as_bytes());
-
-    let cs = CString::new(&last_path[..end]).expect("Null bytes in config cache dir");
-    if utils::path_exists(cs.as_ref()) {
-        Ok(unsafe { String::from_utf8_unchecked(last_path[..end].into()) })
-    } else {
-        let cache_dir = unsafe { str::from_utf8_unchecked(&last_path[..cache_dir_end]) };
-        most_recent(cache_dir, "last-").context("most_recent")
-    }
-}
-
 pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
-    let last_file_path = last_file(env)?;
+    let last_file_path = last_writer::last_file(env, ".json")?;
     match utils::filename_read_to_string(&last_file_path) {
         Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
             print_string(c"Failed parsing history: ", &err);
@@ -174,7 +145,7 @@ pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
             #[cfg(debug_assertions)]
             {
                 // In debug build print the path.
-                let c_last_file = CString::new(last_file_path).unwrap();
+                let c_last_file = alloc::ffi::CString::new(last_file_path).unwrap();
                 syscall::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
             }
             Err(ort_error(
@@ -191,21 +162,17 @@ pub fn run_continue<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
     env: &Env,
-    mut opts: crate::PromptOpts,
+    new_prompt: String,
     is_pipe_output: bool,
     w: &mut W,
 ) -> OrtResult<()> {
     let mut last = load_last_data(env)?;
-
-    opts.merge_opts(last.opts);
-    last.messages
-        .push(crate::Message::user(opts.prompt.take().unwrap()));
+    last.messages.push(crate::Message::user(new_prompt));
 
     run(
         api_key,
         cfg,
         env,
-        opts,
         last.messages,
         last.tools,
         is_pipe_output,
@@ -246,7 +213,6 @@ pub fn run_multi<W: Write + Send>(
         let mut active_prompt = ActivePrompt::new(
             api_key.to_string(),
             cfg,
-            opts.clone(),
             messages.clone(),
             vec![],
             idx,
@@ -339,8 +305,6 @@ pub trait PromptReader: ReadLine + AsFd {}
 pub(in crate::input) struct ActivePrompt {
     api_key: String,
     cfg: Cfg,
-    // Note we do not use the prompt from here, it should be in `messages` by now
-    opts: PromptOpts,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
 
@@ -368,7 +332,6 @@ impl ActivePrompt {
     pub fn new(
         api_key: String,
         cfg: &Cfg,
-        opts: PromptOpts,
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
         model_idx: usize,
@@ -383,7 +346,7 @@ impl ActivePrompt {
             reader: None,
             stats: Stats {
                 // Default the model to the passed one, in case provider stats don't include it
-                used_model: opts
+                used_model: cfg
                     .models
                     .get(model_idx)
                     .cloned()
@@ -404,19 +367,18 @@ impl ActivePrompt {
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
             logger: if let Some(env) = env
-                && !opts.is_private.unwrap_or_default()
+                && !cfg.is_private
             {
                 Some(Logger::new(env)?)
             } else {
                 None
             },
-            opts,
         })
     }
 
     /// Start the HTTP request
     pub fn start(&mut self) -> OrtResult<()> {
-        let body = match build_body(self.model_idx, &self.opts, &self.messages, &self.tools) {
+        let body = match build_body(self.model_idx, &self.cfg, &self.messages, &self.tools) {
             Ok(b) => b,
             Err(err) => {
                 print_string(c"FATAL: build_body: ", &err.as_string());
@@ -682,44 +644,4 @@ impl AsFd for ActivePrompt {
     fn as_fd(&self) -> i32 {
         self.reader.as_ref().unwrap().as_fd()
     }
-}
-
-/// Find the most recent file in `dir` that starts with `filename_prefix`.
-/// Uses the minimal amount of disk access to go as fast as possible.
-fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
-    let c_dir = CString::new(dir)
-        .map_err(|_| ort_error(ErrorKind::FileReadFailed, "Null byte in most_recent dir"))?;
-    let dir_files = dir::DirFiles::new(c_dir.as_c_str())?;
-
-    let mut most_recent_file: Option<(String, time::Instant)> = None;
-    for name in dir_files {
-        if !name.starts_with(filename_prefix) {
-            continue;
-        }
-        let path = dir.to_string() + "/" + &name;
-        let c_name = CString::new(path.clone()).map_err(|_| {
-            ort_error(
-                ErrorKind::FileReadFailed,
-                "Null byte in most_recent_file name",
-            )
-        })?;
-        let modified_time = file::last_modified(c_name.as_c_str())?;
-
-        if let Some((_, prev_time)) = &most_recent_file {
-            if modified_time > *prev_time {
-                most_recent_file = Some((path, modified_time));
-            }
-        } else {
-            most_recent_file = Some((path, modified_time));
-        }
-    }
-
-    most_recent_file
-        .map(|(path, _)| Ok(path))
-        .unwrap_or_else(|| {
-            Err(ort_error(
-                ErrorKind::HistoryLookupFailed,
-                "No files found starting with prefix",
-            ))
-        })
 }

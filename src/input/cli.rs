@@ -13,12 +13,16 @@ use crate::OrtResult;
 use crate::Write;
 use crate::common::buf_read;
 use crate::common::config;
+use crate::common::config::Cfg;
 use crate::input::agent;
 use crate::input::args;
 use crate::input::args::Cmd;
+use crate::input::args::PromptOpts;
 use crate::input::list;
 use crate::input::prompt;
+use crate::output::last_writer;
 use crate::syscall;
+use crate::utils;
 use crate::{ErrorKind, ort_error};
 
 const STDIN_FILENO: i32 = 0;
@@ -93,7 +97,8 @@ pub fn main<W: Write + Send>(
             opts.config_file.as_deref()
         }
     };
-    let cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg"))?;
+
+    let mut cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg"))?;
 
     // Fail fast if key missing
     let api_key_ref = env.OPENROUTER_API_KEY.unwrap_or_default();
@@ -112,18 +117,13 @@ pub fn main<W: Write + Send>(
 
     let cmd_result = match cmd {
         args::Cmd::Prompt(mut cli_opts) => {
-            if cli_opts.merge_config {
-                cli_opts.merge(&cfg);
-            } else {
-                cli_opts.merge(&config::Cfg::default());
-            }
+            override_config_from_cli(&mut cfg, cli_opts.clone());
             let messages = cli_opts.messages()?;
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
                     &cfg,
                     &env,
-                    cli_opts,
                     messages,
                     alloc::vec![],
                     !is_terminal,
@@ -134,20 +134,72 @@ pub fn main<W: Write + Send>(
             }
         }
         args::Cmd::Agent(mut cli_opts) => {
-            if cli_opts.merge_config {
-                cli_opts.merge(&cfg);
-            } else {
-                cli_opts.merge(&config::Cfg::default());
-            }
+            override_config_from_cli(&mut cfg, cli_opts.clone());
             // Agent mode always includes server-side web tools
-            cli_opts.include_web_tools = Some(true);
+            cfg.include_web_tools = true;
+            cfg.quiet = true;
             let messages = cli_opts.messages()?;
-            agent::run(&api_key, &cfg, &env, cli_opts, messages, w)
+            agent::run(&api_key, &cfg, &env, messages, w)
         }
         args::Cmd::ContinueConversation(cli_opts) => {
-            prompt::run_continue(&api_key, &cfg, &env, cli_opts, !is_terminal, w)
+            let new_prompt = cli_opts.prompt.clone().unwrap();
+
+            // Use the config we used last time
+            let (prev_config, prev_config_len) = last_writer::last_path(&env, ".cfg")?;
+            let prev_config = unsafe { str::from_utf8_unchecked(&prev_config[..prev_config_len]) };
+            let Ok(cfg_str) = utils::filename_read_to_string(prev_config) else {
+                return Err(ort_error(ErrorKind::ConfigReadFailed, ""));
+            };
+            let mut prev_cfg = config::Cfg::from_str(&cfg_str)?;
+
+            // CLI still overrides the last used config
+            override_config_from_cli(&mut prev_cfg, cli_opts.clone());
+
+            prompt::run_continue(&api_key, &prev_cfg, &env, new_prompt, !is_terminal, w)
         }
         args::Cmd::List(args) => list::run(&api_key, &cfg, args, w),
     };
     cmd_result.map(|_| 0)
+}
+
+/// CLI opts always override the config
+fn override_config_from_cli(cfg: &mut Cfg, cli_opts: PromptOpts) {
+    if !cli_opts.models.is_empty() {
+        cfg.models = cli_opts.models;
+    }
+    if let Some(prompt) = cli_opts.prompt {
+        cfg.prompt = Some(prompt);
+    }
+    // TODO we should probably only load the filename in one
+    // place, not have @ handling in arg parsing
+    if let Some(pf) = cli_opts.prompt_filename {
+        cfg.prompt_filename = Some(pf);
+    }
+    if let Some(sp) = cli_opts.system {
+        cfg.system_prompt = Some(sp);
+    }
+    if let Some(quiet) = cli_opts.quiet {
+        cfg.quiet = quiet;
+    }
+    if let Some(rr) = cli_opts.show_reasoning {
+        cfg.show_reasoning = rr;
+    }
+    if let Some(pr) = cli_opts.provider {
+        cfg.provider = Some(pr);
+    }
+    if let Some(p) = cli_opts.priority {
+        cfg.priority = Some(p);
+    }
+    if let Some(ws) = cli_opts.include_web_tools {
+        cfg.include_web_tools = ws;
+    }
+    if let Some(r) = cli_opts.effort {
+        cfg.effort = Some(r);
+    }
+    if !cli_opts.files.is_empty() {
+        cfg.files = cli_opts.files;
+    }
+    if let Some(private) = cli_opts.is_private {
+        cfg.is_private = private;
+    }
 }

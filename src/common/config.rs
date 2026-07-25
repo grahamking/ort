@@ -10,11 +10,13 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::common::file;
+use crate::common::io::Write;
+use crate::{Context, Priority, ReasoningEffort};
 use crate::{ErrorKind, OrtResult, cli::Env, common::utils, ort_error};
-use crate::{Priority, ReasoningEffort};
 
 /// To use a different endpoint set `base_url` in `${XDG_CONFIG_HOME}/ort.cfg`
-const DEFAULT_BASE_URL: &str = "openrouter.ai/api/v1";
+pub const DEFAULT_BASE_URL: &str = "openrouter.ai/api/v1";
 
 /// Quiet disables showing the stats. I love the stats!
 const DEFAULT_QUIET: bool = false;
@@ -42,7 +44,7 @@ pub fn load_config(env: &Env, filename: &'static str) -> OrtResult<ConfigFile> {
 }
 */
 
-/// Read a file from the XDG config dir
+/// Read a file from the XDG config dir. `filename` must not include path.
 pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> {
     let mut config_file = [0u8; 64];
 
@@ -58,8 +60,8 @@ pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> 
     let start = end;
     end += filename.len();
     config_file[start..end].copy_from_slice(filename.as_bytes());
-
     let config_file = unsafe { str::from_utf8_unchecked(&config_file[..end]) };
+
     match utils::filename_read_to_string(config_file) {
         Ok(cfg_str) => Ok(Some(cfg_str)),
         Err("NOT FOUND") => Ok(None),
@@ -128,7 +130,7 @@ pub struct Cfg {
 
     /// Do not record prompt on disk. Use if running diskless or for privacy.
     /// Disables the "-c" continue functionality, and the `jsonl` log
-    pub is_private: Option<bool>,
+    pub is_private: bool,
 }
 
 impl Cfg {
@@ -154,7 +156,7 @@ impl Cfg {
         let mut include_web_tools = DEFAULT_INCLUDE_WEB_TOOLS;
         let mut effort = None;
         let mut files = Vec::new();
-        let mut is_private = None;
+        let mut is_private = false;
 
         for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
             if line.as_bytes()[0] == b'#' {
@@ -190,7 +192,7 @@ impl Cfg {
                     })?;
                     priority = Some(p);
                 }
-                "private" => is_private = Some(value == "true"),
+                "private" => is_private = value == "true",
                 "provider" => provider = Some(value.to_string()),
                 "effort" => {
                     let r = ReasoningEffort::from_str(value).map_err(|_| {
@@ -245,6 +247,14 @@ impl Cfg {
         })
     }
 
+    pub fn save(&self, path: [u8; 128], len: usize) -> OrtResult<()> {
+        let mut f =
+            unsafe { file::File::create(&path[..len + 1]).context("create last file config")? };
+        let as_str = self.to_string();
+        let _ = f.write_all(as_str.as_bytes());
+        Ok(())
+    }
+
     pub fn default() -> Cfg {
         Cfg {
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -278,9 +288,11 @@ fn write_csv(f: &mut fmt::Formatter<'_>, key: &str, values: &[String]) -> fmt::R
 
 impl fmt::Display for Cfg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(api_key) = self.api_key.as_ref() {
-            writeln!(f, "api_key: {api_key}")?;
-        }
+        // Don't reveal the API key
+        //if let Some(api_key) = self.api_key.as_ref() {
+        //    writeln!(f, "api_key: {api_key}")?;
+        //}
+
         if !self.base_url.is_empty() && self.base_url != DEFAULT_BASE_URL {
             writeln!(f, "base_url: {}", self.base_url)?;
         }
@@ -307,9 +319,7 @@ impl fmt::Display for Cfg {
             writeln!(f, "effort: {}", effort.as_str())?;
         }
         write_csv(f, "files", &self.files)?;
-        if let Some(is_private) = self.is_private {
-            writeln!(f, "private: {is_private}")?;
-        }
+        writeln!(f, "private: {}", self.is_private)?;
         Ok(())
     }
 }
@@ -395,7 +405,7 @@ private: false
         let cfg = Cfg::from_str(s).unwrap();
         assert_eq!(cfg.base_url, "openrouter.ai/api/v1");
         assert_eq!(cfg.api_key.as_deref(), Some("THE-KEY"));
-        assert_eq!(cfg.is_private, Some(false));
+        assert!(!cfg.is_private);
 
         assert_eq!(cfg.dns.len(), 2);
         for ip in cfg.dns {
@@ -433,15 +443,14 @@ private: false
             include_web_tools: true,
             effort: Some(ReasoningEffort::Low),
             files: vec!["image.png".to_string(), "other.jpg".to_string()],
-            is_private: Some(false),
+            is_private: false,
             ..Cfg::default()
         };
 
         let cfg_str = cfg.to_string();
         assert_eq!(
             cfg_str,
-            "api_key: THE-KEY\n\
-base_url: https://localhost:8000/v1\n\
+            "base_url: https://localhost:8000/v1\n\
 dns: 127.0.0.1, 127.0.0.2\n\
 model: openai/gpt-oss-20b:free\n\
 prompt: prompt text\n\
@@ -457,7 +466,6 @@ private: false\n"
         );
 
         let parsed = Cfg::from_str(&cfg_str).unwrap();
-        assert_eq!(parsed.api_key, cfg.api_key);
         assert_eq!(parsed.base_url, cfg.base_url);
         assert_eq!(parsed.dns, cfg.dns);
         assert_eq!(parsed.models, cfg.models);

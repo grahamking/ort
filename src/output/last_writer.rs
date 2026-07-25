@@ -6,13 +6,15 @@
 
 extern crate alloc;
 
+use alloc::ffi::CString;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
 use crate::common::data::Tool;
 use crate::output::OutputWriter;
 use crate::{
-    Context, ErrorKind, LastData, Message, OrtResult, PromptOpts, Response, Write, common::config,
+    Context, ErrorKind, LastData, Message, OrtResult, Response, Write, common::config,
     common::file, common::utils,
 };
 use crate::{Role, ort_error};
@@ -30,28 +32,49 @@ pub struct LastWriter {
     buf_idx: usize,
 }
 
-impl LastWriter {
-    pub fn new(
-        opts: PromptOpts,
-        messages: Vec<Message>,
-        tools: Vec<&'static Tool>,
-        env: &Env,
-    ) -> OrtResult<Self> {
+pub fn last_path(env: &Env, ext: &str) -> OrtResult<([u8; 128], usize)> {
+    let mut last_path = [0u8; 128];
+    let idx = config::cache_dir(env, &mut last_path)?;
+    last_path[idx] = b'/';
+    let last_filename = utils::last_filename(env, ext);
+    let start = idx + 1;
+    let end = start + last_filename.len();
+    last_path[start..end].copy_from_slice(last_filename.as_bytes());
+
+    Ok((last_path, end))
+}
+
+/// The full path of the file where we stored the last conversation
+pub(crate) fn last_file(env: &Env, ext: &str) -> OrtResult<String> {
+    /*
+    let mut last_path = [0u8; 128];
+    let cache_dir_end = config::cache_dir(env, &mut last_path)?;
+    last_path[cache_dir_end] = b'/';
+    let last_filename = utils::last_filename(env, ext);
+    let start = cache_dir_end + 1;
+    let end = start + last_filename.len();
+    last_path[start..end].copy_from_slice(last_filename.as_bytes());
+    */
+
+    let (last_path, end) = last_path(env, ext)?;
+
+    let cs = CString::new(&last_path[..end]).expect("Null bytes in config cache dir");
+    if utils::path_exists(cs.as_ref()) {
+        Ok(unsafe { String::from_utf8_unchecked(last_path[..end].into()) })
+    } else {
         let mut last_path = [0u8; 128];
-        let idx = config::cache_dir(env, &mut last_path)?;
-        last_path[idx] = b'/';
-        let last_filename = utils::last_filename(env);
-        let start = idx + 1;
-        let end = start + last_filename.len();
-        last_path[start..end].copy_from_slice(last_filename.as_bytes());
+        let cache_dir_end = config::cache_dir(env, &mut last_path)?;
+        let cache_dir = unsafe { str::from_utf8_unchecked(&last_path[..cache_dir_end]) };
+        utils::most_recent(cache_dir, "last-").context("most_recent")
+    }
+}
+
+impl LastWriter {
+    pub fn new(messages: Vec<Message>, tools: Vec<&'static Tool>, env: &Env) -> OrtResult<Self> {
+        let (lp, end) = last_path(env, ".json")?;
         // end + 1 to add a null byte on the end
-        let last_file =
-            unsafe { file::File::create(&last_path[..end + 1]).context("create last file")? };
-        let data = LastData {
-            opts,
-            messages,
-            tools,
-        };
+        let last_file = unsafe { file::File::create(&lp[..end + 1]).context("create last file")? };
+        let data = LastData { messages, tools };
         Ok(LastWriter {
             data,
             w: last_file,
@@ -123,8 +146,9 @@ impl OutputWriter for LastWriter {
                 self.w.write_char(']')?;
             }
             Response::ToolDisplay(_) => {}
-            Response::Stats(stats) => {
-                self.data.opts.provider = Some(utils::slug(stats.provider()));
+            Response::Stats(_stats) => {
+                // TODO: Update cfg because we need to use the same provider next time
+                //self.data.opts.provider = Some(utils::slug(stats.provider()));
             }
             Response::Prompt(_) => {}
             Response::Error(_err) => {
@@ -147,10 +171,6 @@ impl OutputWriter for LastWriter {
 
         // close the contents message and messages array
         self.w.write_str("\"}]")?;
-
-        self.w.write_str(",\"opts\":")?;
-        self.data.opts.to_json_writer(&mut self.w)?;
-
         self.w.write_char('}')?; // End of whole object
         let _ = self.w.flush();
 
@@ -177,7 +197,6 @@ mod tests {
         const TEST_PATH_C: &[u8] = b"/tmp/ort-last-writer-test.json\0";
         const TEST_PATH: &str = "/tmp/ort-last-writer-test.json";
 
-        let opts = PromptOpts::default();
         let messages = vec![
             Message::system("system prompt".to_string()),
             Message::user("user prompt".to_string()),
@@ -187,7 +206,6 @@ mod tests {
             Err(err) => panic!("{}", err.as_string()),
         };
         let data = LastData {
-            opts,
             messages,
             tools: vec![&ALL_TOOLS[0]],
         };
@@ -229,7 +247,7 @@ mod tests {
         let json = utils::filename_read_to_string(TEST_PATH).unwrap();
         let data = LastData::from_json(&json).unwrap();
 
-        assert_eq!(data.opts.provider.as_deref(), Some("openrouter-ai"));
+        //assert_eq!(data.opts.provider.as_deref(), Some("openrouter-ai"));
         assert_eq!(data.messages.len(), 3);
         assert_eq!(data.messages[0].text(), Some("system prompt"));
         assert_eq!(data.messages[1].text(), Some("user prompt"));

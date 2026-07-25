@@ -1,13 +1,9 @@
 --- Refactor last / cfg / cli
 
-CLI has PromptOpts
-Config file has Cfg
-Running uses ActivePrompt (includes Cfg and PromptOps right now)
+. Fetch provider from response and use that in last.cfg. We want to use the same one next time.
+src/output/last_writer.rs L150
 
-Merge PromptOpts and Cfg. Do it by replacing PromptOpts with Cfg.
-. Write an export to `.cfg` for Cfg. This will be used for continue functionality.
-
-config_file and merge_config to be handled separately, resolved before the process really starts.
+. Don't handle @ files in arg parsing, do it later in Cfg.
 
 . system prompt variable substitution currently only happens if file loaded
   make it always happen, after @file is resolved.

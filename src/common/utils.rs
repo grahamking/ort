@@ -12,7 +12,8 @@ use alloc::vec::Vec;
 use core::ffi::{c_str::CStr, c_void};
 
 use crate::cli::Env;
-use crate::syscall;
+use crate::common::{dir, file, time};
+use crate::{ErrorKind, OrtResult, ort_error, syscall};
 
 /// Converts the number to a string, putting it plus a carriage return into `buf`.
 /// `buf` must be big enough to hold the largest possible number of digits in
@@ -204,7 +205,7 @@ pub(crate) fn slug(s: &str) -> String {
 }
 
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.
-pub(crate) fn last_filename(env: &Env) -> String {
+pub(crate) fn last_filename(env: &Env, ext: &str) -> String {
     // We don't expect pane IDs to go beyong 999
     let mut buf: [u8; 3] = [0; 3];
     let buf_len = tmux_pane_id(env.TMUX_PANE.unwrap_or_default(), &mut buf);
@@ -213,7 +214,7 @@ pub(crate) fn last_filename(env: &Env) -> String {
     out.push_str("last-");
     // safety: to_ascii only returns chars '0'-'9'.
     out.push_str(unsafe { str::from_utf8_unchecked(&buf[..buf_len]) });
-    out.push_str(".json");
+    out.push_str(ext);
 
     out
 }
@@ -284,6 +285,46 @@ pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static
     let content = filename_read_to_bytes(filename)?;
     let out = String::from_utf8_lossy(&content);
     Ok(out.into_owned().to_string())
+}
+
+/// Find the most recent file in `dir` that starts with `filename_prefix`.
+/// Uses the minimal amount of disk access to go as fast as possible.
+pub fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
+    let c_dir = CString::new(dir)
+        .map_err(|_| ort_error(ErrorKind::FileReadFailed, "Null byte in most_recent dir"))?;
+    let dir_files = dir::DirFiles::new(c_dir.as_c_str())?;
+
+    let mut most_recent_file: Option<(String, time::Instant)> = None;
+    for name in dir_files {
+        if !name.starts_with(filename_prefix) {
+            continue;
+        }
+        let path = dir.to_string() + "/" + &name;
+        let c_name = CString::new(path.clone()).map_err(|_| {
+            ort_error(
+                ErrorKind::FileReadFailed,
+                "Null byte in most_recent_file name",
+            )
+        })?;
+        let modified_time = file::last_modified(c_name.as_c_str())?;
+
+        if let Some((_, prev_time)) = &most_recent_file {
+            if modified_time > *prev_time {
+                most_recent_file = Some((path, modified_time));
+            }
+        } else {
+            most_recent_file = Some((path, modified_time));
+        }
+    }
+
+    most_recent_file
+        .map(|(path, _)| Ok(path))
+        .unwrap_or_else(|| {
+            Err(ort_error(
+                ErrorKind::HistoryLookupFailed,
+                "No files found starting with prefix",
+            ))
+        })
 }
 
 #[cfg(test)]

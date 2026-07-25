@@ -16,12 +16,13 @@ pub mod syscall;
 
 pub use common::alloc::ArenaAlloc;
 pub use common::data::{
-    ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, PromptOpts,
-    ReasoningEffort, Response, Role, ThinkEvent, Usage,
+    ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, ReasoningEffort,
+    Response, Role, ThinkEvent, Usage,
 };
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_error};
 pub use common::utils;
 pub use common::{io::Read, io::Write};
+pub use utils::print_string;
 
 pub use input::cli;
 pub use input::to_json::build_body;

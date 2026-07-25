@@ -20,7 +20,7 @@ use crate::common::stats::Stats;
 use crate::common::tools::{self};
 use crate::ort_error;
 use crate::{
-    ErrorKind, Message, OrtResult, PromptOpts, Response, Write,
+    ErrorKind, Message, OrtResult, Response, Write,
     cli::Env,
     common::{data::Tool, error},
     input::prompt::ActivePrompt,
@@ -33,16 +33,13 @@ pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
     env: &Env,
-    mut opts: PromptOpts,
     // This contains the system prompt
     // It grows to contain the whole conversation
     mut messages: Vec<crate::Message>,
     w_core: &mut W,
 ) -> OrtResult<()> {
-    opts.quiet = Some(true);
-
     // Watch the file immediately
-    let filename = opts.prompt_filename.as_ref().unwrap().to_string();
+    let filename = cfg.prompt_filename.as_ref().unwrap().to_string();
     let filename_ptr = CString::new(filename.to_string()).unwrap();
     let ifd = syscall::inotify_init1(0);
     let _wd = syscall::inotify_add_watch(
@@ -80,10 +77,10 @@ pub fn run<W: Write + Send>(
         }
     }
 
-    let mut output_writer = AgentWriter::new(w_core, opts.show_reasoning.unwrap_or(false));
+    let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning);
 
     // First prompt is already in `messages`, added in `input/cli.rs::main`.
-    let inital_prompt = opts.prompt.take().unwrap(); // Safety: Always have initial prompt
+    let inital_prompt = cfg.prompt.clone().unwrap(); // Safety: Always have initial prompt
     output_writer.write(Response::Prompt(inital_prompt))?;
 
     let mut total_stats = Stats::default();
@@ -96,7 +93,6 @@ pub fn run<W: Write + Send>(
                 api_key,
                 cfg,
                 env,
-                opts.clone(),
                 &mut messages,
                 tools::ALL_TOOLS,
                 &mut output_writer,
@@ -145,17 +141,15 @@ fn run_single<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
     env: &Env,
-    opts: PromptOpts,
     messages: &mut Vec<Message>,
     tools: &[&'static Tool],
     output_writer: &mut AgentWriter<W>,
     total_stats: &mut Stats,
 ) -> OrtResult<bool> {
-    let mut last_writer = LastWriter::new(opts.clone(), messages.clone(), tools.to_vec(), env)?;
+    let mut last_writer = LastWriter::new(messages.clone(), tools.to_vec(), env)?;
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
-        opts,
         messages.clone(),
         tools.to_vec(),
         0,
