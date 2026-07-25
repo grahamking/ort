@@ -4,7 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use core::str::FromStr;
+use core::{fmt, str::FromStr};
 
 extern crate alloc;
 use alloc::string::{String, ToString};
@@ -261,6 +261,59 @@ impl Cfg {
     }
 }
 
+fn write_csv(f: &mut fmt::Formatter<'_>, key: &str, values: &[String]) -> fmt::Result {
+    if values.is_empty() {
+        return Ok(());
+    }
+
+    write!(f, "{key}: ")?;
+    for (idx, value) in values.iter().enumerate() {
+        if idx > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{value}")?;
+    }
+    writeln!(f)
+}
+
+impl fmt::Display for Cfg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(api_key) = self.api_key.as_ref() {
+            writeln!(f, "api_key: {api_key}")?;
+        }
+        if !self.base_url.is_empty() && self.base_url != DEFAULT_BASE_URL {
+            writeln!(f, "base_url: {}", self.base_url)?;
+        }
+        write_csv(f, "dns", &self.dns)?;
+        write_csv(f, "model", &self.models)?;
+        if let Some(prompt_filename) = self.prompt_filename.as_ref() {
+            writeln!(f, "prompt: @{}", prompt_filename)?;
+        } else if let Some(prompt) = self.prompt.as_ref() {
+            writeln!(f, "prompt: {prompt}")?;
+        }
+        if let Some(system_prompt) = self.system_prompt.as_ref() {
+            writeln!(f, "system_prompt: {system_prompt}")?;
+        }
+        writeln!(f, "quiet: {}", self.quiet)?;
+        writeln!(f, "show_reasoning: {}", self.show_reasoning)?;
+        if let Some(provider) = self.provider.as_ref() {
+            writeln!(f, "provider: {provider}")?;
+        }
+        if let Some(priority) = self.priority {
+            writeln!(f, "priority: {}", priority.as_str())?;
+        }
+        writeln!(f, "include_web_tools: {}", self.include_web_tools)?;
+        if let Some(effort) = self.effort {
+            writeln!(f, "effort: {}", effort.as_str())?;
+        }
+        write_csv(f, "files", &self.files)?;
+        if let Some(is_private) = self.is_private {
+            writeln!(f, "private: {is_private}")?;
+        }
+        Ok(())
+    }
+}
+
 pub fn cache_dir(env: &Env, cache_dir: &mut [u8]) -> OrtResult<usize> {
     let mut end = xdg_dir(
         env.XDG_CACHE_HOME.unwrap_or_default(),
@@ -317,6 +370,8 @@ pub fn xdg_dir(
 mod tests {
     extern crate alloc;
 
+    use alloc::vec;
+
     use crate::ReasoningEffort;
 
     use super::*;
@@ -360,5 +415,61 @@ private: false
         assert_eq!(cfg.priority, Some(Priority::Price));
         assert!(cfg.include_web_tools);
         assert_eq!(cfg.effort, Some(ReasoningEffort::Low));
+    }
+
+    #[test]
+    fn cfg_file_to_string() {
+        let cfg = Cfg {
+            api_key: Some("THE-KEY".to_string()),
+            base_url: "https://localhost:8000/v1".to_string(),
+            dns: vec!["127.0.0.1".to_string(), "127.0.0.2".to_string()],
+            models: vec!["openai/gpt-oss-20b:free".to_string()],
+            prompt: Some("prompt text".to_string()),
+            system_prompt: Some("system text".to_string()),
+            quiet: false,
+            show_reasoning: true,
+            provider: Some("openai".to_string()),
+            priority: Some(Priority::Price),
+            include_web_tools: true,
+            effort: Some(ReasoningEffort::Low),
+            files: vec!["image.png".to_string(), "other.jpg".to_string()],
+            is_private: Some(false),
+            ..Cfg::default()
+        };
+
+        let cfg_str = cfg.to_string();
+        assert_eq!(
+            cfg_str,
+            "api_key: THE-KEY\n\
+base_url: https://localhost:8000/v1\n\
+dns: 127.0.0.1, 127.0.0.2\n\
+model: openai/gpt-oss-20b:free\n\
+prompt: prompt text\n\
+system_prompt: system text\n\
+quiet: false\n\
+show_reasoning: true\n\
+provider: openai\n\
+priority: price\n\
+include_web_tools: true\n\
+effort: low\n\
+files: image.png, other.jpg\n\
+private: false\n"
+        );
+
+        let parsed = Cfg::from_str(&cfg_str).unwrap();
+        assert_eq!(parsed.api_key, cfg.api_key);
+        assert_eq!(parsed.base_url, cfg.base_url);
+        assert_eq!(parsed.dns, cfg.dns);
+        assert_eq!(parsed.models, cfg.models);
+        assert_eq!(parsed.prompt, cfg.prompt);
+        assert_eq!(parsed.system_prompt, cfg.system_prompt);
+        assert_eq!(parsed.quiet, cfg.quiet);
+        assert_eq!(parsed.show_reasoning, cfg.show_reasoning);
+        assert_eq!(parsed.provider, cfg.provider);
+        assert_eq!(parsed.priority, cfg.priority);
+        assert_eq!(parsed.include_web_tools, cfg.include_web_tools);
+        assert_eq!(parsed.effort, cfg.effort);
+        assert_eq!(parsed.files, cfg.files);
+        assert_eq!(parsed.is_private, cfg.is_private);
     }
 }
