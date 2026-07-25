@@ -489,6 +489,7 @@ mod tests {
             prompt_filename: None,
             files: vec![], // TODO
             include_web_tools: Some(true),
+            is_private: Some(false),
         };
         let messages = vec![
             Message::user("Hello".to_string()),

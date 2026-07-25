@@ -82,7 +82,7 @@ To build in release mode use `./build_release.sh`. This tries to make the smalle
 
 Continuation (`-c`) is TMUX aware. It continues the last conversation *from the current tmux pane*. That means you can carry on multiple conversations, one per pane. If there is no previous conversation for this pane, or you are not in tmux, it uses the most recent conversation globally.
 
-The conversations are stored in `${XDG_CACHE_HOME}/ort/last-*.json`. To disable storing them set `save_to_file` to false in config.
+The conversations are stored in `${XDG_CACHE_HOME}/ort/last-*.json`. To disable storing them set `private` to true in config file (`private = true`) or pass `-private` on cmd line.
 
 ## Stats
 
@@ -105,31 +105,42 @@ Here are all the possible fields for doc purposes. You likely don't want to set 
 
 ```
 # Comments must start with # as first char
+
 # This is the default, don't need to set
 base_url: openrouter.ai/api/v1
+
 # Or set env var OPENROUTER_API_KEY
 api_key: sk-PASTE-KEY-HERE
+
 # -m
 model: openai/gpt-oss-120b
+
 # -s
+# pass a filename to read it from there, for multi-line. `system_prompt: @/data/my_system_prompt.md`
 system_prompt: Make your answer concise but complete. No yapping. Direct professional tone. No emoji.
+
 # -q
 quiet: false
+
 # -rr
 show_reasoning: false
+
 # -ws
 include_web_tools: false
+
 # -r
 effort: low
+
 # -pr
 provider: baseten
+
 # -p
 priority: latency
 
-# These two only available in config file
-
-# Whether to also write the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to true. The continuation (`-c`) feature needs this.
-save_to_file: true
+# -private
+# Whether to avoid writing the output to `$XDG_CACHE_HOME}/ort/last.json`. Defaults to false. Setting to true disables the continue (`-c`) feature.
+# Prevents any local disk writes of your prompt. Remember the provider likely logs it.
+private: false
 
 # The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Highly recommend setting.
 dns: 104.18.2.115, 104.18.3.115

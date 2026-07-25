@@ -281,10 +281,12 @@ pub struct PromptOpts {
     pub merge_config: bool,
     /// Images to attach to the request.
     pub files: Vec<String>,
-    // If the prompt is '@<filename>' we save filename in here
+    /// If the prompt is '@<filename>' we save filename in here
     pub prompt_filename: Option<String>,
-    // Include web_search and web_fetch server-side tools
+    /// Include web_search and web_fetch server-side tools
     pub include_web_tools: Option<bool>,
+    /// Do not write to disk. Disables the "-c" continue feature.
+    pub is_private: Option<bool>,
 }
 
 impl Default for PromptOpts {
@@ -303,6 +305,7 @@ impl Default for PromptOpts {
             files: vec![],
             prompt_filename: None,
             include_web_tools: None,
+            is_private: None,
         }
     }
 }
@@ -342,6 +345,8 @@ impl PromptOpts {
         if self.files.is_empty() {
             self.files = cfg.files.clone();
         }
+        self.is_private
+            .get_or_insert(cfg.is_private.unwrap_or_default());
     }
 
     pub fn merge_opts(&mut self, o: PromptOpts) {
@@ -429,6 +434,7 @@ impl PromptOpts {
             // TODO: store files in last json, so resume works with files
             files: vec![],
             include_web_tools: fields[9].get_bool(),
+            is_private: None, // this whole function is going away soon
         })
     }
 }

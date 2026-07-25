@@ -61,6 +61,7 @@ pub fn parse_prompt_args(
     let mut merge_config = true;
     let mut files: Vec<String> = vec![];
     let mut include_web_tools: Option<bool> = None;
+    let mut is_private = None;
 
     // If the prompt is '@<filename>' we save filename in here
     // Agent mode needs it
@@ -168,6 +169,10 @@ pub fn parse_prompt_args(
                 files.push(args[i].clone());
                 i += 1;
             }
+            "-private" => {
+                is_private = Some(true);
+                i += 1;
+            }
             s if s.starts_with('-') => {
                 return Err(ArgParseError::new("Unknown flag: ".to_string() + s));
             }
@@ -238,6 +243,7 @@ pub fn parse_prompt_args(
         files,
         prompt_filename,
         include_web_tools,
+        is_private,
     };
     if continue_conversation {
         Ok(Cmd::ContinueConversation(prompt_opts))

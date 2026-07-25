@@ -16,10 +16,6 @@ use crate::{Priority, ReasoningEffort};
 /// To use a different endpoint set `base_url` in `${XDG_CONFIG_HOME}/ort.cfg`
 const DEFAULT_BASE_URL: &str = "openrouter.ai/api/v1";
 
-/// Needed for the "-c" continue option to work so default enable.
-/// Disable it for privacy / diskless.
-const DEFAULT_SAVE_TO_FILE: bool = true;
-
 /// Quiet disables showing the stats. I love the stats!
 const DEFAULT_QUIET: bool = false;
 
@@ -85,9 +81,6 @@ pub struct Cfg {
 
     pub api_key: Option<String>,
 
-    /// Yes to persist to a file in ~/.cache/ort to allow `-c` flag (continue)
-    pub save_to_file: bool,
-
     /// IP addresses of domain in base_url (usually openrouter.ai).
     /// Saves time resolving them.
     pub dns: Vec<String>,
@@ -132,6 +125,10 @@ pub struct Cfg {
 
     /// Images to attach to the request.
     pub files: Vec<String>,
+
+    /// Do not record prompt on disk. Use if running diskless or for privacy.
+    /// Disables the "-c" continue functionality, and the `jsonl` log
+    pub is_private: Option<bool>,
 }
 
 impl Cfg {
@@ -145,7 +142,6 @@ impl Cfg {
     pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
         let mut api_key = None;
         let mut base_url = DEFAULT_BASE_URL.to_string();
-        let mut save_to_file = DEFAULT_SAVE_TO_FILE;
         let mut dns = Vec::new();
         let mut models = Vec::new();
         let mut prompt = None;
@@ -158,6 +154,7 @@ impl Cfg {
         let mut include_web_tools = DEFAULT_INCLUDE_WEB_TOOLS;
         let mut effort = None;
         let mut files = Vec::new();
+        let mut is_private = None;
 
         for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
             if line.as_bytes()[0] == b'#' {
@@ -171,7 +168,6 @@ impl Cfg {
             match key {
                 "api_key" => api_key = Some(value.to_string()),
                 "base_url" => base_url = value.to_string(),
-                "save_to_file" => save_to_file = value == "true",
                 "dns" => {
                     dns = value.split(",").map(|ip| ip.trim().to_string()).collect();
                 }
@@ -185,7 +181,6 @@ impl Cfg {
                 "system_prompt" => system_prompt = Some(value.to_string()),
                 "quiet" => quiet = value == "true",
                 "show_reasoning" => show_reasoning = value == "true",
-                "provider" => provider = Some(value.to_string()),
                 "priority" => {
                     let p = Priority::from_str(value).map_err(|_| {
                         ort_error(
@@ -195,6 +190,8 @@ impl Cfg {
                     })?;
                     priority = Some(p);
                 }
+                "private" => is_private = Some(value == "true"),
+                "provider" => provider = Some(value.to_string()),
                 "effort" => {
                     let r = ReasoningEffort::from_str(value).map_err(|_| {
                         ort_error(
@@ -232,7 +229,6 @@ impl Cfg {
         Ok(Cfg {
             base_url,
             api_key,
-            save_to_file,
             dns,
             models,
             prompt,
@@ -245,13 +241,13 @@ impl Cfg {
             include_web_tools,
             effort,
             files,
+            is_private,
         })
     }
 
     pub fn default() -> Cfg {
         Cfg {
             base_url: DEFAULT_BASE_URL.to_string(),
-            save_to_file: DEFAULT_SAVE_TO_FILE,
             dns: Vec::new(),
             quiet: DEFAULT_QUIET,
             show_reasoning: DEFAULT_SHOW_REASONING,
@@ -330,7 +326,6 @@ mod tests {
         let s = r#"
 api_key: THE-KEY
 base_url: openrouter.ai/api/v1
-save_to_file: false
 dns: 104.18.2.115, 104.18.3.115
 model: openai/gpt-oss-20b:free
 system_prompt: Make your answer concise but complete. No yapping. Direct professional tone. No emoji.
@@ -340,11 +335,12 @@ provider: openai
 priority: price
 include_web_tools: true
 effort: low
+private: false
 "#;
         let cfg = Cfg::from_str(s).unwrap();
         assert_eq!(cfg.base_url, "openrouter.ai/api/v1");
         assert_eq!(cfg.api_key.as_deref(), Some("THE-KEY"));
-        assert!(!cfg.save_to_file);
+        assert_eq!(cfg.is_private, Some(false));
 
         assert_eq!(cfg.dns.len(), 2);
         for ip in cfg.dns {

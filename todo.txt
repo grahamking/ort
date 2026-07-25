@@ -5,8 +5,6 @@ Config file has Cfg
 Running uses ActivePrompt (includes Cfg and PromptOps right now)
 
 Merge PromptOpts and Cfg. Do it by replacing PromptOpts with Cfg.
-. Add prompt filename (@name) to Cfg
-. Add `--private` to CLI and Cfg, replaces save_to_file. Disables last but also the .jsonl log.
 . Write an export to `.cfg` for Cfg. This will be used for continue functionality.
 
 config_file and merge_config to be handled separately, resolved before the process really starts.
@@ -114,7 +112,7 @@ Context from the current code and binary:
 19. Fix `LastWriter` buffering; it currently flushes every content chunk by mistake.
 - In `src/output/last_writer.rs`, the condition is `if buffer.len() >= TOKEN_MEM_BUFFER`, but `buffer.len()` is always 1088.
 - That means the code effectively encodes and writes on every token chunk instead of batching until `buf_idx` reaches the threshold.
-- This wastes file-write bandwidth and CPU whenever `save_to_file` is enabled, which is the default.
+- This wastes file-write bandwidth and CPU.
 - The correct condition is `if buf_idx >= TOKEN_MEM_BUFFER`.
 
 20. Batch stdout writes and throttle the spinner.

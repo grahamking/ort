@@ -84,7 +84,7 @@ pub fn run<W: Write + Send>(
         Box::new(ConsoleWriter::new(w_core, show_reasoning, is_quiet))
     };
 
-    let mut last_writer = if cfg.save_to_file {
+    let mut last_writer = if !opts.is_private.unwrap_or_default() {
         Some(LastWriter::new(
             opts.clone(),
             messages.clone(),
@@ -395,7 +395,6 @@ impl ActivePrompt {
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
             //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
             tsc_calibration: time::tsc_calibration().ok(),
-            opts,
             token_stream_start: None,
             start: None,
             num_tokens: 0,
@@ -404,11 +403,14 @@ impl ActivePrompt {
             is_first_content: true,
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
-            logger: if let Some(env) = env {
+            logger: if let Some(env) = env
+                && !opts.is_private.unwrap_or_default()
+            {
                 Some(Logger::new(env)?)
             } else {
                 None
             },
+            opts,
         })
     }
 
