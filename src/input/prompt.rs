@@ -79,9 +79,7 @@ pub fn run<W: Write + Send>(
 
     let mut last_writer = if !cfg.is_private {
         // Save the config so we use the same next time
-        let (last_cfg_path, last_cfg_len) = last_writer::last_path(env, ".cfg")?;
-        cfg.save(last_cfg_path, last_cfg_len)?;
-        Some(LastWriter::new(messages.clone(), tools.clone(), env)?)
+        Some(LastWriter::new(messages.clone(), tools.clone(), env, cfg)?)
     } else {
         None
     };
@@ -120,10 +118,12 @@ pub fn run<W: Write + Send>(
 
     // Clean finish, send stats
     let stats = active_prompt.stop();
-    output_writer.write(Response::Stats(stats))?;
+    output_writer.write(Response::Stats(stats.clone()))?;
     output_writer.stop(true)?; // prints stats
     // Finalize JSON
     if let Some(lw) = last_writer.as_mut() {
+        // Last writer needs the provider from Stats so we can use the same one next time
+        lw.write(Response::Stats(stats))?;
         lw.stop(true)?;
     }
 
@@ -131,7 +131,7 @@ pub fn run<W: Write + Send>(
 }
 
 pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
-    let last_file_path = last_writer::last_file(env, ".json")?;
+    let last_file_path = last_writer::last_data_file(env)?;
     match utils::filename_read_to_string(&last_file_path) {
         Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
             print_string(c"Failed parsing history: ", &err);

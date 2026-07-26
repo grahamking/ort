@@ -354,8 +354,8 @@ pub fn xdg_dir(
     if !xdg_var_value.is_empty() {
         // If it's in the env var, we assume the dir exists
         let dir_len = xdg_var_value.len();
-        target[..dir_len + 1].copy_from_slice(xdg_var_value.as_bytes());
-        return Ok(dir_len + 1);
+        target[..dir_len].copy_from_slice(xdg_var_value.as_bytes());
+        return Ok(dir_len);
     }
 
     if !home_dir.is_empty() {

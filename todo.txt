@@ -1,8 +1,5 @@
 --- Refactor last / cfg / cli
 
-. Fetch provider from response and use that in last.cfg. We want to use the same one next time.
-src/output/last_writer.rs L150
-
 . Don't handle @ files in arg parsing, do it later in Cfg.
 
 . system prompt variable substitution currently only happens if file loaded

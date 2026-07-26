@@ -11,6 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::cli::Env;
+use crate::common::config::Cfg;
 use crate::common::data::Tool;
 use crate::output::OutputWriter;
 use crate::{
@@ -27,12 +28,14 @@ const TOKEN_MEM_BUFFER: usize = 4096;
 /// continue the conversation with `ort -c "next prompt"` later.
 pub struct LastWriter {
     w: file::File,
+    env: Env,
+    cfg: Cfg,
     data: LastData,
     buffer: [u8; TOKEN_MEM_BUFFER],
     buf_idx: usize,
 }
 
-pub fn last_path(env: &Env, ext: &str) -> OrtResult<([u8; 128], usize)> {
+fn last_path(env: &Env, ext: &str) -> OrtResult<([u8; 128], usize)> {
     let mut last_path = [0u8; 128];
     let idx = config::cache_dir(env, &mut last_path)?;
     last_path[idx] = b'/';
@@ -45,18 +48,8 @@ pub fn last_path(env: &Env, ext: &str) -> OrtResult<([u8; 128], usize)> {
 }
 
 /// The full path of the file where we stored the last conversation
-pub(crate) fn last_file(env: &Env, ext: &str) -> OrtResult<String> {
-    /*
-    let mut last_path = [0u8; 128];
-    let cache_dir_end = config::cache_dir(env, &mut last_path)?;
-    last_path[cache_dir_end] = b'/';
-    let last_filename = utils::last_filename(env, ext);
-    let start = cache_dir_end + 1;
-    let end = start + last_filename.len();
-    last_path[start..end].copy_from_slice(last_filename.as_bytes());
-    */
-
-    let (last_path, end) = last_path(env, ext)?;
+pub(crate) fn last_data_file(env: &Env) -> OrtResult<String> {
+    let (last_path, end) = last_path(env, ".json")?;
 
     let cs = CString::new(&last_path[..end]).expect("Null bytes in config cache dir");
     if utils::path_exists(cs.as_ref()) {
@@ -69,14 +62,32 @@ pub(crate) fn last_file(env: &Env, ext: &str) -> OrtResult<String> {
     }
 }
 
+// The config we used last time
+pub(crate) fn last_cfg(env: &Env) -> OrtResult<Cfg> {
+    let (prev_config, prev_config_len) = last_path(env, ".cfg")?;
+    let prev_config = unsafe { str::from_utf8_unchecked(&prev_config[..prev_config_len]) };
+    let Ok(cfg_str) = utils::filename_read_to_string(prev_config) else {
+        return Err(ort_error(ErrorKind::ConfigReadFailed, ""));
+    };
+    let prev_cfg = config::Cfg::from_str(&cfg_str)?;
+    Ok(prev_cfg)
+}
+
 impl LastWriter {
-    pub fn new(messages: Vec<Message>, tools: Vec<&'static Tool>, env: &Env) -> OrtResult<Self> {
+    pub fn new(
+        messages: Vec<Message>,
+        tools: Vec<&'static Tool>,
+        env: &Env,
+        cfg: &Cfg,
+    ) -> OrtResult<Self> {
         let (lp, end) = last_path(env, ".json")?;
         // end + 1 to add a null byte on the end
         let last_file = unsafe { file::File::create(&lp[..end + 1]).context("create last file")? };
         let data = LastData { messages, tools };
         Ok(LastWriter {
             data,
+            env: env.clone(),
+            cfg: cfg.clone(),
             w: last_file,
             buffer: [0u8; TOKEN_MEM_BUFFER],
             buf_idx: 0,
@@ -146,9 +157,9 @@ impl OutputWriter for LastWriter {
                 self.w.write_char(']')?;
             }
             Response::ToolDisplay(_) => {}
-            Response::Stats(_stats) => {
-                // TODO: Update cfg because we need to use the same provider next time
-                //self.data.opts.provider = Some(utils::slug(stats.provider()));
+            Response::Stats(stats) => {
+                // Update cfg because we need to use the same provider next time
+                self.cfg.provider = Some(utils::slug(stats.provider()));
             }
             Response::Prompt(_) => {}
             Response::Error(_err) => {
@@ -169,10 +180,14 @@ impl OutputWriter for LastWriter {
         // Write final contents
         crate::input::to_json::write_encoded_bytes(&mut self.w, &self.buffer[..self.buf_idx])?;
 
-        // close the contents message and messages array
+        // Close the contents message and messages array
         self.w.write_str("\"}]")?;
         self.w.write_char('}')?; // End of whole object
         let _ = self.w.flush();
+
+        // Save the config
+        let (last_cfg_path, last_cfg_len) = last_path(&self.env, ".cfg")?;
+        self.cfg.save(last_cfg_path, last_cfg_len)?;
 
         Ok(())
     }
@@ -214,6 +229,13 @@ mod tests {
             data,
             buffer: [0u8; TOKEN_MEM_BUFFER],
             buf_idx: 0,
+            env: Env {
+                HOME: Some("/tmp"),
+                XDG_CONFIG_HOME: Some("/tmp"),
+                XDG_CACHE_HOME: Some("/tmp"),
+                ..Default::default()
+            },
+            cfg: Cfg::default(),
         };
 
         let mut q = vec![

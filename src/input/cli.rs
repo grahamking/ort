@@ -22,7 +22,6 @@ use crate::input::list;
 use crate::input::prompt;
 use crate::output::last_writer;
 use crate::syscall;
-use crate::utils;
 use crate::{ErrorKind, ort_error};
 
 const STDIN_FILENO: i32 = 0;
@@ -42,7 +41,7 @@ pub fn print_usage() {
 
 /// The environment variables we use
 #[allow(nonstandard_style)]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Env {
     pub HOME: Option<&'static str>,
     pub PWD: Option<&'static str>,
@@ -145,12 +144,7 @@ pub fn main<W: Write + Send>(
             let new_prompt = cli_opts.prompt.clone().unwrap();
 
             // Use the config we used last time
-            let (prev_config, prev_config_len) = last_writer::last_path(&env, ".cfg")?;
-            let prev_config = unsafe { str::from_utf8_unchecked(&prev_config[..prev_config_len]) };
-            let Ok(cfg_str) = utils::filename_read_to_string(prev_config) else {
-                return Err(ort_error(ErrorKind::ConfigReadFailed, ""));
-            };
-            let mut prev_cfg = config::Cfg::from_str(&cfg_str)?;
+            let mut prev_cfg = last_writer::last_cfg(&env)?;
 
             // CLI still overrides the last used config
             override_config_from_cli(&mut prev_cfg, cli_opts.clone());

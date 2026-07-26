@@ -146,7 +146,7 @@ fn run_single<W: Write + Send>(
     output_writer: &mut AgentWriter<W>,
     total_stats: &mut Stats,
 ) -> OrtResult<bool> {
-    let mut last_writer = LastWriter::new(messages.clone(), tools.to_vec(), env)?;
+    let mut last_writer = LastWriter::new(messages.clone(), tools.to_vec(), env, cfg)?;
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
