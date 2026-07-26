@@ -1,10 +1,3 @@
---- Refactor last / cfg / cli
-
-. Don't handle @ files in arg parsing, do it later in Cfg.
-
-. system prompt variable substitution currently only happens if file loaded
-  make it always happen, after @file is resolved.
-
 --- General
 
 - Add 'x-session-id' HTTP header to allow middle boxes and remote to track session. Persist it in last.json and across `-c` continue sessions.

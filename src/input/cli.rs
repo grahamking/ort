@@ -52,7 +52,7 @@ pub struct Env {
     pub NVIDIA_API_KEY: Option<&'static str>,
 }
 
-fn parse_args(args: &[String], env: &Env) -> Result<args::Cmd, args::ArgParseError> {
+fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
     // args[0] is program name
     if args.len() == 1 {
         return Err(args::ArgParseError::show_help());
@@ -69,7 +69,7 @@ fn parse_args(args: &[String], env: &Env) -> Result<args::Cmd, args::ArgParseErr
         } else {
             None
         };
-        args::parse_prompt_args(args, stdin, env)
+        args::parse_prompt_args(args, stdin)
     }
 }
 
@@ -79,7 +79,7 @@ pub fn main<W: Write + Send>(
     is_terminal: bool,
     w: &mut W,
 ) -> OrtResult<c_int> {
-    let cmd = match parse_args(args, &env) {
+    let cmd = match parse_args(args) {
         Ok(cmd) => cmd,
         Err(err) if err.is_help() => {
             print_usage();
@@ -115,9 +115,11 @@ pub fn main<W: Write + Send>(
     };
 
     let cmd_result = match cmd {
-        args::Cmd::Prompt(mut cli_opts) => {
+        args::Cmd::Prompt(cli_opts) => {
             override_config_from_cli(&mut cfg, cli_opts.clone());
-            let messages = cli_opts.messages()?;
+            cfg.setup(&env)?;
+
+            let messages = cfg.messages()?;
             if cli_opts.models.len() == 1 {
                 prompt::run(
                     &api_key,
@@ -132,12 +134,14 @@ pub fn main<W: Write + Send>(
                 prompt::run_multi(&api_key, &cfg, cli_opts, messages, w)
             }
         }
-        args::Cmd::Agent(mut cli_opts) => {
+        args::Cmd::Agent(cli_opts) => {
             override_config_from_cli(&mut cfg, cli_opts.clone());
+            cfg.setup(&env)?;
+
             // Agent mode always includes server-side web tools
             cfg.include_web_tools = true;
             cfg.quiet = true;
-            let messages = cli_opts.messages()?;
+            let messages = cfg.messages()?;
             agent::run(&api_key, &cfg, &env, messages, w)
         }
         args::Cmd::ContinueConversation(cli_opts) => {
@@ -148,6 +152,7 @@ pub fn main<W: Write + Send>(
 
             // CLI still overrides the last used config
             override_config_from_cli(&mut prev_cfg, cli_opts.clone());
+            prev_cfg.setup(&env)?;
 
             prompt::run_continue(&api_key, &prev_cfg, &env, new_prompt, !is_terminal, w)
         }
@@ -163,11 +168,6 @@ fn override_config_from_cli(cfg: &mut Cfg, cli_opts: PromptOpts) {
     }
     if let Some(prompt) = cli_opts.prompt {
         cfg.prompt = Some(prompt);
-    }
-    // TODO we should probably only load the filename in one
-    // place, not have @ handling in arg parsing
-    if let Some(pf) = cli_opts.prompt_filename {
-        cfg.prompt_filename = Some(pf);
     }
     if let Some(sp) = cli_opts.system {
         cfg.system_prompt = Some(sp);

@@ -23,6 +23,8 @@ pub enum ErrorKind {
     ConfigReadFailed,
     MissingHomeDir,
     MissingSystemPrompt,
+    // Run `date` to substitute in system prompt
+    FailedFillingSystemPrompt,
 
     // Conversation/history
     HistoryMissing,
@@ -142,6 +144,7 @@ impl ErrorKind {
             ErrorKind::ConfigReadFailed => "ConfigReadFailed",
             ErrorKind::MissingHomeDir => "MissingHomeDir",
             ErrorKind::MissingSystemPrompt => "MissingSystemPrompt",
+            ErrorKind::FailedFillingSystemPrompt => "FailedFillingSystemPrompt",
             ErrorKind::HistoryMissing => "HistoryMissing",
             ErrorKind::HistoryParseFailed => "HistoryParseFailed",
             ErrorKind::HistoryReadFailed => "HistoryReadFailed",

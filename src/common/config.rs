@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use crate::common::file;
 use crate::common::io::Write;
-use crate::{Context, Priority, ReasoningEffort};
+use crate::{Context, Message, Priority, ReasoningEffort, syscall};
 use crate::{ErrorKind, OrtResult, cli::Env, common::utils, ort_error};
 
 /// To use a different endpoint set `base_url` in `${XDG_CONFIG_HOME}/ort.cfg`
@@ -141,13 +141,33 @@ impl Cfg {
         }
     }
 
+    /// Initial chat completions messages to send.
+    /// Includes the system prompt, regular prompt, and any attache files.
+    pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
+        // A Message is quite small, an enum and two Option<String>.
+        // Capacity 3 for:
+        // - System message (optional)
+        // - User message (required)
+        // - and the assistant message that LastWriter appends, to save a realloc.
+        let mut messages = Vec::with_capacity(3);
+        if let Some(sys) = self.system_prompt.clone() {
+            messages.push(crate::Message::system(sys));
+        };
+        let user_message = if self.files.is_empty() {
+            crate::Message::user(self.prompt.clone().unwrap())
+        } else {
+            crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
+        };
+        messages.push(user_message);
+        Ok(messages)
+    }
+
     pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
         let mut api_key = None;
         let mut base_url = DEFAULT_BASE_URL.to_string();
         let mut dns = Vec::new();
         let mut models = Vec::new();
         let mut prompt = None;
-        let mut prompt_filename: Option<String> = None;
         let mut system_prompt = None;
         let mut quiet = DEFAULT_QUIET;
         let mut show_reasoning = DEFAULT_SHOW_REASONING;
@@ -217,24 +237,12 @@ impl Cfg {
             }
         }
 
-        if let Some(p) = prompt.as_ref()
-            && p.bytes().next() == Some(FILE_INDICATOR)
-        {
-            let filename = &p[1..];
-            prompt_filename = Some(filename.to_string());
-            prompt =
-                Some(utils::filename_read_to_string(filename).map_err(|_| {
-                    ort_error(ErrorKind::ConfigParseFailed, "Invalid prompt filename")
-                })?);
-        }
-
         Ok(Cfg {
             base_url,
             api_key,
             dns,
             models,
             prompt,
-            prompt_filename,
             system_prompt,
             quiet,
             show_reasoning,
@@ -244,6 +252,8 @@ impl Cfg {
             effort,
             files,
             is_private,
+            // Resolved later
+            prompt_filename: None,
         })
     }
 
@@ -268,6 +278,82 @@ impl Cfg {
 
     pub fn get_api_key(&self) -> Option<&str> {
         self.api_key.as_deref()
+    }
+
+    /// Resolve any `@filename.txt` prompts, and replace the `$DATE` system prompts
+    /// variables.
+    /// After this the Cfg is ready.
+    /// Ideally merge override_config_from_cli into this too, but I don't want
+    /// a dependency from common::Cfg to args::PromptOps.
+    pub fn setup(&mut self, env: &Env) -> OrtResult<()> {
+        self.load_prompts()?;
+        self.fill_system_prompt_variables(env)?;
+        Ok(())
+    }
+
+    /// If the prompt or system prompt start with `@` read them from that file.
+    fn load_prompts(&mut self) -> OrtResult<()> {
+        if let Some(p) = self.prompt.as_ref()
+            && p.bytes().next() == Some(FILE_INDICATOR)
+        {
+            let filename = &p[1..];
+            self.prompt_filename = Some(filename.to_string());
+            self.prompt =
+                Some(utils::filename_read_to_string(filename).map_err(|_| {
+                    ort_error(ErrorKind::ConfigParseFailed, "Invalid prompt filename")
+                })?);
+        }
+
+        if let Some(system_prompt) = self.system_prompt.as_ref()
+            && system_prompt.bytes().next() == Some(FILE_INDICATOR)
+        {
+            let sp = utils::filename_read_to_string(&system_prompt[1..]).map_err(|_| {
+                ort_error(
+                    ErrorKind::ConfigParseFailed,
+                    "Invalid system prompt filename",
+                )
+            })?;
+            self.system_prompt = Some(sp);
+        }
+
+        Ok(())
+    }
+
+    /// System prompt variable substitution.
+    /// `$PWD` -> current working directory
+    /// `$DATE` -> output of `date` cmd
+    fn fill_system_prompt_variables(&mut self, env: &Env) -> OrtResult<()> {
+        let Some(mut sp) = self.system_prompt.take() else {
+            // No system prompt
+            return Ok(());
+        };
+
+        // System prompt variable substitution. PWD is current working directory.
+        if let Some(pwd) = env.PWD {
+            sp = sp.replace("$PWD", pwd);
+        }
+
+        // This one is more expensive so only do it if necessary
+        if sp.contains("$DATE") {
+            // Shelling to `date` is much simpler and shorter than converting kernel clock
+            match syscall::system("date") {
+                Ok(current_date) => sp = sp.replace("$DATE", &current_date.stdout),
+                Err(err) => {
+                    // TODO: When OrtError can handle String we can remove this
+                    crate::print_string(
+                        c"Failed running `date` to substitute $DATE in system prompt: ",
+                        &err.as_string(),
+                    );
+                    return Err(ort_error(
+                        ErrorKind::FailedFillingSystemPrompt,
+                        "Failed running 'date' cmd",
+                    ));
+                }
+            };
+        }
+
+        self.system_prompt = Some(sp);
+        Ok(())
     }
 }
 

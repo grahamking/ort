@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025, 2026 Graham King
 //!
 //! All the command line argument parsing
 
@@ -14,19 +14,13 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::OrtError;
 use crate::Priority;
 use crate::ReasoningEffort;
-use crate::cli::Env;
-use crate::common::data::Message;
 use crate::common::utils;
 use crate::{ErrorKind, ort_error};
-use crate::{OrtError, OrtResult, syscall};
 
 const MAX_CONCURRENT_MODELS: usize = 10;
-
-/// Prefixing the system prompt or user prompt with this byte means it's a filename, read the
-/// contents.
-const FILE_INDICATOR: u8 = b'@';
 
 pub enum Cmd {
     List(ListOpts),
@@ -61,40 +55,13 @@ pub struct PromptOpts {
     pub quiet: Option<bool>,
     /// Images to attach to the request.
     pub files: Vec<String>,
-    /// If the prompt is '@<filename>' we save filename in here
-    pub prompt_filename: Option<String>,
     /// Include web_search and web_fetch server-side tools
     pub include_web_tools: Option<bool>,
     /// Do not write to disk. Disables the "-c" continue feature.
     pub is_private: Option<bool>,
 }
 
-impl PromptOpts {
-    pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
-        // A Message is quite small, an enum and two Option<String>.
-        // Capacity 3 for:
-        // - System message (optional)
-        // - User message (required)
-        // - and the assistant message that LastWriter appends, to save a realloc.
-        let mut messages = Vec::with_capacity(3);
-        if let Some(sys) = self.system.clone() {
-            messages.push(crate::Message::system(sys));
-        };
-        let user_message = if self.files.is_empty() {
-            crate::Message::user(self.prompt.clone().unwrap())
-        } else {
-            crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
-        };
-        messages.push(user_message);
-        Ok(messages)
-    }
-}
-
-pub fn parse_prompt_args(
-    args: &[String],
-    stdin: Option<String>,
-    env: &Env,
-) -> Result<Cmd, ArgParseError> {
+pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, ArgParseError> {
     // Only the prompt is required. Everything else can come from config file
     // or default.
     let mut prompt_parts: Vec<String> = Vec::new();
@@ -111,10 +78,6 @@ pub fn parse_prompt_args(
     let mut files: Vec<String> = vec![];
     let mut include_web_tools: Option<bool> = None;
     let mut is_private = None;
-
-    // If the prompt is '@<filename>' we save filename in here
-    // Agent mode needs it
-    let mut prompt_filename: Option<String> = None;
 
     let mut i = 1usize;
 
@@ -243,37 +206,6 @@ pub fn parse_prompt_args(
         return Err(ArgParseError::new_str("Missing prompt."));
     };
 
-    // Read system and user prompt from a file
-    if prompt.bytes().next() == Some(FILE_INDICATOR) {
-        let filename = &prompt[1..];
-        prompt_filename = Some(filename.to_string());
-        prompt = utils::filename_read_to_string(filename).map_err(ArgParseError::new_str)?;
-    }
-    if let Some(system_prompt) = system.as_ref()
-        && system_prompt.bytes().next() == Some(FILE_INDICATOR)
-    {
-        let mut sp = utils::filename_read_to_string(&system_prompt[1..])
-            .map_err(|err| ArgParseError::new("System prompt file: ".to_string() + err))?;
-        // System prompt variable substitution. PWD is current working directory.
-        if let Some(pwd) = env.PWD {
-            sp = sp.replace("$PWD", pwd);
-        }
-        // This one is more expensive so only do it if necessary
-        if sp.contains("$DATE") {
-            // Shelling to `date` is much simpler and shorter than converting kernel clock
-            match syscall::system("date") {
-                Ok(current_date) => sp = sp.replace("$DATE", &current_date.stdout),
-                Err(err) => {
-                    return Err(ArgParseError::new(
-                        "Failed running `date` to substitute $DATE in system prompt: ".to_string()
-                            + &err.as_string(),
-                    ));
-                }
-            };
-        }
-        system = Some(sp);
-    }
-
     let prompt_opts = PromptOpts {
         config_file,
         prompt: Some(prompt),
@@ -285,7 +217,6 @@ pub fn parse_prompt_args(
         show_reasoning,
         quiet,
         files,
-        prompt_filename,
         include_web_tools,
         is_private,
     };

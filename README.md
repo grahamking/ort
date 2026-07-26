@@ -26,7 +26,9 @@ If you're new here in town, it'll introduce you: `ort list [-json]`. Everyone's 
 
 You like to know who you're talking to so `-m <model>` selects your conversation partner, and it knows you don't want to impose more then necessary so `-r off|none|low|medium|high|<toks>` sets reasoning effort. But you have your own priorities, we all do. Use `-p price|throughput|latency` for that.
 
-It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning with `-rr`. As long as you're clear about what you want, it will respect your system prompt `-s "<system prompt>"`. We all got to live here together, and we're the better for it. Longer system prompts can be in a file: `-s @<filename>`.
+It is from a time when we countered bad arguments with good arguments, so it will show you the reasoning with `-rr`. As long as you're clear about what you want, it will respect your system prompt `-s "<system prompt>"`. We all got to live here together, and we're the better for it. Longer system prompts can be in a file: `-s @<filename>`. Longer prompts too. You can use the `@<filename>` syntax in the config file too.
+
+Our ways are old, but we care about now. System prompt strings `$PWD` and `$DATE` are substituted with the current working directory, and the output of `date`.
 
 Like a good friend, it remembers. `-c` will continue a conversation. And like a real friend, it accepts you how you are. In a **tmux** pane? It continues that conversation, not the one happening in the pane next door.
 
@@ -118,6 +120,9 @@ model: openai/gpt-oss-120b
 # pass a filename to read it from there, for multi-line. `system_prompt: @/data/my_system_prompt.md`
 system_prompt: Make your answer concise but complete. No yapping. Direct professional tone. No emoji.
 
+# Prompt can be in the config file for automations. It can also be prefixed with @ to load from a file, like the system prompt.
+prompt: Usually this goes on the cmd line
+
 # -q
 quiet: false
 
@@ -162,7 +167,7 @@ Usage:
 ort agent -r medium -m openai/gpt-5.4-mini -s @agent_system_prompt.txt @/home/graham/prompt
 ```
 
-So far I have only tested it with `openai/gpt-5.4-mini` and `openai/gpt-oss-120b:exacto`.
+So far I have only tested it with `openai/gpt-5.4-mini`, `openai/gpt-oss-120b:exacto` and `qwen/qwen3.6-27b`.
 
 The `agent_system_prompt.txt` is in the root of this repo. Feel free to tune it. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
 
