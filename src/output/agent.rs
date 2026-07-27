@@ -13,6 +13,7 @@ use crate::OrtResult;
 use crate::ThinkEvent;
 use crate::Write;
 use crate::common::data::Response;
+use crate::common::error::ort_err;
 use crate::ort_error;
 use crate::syscall;
 use crate::utils::zclean;
@@ -90,10 +91,7 @@ impl<'a, W: Write + Send> super::OutputWriter for AgentWriter<'a, W> {
                 }
                 let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
                 syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                return Err(ort_error(
-                    ErrorKind::ResponseStreamError,
-                    "Remote returned an error",
-                ));
+                return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
             Response::None => {
                 // TODO: Can this still happen?

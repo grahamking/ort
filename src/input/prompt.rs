@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 use crate::cli::Env;
 use crate::common::buf_read::OrtBufReader;
 use crate::common::data::{Tool, ToolCall};
+use crate::common::error::Context;
 use crate::net::AsFd;
 use crate::output::logger::Logger;
 use crate::{OrtError, chunked};
@@ -25,6 +26,7 @@ use crate::Message;
 use crate::OrtResult;
 use crate::build_body;
 use crate::common::config::Cfg;
+use crate::common::error::{ort_err, ort_error};
 use crate::common::io::{ReadLine, Write};
 use crate::common::resolver;
 use crate::common::stats::{self, Stats};
@@ -32,12 +34,10 @@ use crate::common::time;
 use crate::common::utils;
 use crate::http::{self, ContentLengthReader};
 use crate::input::args::PromptOpts;
-use crate::ort_error;
 use crate::output::last_writer::LastWriter;
 use crate::output::writer::{CollectedWriter, ConsoleWriter, FileWriter};
 use crate::output::{OutputWriter, last_writer};
 use crate::syscall::{self, F_SETFL, O_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM};
-use crate::utils::print_string;
 use crate::{ErrorKind, LastData};
 use crate::{Response, ThinkEvent};
 
@@ -133,10 +133,8 @@ pub fn run<W: Write + Send>(
 pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
     let last_file_path = last_writer::last_data_file(env)?;
     match utils::filename_read_to_string(&last_file_path) {
-        Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
-            print_string(c"Failed parsing history: ", &err);
-            ort_error(ErrorKind::HistoryParseFailed, "Failed to parse last")
-        }),
+        Ok(hist_str) => LastData::from_json(&hist_str)
+            .map_err(|err| ort_err(ErrorKind::HistoryParseFailed, err)),
         Err("NOT FOUND") => Err(ort_error(
             ErrorKind::HistoryMissing,
             "No last conversation, cannot continue",
@@ -378,26 +376,15 @@ impl ActivePrompt {
 
     /// Start the HTTP request
     pub fn start(&mut self) -> OrtResult<()> {
-        let body = match build_body(self.model_idx, &self.cfg, &self.messages, &self.tools) {
-            Ok(b) => b,
-            Err(err) => {
-                print_string(c"FATAL: build_body: ", &err.as_string());
-                return Err(ort_error(ErrorKind::Other, "build body"));
-            }
-        };
+        let body = build_body(self.model_idx, &self.cfg, &self.messages, &self.tools)
+            .context("build_body")?;
         if let Some(l) = self.logger.as_mut() {
             l.log(&body);
         }
         let (host, port, base_path) = http::split_url(&self.cfg.base_url);
         self.start = Some(time::Ticks::now());
         let addrs = if self.cfg.dns.is_empty() {
-            let ips = match unsafe { resolver::resolve(host) } {
-                Ok(ips) => ips,
-                Err(err) => {
-                    print_string(c"FATAL: resolving host: ", &err.as_string());
-                    return Err(ort_error(ErrorKind::DnsResolveFailed, ""));
-                }
-            };
+            let ips = unsafe { resolver::resolve(host).context("resolver::resolve")? };
             ips.into_iter()
                 .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
                 .collect()
@@ -411,34 +398,24 @@ impl ActivePrompt {
                 })
                 .collect()
         };
-        let mut buf_reader =
-            match http::chat_completions(&self.api_key, host, base_path, addrs, &body) {
-                Ok(r) => r,
-                Err(err) => {
-                    print_string(c"FATAL running chat_completions: ", &err.as_string());
-                    return Err(ort_error(ErrorKind::Other, "running chat_completions"));
-                }
-            };
+        let mut buf_reader = http::chat_completions(&self.api_key, host, base_path, addrs, &body)
+            .context("http::chat_completions")?;
 
-        match http::skip_header(&mut buf_reader) {
-            Ok(http::ResponseBody::Chunked) => {
+        match http::skip_header(&mut buf_reader).context("http::skip_header")? {
+            http::ResponseBody::Chunked => {
                 // Transfer encoding chunked, this is what OpenRouter does.
                 let chunk_reader = chunked::read::<_, MAX_CHUNK_SIZE>(buf_reader);
                 self.reader = Some(Box::new(chunk_reader));
             }
-            Ok(http::ResponseBody::ContentLength(len)) => {
+            http::ResponseBody::ContentLength(len) => {
                 // Content-Length with keep-alive. Stop at the body length.
                 // Rare except for upstream errors which are non-streaming.
                 let content_reader = ContentLengthReader::new(buf_reader, len);
                 self.reader = Some(Box::new(OrtBufReader::new(content_reader)));
             }
-            Ok(http::ResponseBody::UntilEof) => {
+            http::ResponseBody::UntilEof => {
                 // OpenRouter does chunked. Only seen this on local dev server.
                 self.reader = Some(Box::new(buf_reader));
-            }
-            Err(err) => {
-                print_string(c"FATAL running skip_header: ", &err.as_string());
-                return Err(ort_error(ErrorKind::HttpStatusError, "running skip_header"));
             }
         }
 

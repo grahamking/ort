@@ -72,6 +72,7 @@ pub unsafe extern "C" fn main(
             let err_msg = CString::new(err.as_string()).unwrap();
             let _ = syscall::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
             let _ = syscall::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
+            let _ = syscall::write(2, c"\n".as_ptr().cast(), 1);
             1
         }
     }
@@ -119,6 +120,7 @@ fn main() -> std::process::ExitCode {
             let err_msg = CString::new(err.as_string()).unwrap();
             let _ = syscall::write(2, c"ERROR: ".as_ptr().cast(), c"ERROR: ".count_bytes());
             let _ = syscall::write(2, err_msg.as_ptr().cast(), err_msg.count_bytes());
+            let _ = syscall::write(2, c"\n".as_ptr().cast(), 1);
             1.into()
         }
     }

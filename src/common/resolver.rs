@@ -8,10 +8,13 @@
 use core::{net::Ipv4Addr, ptr::copy_nonoverlapping};
 
 extern crate alloc;
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use crate::{
-    ErrorKind, OrtResult, ort_error,
+    ErrorKind, OrtResult,
+    common::error::ort_err,
+    ort_error,
     syscall::{self, AF_INET, SOCK_DGRAM},
     utils,
 };
@@ -92,9 +95,8 @@ pub unsafe fn resolve(host: &str) -> OrtResult<Vec<Ipv4Addr>> {
     // check response code. It's in last four bits of flags. 0 means success.
     let err_code = buf[3] & 0x0F;
     if err_code != 0 {
-        let err_code_str = utils::num_to_string(err_code);
-        utils::print_string(c"DNS server err code: ", &err_code_str);
-        return Err(ort_error(ErrorKind::DnsResolveFailed, "server err code"));
+        let msg = "DNS server err code ".to_string() + &utils::num_to_string(err_code);
+        return Err(ort_err(ErrorKind::DnsResolveFailed, msg.into()));
     }
 
     // Each response is 16 bytes. The last four are the IP. Parse from the end.

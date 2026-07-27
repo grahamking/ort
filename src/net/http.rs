@@ -8,17 +8,17 @@ use core::cmp::min;
 use core::net::SocketAddr;
 
 extern crate alloc;
-use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::common::error::ort_err;
 use crate::net::AsFd;
+use crate::utils;
 use crate::{
     Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
     common::io::ReadLine, ort_error,
 };
-use crate::{syscall, utils};
 
 /// How long to wait for 'connect' syscall.
 /// Everyone blackholes the initial SYN so we can't wait for a rejection.
@@ -260,7 +260,6 @@ impl HttpError {
         msg.push_str(&self.status_line);
         msg.push_str(", ");
         msg.push_str(&self.body);
-        msg.push('\0');
         msg
     }
 
@@ -278,9 +277,7 @@ impl HttpError {
 
 impl From<HttpError> for OrtError {
     fn from(err: HttpError) -> OrtError {
-        let c_s = unsafe { CString::from_vec_with_nul_unchecked(err.as_string().into_bytes()) };
-        syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-        ort_error(ErrorKind::HttpStatusError, "")
+        ort_err(ErrorKind::HttpStatusError, err.as_string().into())
     }
 }
 

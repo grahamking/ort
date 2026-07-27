@@ -66,7 +66,10 @@ pub fn read_config_file(env: &Env, filename: &str) -> OrtResult<Option<String>> 
     match utils::filename_read_to_string(config_file) {
         Ok(cfg_str) => Ok(Some(cfg_str)),
         Err("NOT FOUND") => Ok(None),
-        Err(_e) => Err(ort_error(ErrorKind::ConfigReadFailed, "")),
+        Err(err) => {
+            let msg = "Reading config file ".to_string() + config_file + " - " + err;
+            Err(ort_err(ErrorKind::ConfigReadFailed, msg.into()))
+        }
     }
 }
 
@@ -299,20 +302,19 @@ impl Cfg {
         {
             let filename = &p[1..];
             self.prompt_filename = Some(filename.to_string());
-            self.prompt =
-                Some(utils::filename_read_to_string(filename).map_err(|_| {
-                    ort_error(ErrorKind::ConfigParseFailed, "Invalid prompt filename")
-                })?);
+            self.prompt = Some(utils::filename_read_to_string(filename).map_err(|err| {
+                let msg = "Invalid prompt filename ".to_string() + filename + " - " + err;
+                ort_err(ErrorKind::ConfigParseFailed, msg.into())
+            })?);
         }
 
         if let Some(system_prompt) = self.system_prompt.as_ref()
             && system_prompt.bytes().next() == Some(FILE_INDICATOR)
         {
-            let sp = utils::filename_read_to_string(&system_prompt[1..]).map_err(|_| {
-                ort_error(
-                    ErrorKind::ConfigParseFailed,
-                    "Invalid system prompt filename",
-                )
+            let filename = &system_prompt[1..];
+            let sp = utils::filename_read_to_string(filename).map_err(|err| {
+                let msg = "Invalid system prompt filename ".to_string() + filename + " - " + err;
+                ort_err(ErrorKind::ConfigParseFailed, msg.into())
             })?;
             self.system_prompt = Some(sp);
         }

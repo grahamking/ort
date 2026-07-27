@@ -7,12 +7,11 @@
 extern crate alloc;
 use core::ffi::c_void;
 
-use alloc::ffi::CString;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 
-use crate::utils::zclean;
-use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats, common::utils};
-use crate::{ort_error, syscall};
+use crate::common::error::{ort_err, ort_error};
+use crate::syscall;
+use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats};
 
 pub struct ConsoleWriter<'a, W: Write + Send> {
     pub writer: &'a mut W, // Must handle ANSI control chars
@@ -129,11 +128,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 if err_string.contains(super::ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
-                utils::print_string(c"\nERROR: ", &err_string);
-                return Err(ort_error(
-                    ErrorKind::ResponseStreamError,
-                    "Remote returned an error",
-                ));
+                return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
             Response::None => {
                 // TODO: Can this still happen?
@@ -197,16 +192,11 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                 let _ = self.writer.write(b"\n");
                 let _ = self.writer.flush();
             }
-            Response::Error(mut err_string) => {
+            Response::Error(err_string) => {
                 if err_string.contains(super::ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
-                let c_s = CString::new("\nERROR: ".to_string() + zclean(&mut err_string)).unwrap();
-                syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
-                return Err(ort_error(
-                    ErrorKind::ResponseStreamError,
-                    "OpenRouter returned an error",
-                ));
+                return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
             Response::None => {
                 // TODO: Can this still happen?
@@ -263,12 +253,8 @@ impl super::OutputWriter for CollectedWriter {
                 self.got_stats = Some(stats);
             }
             Response::Prompt(_) => {}
-            Response::Error(_err) => {
-                // Original message: CollectedWriter + err detail
-                return Err(ort_error(
-                    ErrorKind::ResponseStreamError,
-                    "CollectedWriter response error",
-                ));
+            Response::Error(err) => {
+                return Err(ort_err(ErrorKind::ResponseStreamError, err.into()));
             }
             Response::None => {
                 // TODO: Can this still happen?

@@ -27,12 +27,14 @@ pub enum ErrorKind {
     FailedFillingSystemPrompt,
 
     // Conversation/history
+    //
     HistoryMissing,
     HistoryParseFailed,
     HistoryReadFailed,
     HistoryLookupFailed,
 
     // Input validation
+    //
     InvalidMessageSchema,
     ParsingToolCallParams,
     ToolDoesNotExist,
@@ -46,18 +48,12 @@ pub enum ErrorKind {
     LastWriterError,
 
     // Filesystem
+    //
     FileCreateFailed,
     FileReadFailed,
     FileWriteFailed,
     FileStatFailed,
     DirOpenFailed,
-
-    // Threads
-    //
-    // Failed mmap allocating thread stack
-    ThreadStackAllocFailed,
-    // pthread_create failed
-    ThreadSpawnFailed,
 
     // Networking
     //
@@ -71,6 +67,7 @@ pub enum ErrorKind {
     SocketWriteFailed,
 
     // Generic I/O
+    //
     UnexpectedEof,
     // O_NONBLOCK socket has no data to read right now
     WouldBlock,
@@ -86,6 +83,7 @@ pub enum ErrorKind {
     ChunkedDataReadError,
 
     // HTTP / higher-level protocol
+    //
     HttpStatusError,
     HttpConnectError,
 
@@ -116,11 +114,13 @@ pub enum ErrorKind {
     TlsAes128GcmDecryptFailed,
 
     // Time
+    //
     TscCpuidLeafUnavailable,
     TscInvalidCalibration,
     TscMissingCrystalClock,
 
     // Misc
+    //
     FormatError,
     RateLimited,
     Other,
@@ -149,6 +149,7 @@ pub fn ort_err(kind: ErrorKind, context: Cow<'static, str>) -> OrtError {
 }
 
 impl OrtError {
+    // On error, main calls and prints this right before exiting
     pub fn as_string(&self) -> String {
         let k = self.kind.as_string();
         let mut out = String::with_capacity(k.len() + 2 + self.context.len());
@@ -171,10 +172,18 @@ impl OrtError {
     pub fn debug_print(&self) {}
 }
 
+/*
+impl From<&'static str> for OrtError {
+    fn from(err: &'static str) -> OrtError {
+        ort_err(ErrorKind::Other, err.into())
+    }
+}
+*/
+
 pub trait Context<T, E> {
     /// Wrap the error value with additional context.
-    fn context(self, context: &'static str) -> Result<T, OrtError>;
-    fn context_msg(self, context: String) -> Result<T, OrtError>;
+    fn context(self, context: &'static str) -> OrtResult<T>;
+    fn context_msg(self, context: String) -> OrtResult<T>;
 }
 
 impl<T, E> Context<T, E> for Result<T, E>
@@ -185,7 +194,7 @@ where
     fn context(self, context: &'static str) -> OrtResult<T> {
         ctx(self, context.into())
     }
-    fn context_msg(self, context: String) -> Result<T, OrtError> {
+    fn context_msg(self, context: String) -> OrtResult<T> {
         ctx(self, context.into())
     }
 }
@@ -198,7 +207,12 @@ fn ctx<T, E: Into<OrtError>>(
         Ok(ok) => Ok(ok),
         Err(error) => {
             let mut err: OrtError = error.into();
-            err.context = context;
+            if err.context.is_empty() {
+                err.context = context;
+            } else {
+                let new_ctx = err.context.into_owned() + " in " + context.borrow();
+                err.context = new_ctx.into();
+            }
             Err(err)
         }
     }

@@ -11,7 +11,6 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::utils::print_string;
 use crate::{
     Context, OrtResult, Read, Write, chunked,
     common::{buf_read, config, resolver},
@@ -31,7 +30,7 @@ pub fn run<W: Write + Send>(
 ) -> OrtResult<()> {
     let (host, port, base_path) = http::split_url(&cfg.base_url);
     let addrs = if cfg.dns.is_empty() {
-        let ips = unsafe { resolver::resolve(host)? };
+        let ips = unsafe { resolver::resolve(host).context("resolver::resolve")? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
             .collect()
@@ -44,13 +43,7 @@ pub fn run<W: Write + Send>(
             })
             .collect()
     };
-    let reader = match http::list_models(api_key, host, base_path, addrs) {
-        Ok(r) => r,
-        Err(err) => {
-            print_string(c"FATAL running list_models: ", &err.as_string());
-            return Err(ort_error(ErrorKind::Other, "running list_models"));
-        }
-    };
+    let reader = http::list_models(api_key, host, base_path, addrs).context("list_models")?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let response_body = http::skip_header(&mut reader)?;
 
