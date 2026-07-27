@@ -885,8 +885,8 @@ impl Tool {
         }
 
         let Some(t) = Tool::find_by_name(&name) else {
-            // TODO: Error really needs to be a String
-            return Err("Tool not found".into());
+            let msg = "Tool not found: ".to_string() + &name;
+            return Err(msg.into());
         };
         Ok(t)
     }

@@ -10,6 +10,7 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::common::error::ort_err;
 use crate::common::file;
 use crate::common::io::Write;
 use crate::{Context, Message, Priority, ReasoningEffort, syscall};
@@ -339,15 +340,10 @@ impl Cfg {
             match syscall::system("date") {
                 Ok(current_date) => sp = sp.replace("$DATE", &current_date.stdout),
                 Err(err) => {
-                    // TODO: When OrtError can handle String we can remove this
-                    crate::print_string(
-                        c"Failed running `date` to substitute $DATE in system prompt: ",
-                        &err.as_string(),
-                    );
-                    return Err(ort_error(
-                        ErrorKind::FailedFillingSystemPrompt,
-                        "Failed running 'date' cmd",
-                    ));
+                    let msg = "Failed running `date` to substitute $DATE in system prompt: "
+                        .to_string()
+                        + &err.as_string();
+                    return Err(ort_err(ErrorKind::FailedFillingSystemPrompt, msg.into()));
                 }
             };
         }

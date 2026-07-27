@@ -2,15 +2,15 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025,2026 Graham King
 
 extern crate alloc;
-use core::fmt;
 
+use alloc::borrow::{Borrow, Cow};
 use alloc::string::String;
 
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ErrorKind {
     // Configuration & arguments
     //
@@ -126,100 +126,25 @@ pub enum ErrorKind {
     Other,
 }
 
-impl fmt::Debug for ErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = self.as_string();
-        f.write_str(s)
-    }
-}
-
 impl ErrorKind {
-    pub fn as_string(&self) -> &'static str {
-        // TODO: Use core::alloc::format!("{self:?}") instead of all this
-        // We must return String instead though, which affects OrtError
-        match self {
-            ErrorKind::MissingApiKey => "MissingApiKey",
-            ErrorKind::InvalidArguments => "InvalidArguments",
-            ErrorKind::ConfigParseFailed => "ConfigParseFailed",
-            ErrorKind::ConfigReadFailed => "ConfigReadFailed",
-            ErrorKind::MissingHomeDir => "MissingHomeDir",
-            ErrorKind::MissingSystemPrompt => "MissingSystemPrompt",
-            ErrorKind::FailedFillingSystemPrompt => "FailedFillingSystemPrompt",
-            ErrorKind::HistoryMissing => "HistoryMissing",
-            ErrorKind::HistoryParseFailed => "HistoryParseFailed",
-            ErrorKind::HistoryReadFailed => "HistoryReadFailed",
-            ErrorKind::HistoryLookupFailed => "HistoryLookupFailed",
-            ErrorKind::InvalidMessageSchema => "InvalidMessageSchema",
-            ErrorKind::ParsingToolCallParams => "ParsingToolCallParams",
-            ErrorKind::ToolDoesNotExist => "ToolDoesNotExist",
-            ErrorKind::StdoutWriteFailed => "StdoutWriteFailed",
-            ErrorKind::MissingUsageStats => "MissingUsageStats",
-            ErrorKind::ResponseStreamError => "ResponseStreamError",
-            ErrorKind::LastWriterError => "LastWriterError",
-            ErrorKind::FileCreateFailed => "FileCreateFailed",
-            ErrorKind::FileReadFailed => "FileReadFailed",
-            ErrorKind::FileWriteFailed => "FileWriteFailed",
-            ErrorKind::FileStatFailed => "FileStatFailed",
-            ErrorKind::DirOpenFailed => "DirOpenFailed",
-            ErrorKind::ThreadStackAllocFailed => "ThreadStackAllocFailed",
-            ErrorKind::ThreadSpawnFailed => "ThreadSpawnFailed",
-            ErrorKind::DnsResolveFailed => "DnsResolveFailed",
-            ErrorKind::ReadingResolvConfFailed => "ReadingResolvConfFailed",
-            ErrorKind::SocketCreateFailed => "SocketCreateFailed",
-            ErrorKind::SocketConnectFailed => "SocketConnectFailed",
-            ErrorKind::SocketReadFailed => "SocketReadFailed",
-            ErrorKind::SocketWriteFailed => "SocketWriteFailed",
-            ErrorKind::UnexpectedEof => "UnexpectedEof",
-            ErrorKind::WouldBlock => "WouldBlock",
-            ErrorKind::ChunkedEofInSize => "ChunkedEofInSize",
-            ErrorKind::ChunkedSizeReadError => "ChunkedSizeReadError",
-            ErrorKind::ChunkedInvalidSize => "ChunkedInvalidSize",
-            ErrorKind::ChunkedDataReadError => "ChunkedDataReadError",
-            ErrorKind::HttpStatusError => "HttpStatusError",
-            ErrorKind::HttpConnectError => "HttpConnectError",
-            ErrorKind::TlsExpectedHandshakeRecord => "TlsExpectedHandshakeRecord",
-            ErrorKind::TlsExpectedServerHello => "TlsExpectedServerHello",
-            ErrorKind::TlsExpectedChangeCipherSpec => "TlsExpectedChangeCipherSpec",
-            ErrorKind::TlsExpectedEncryptedRecords => "TlsExpectedEncryptedRecords",
-            ErrorKind::TlsBadHandshakeFragment => "TlsBadHandshakeFragment",
-            ErrorKind::TlsFinishedVerifyFailed => "TlsFinishedVerifyFailed",
-            ErrorKind::TlsUnsupportedCipher => "TlsUnsupportedCipher",
-            ErrorKind::TlsAlertReceived => "TlsAlertReceived",
-            ErrorKind::TlsRecordTooShort => "TlsRecordTooShort",
-            ErrorKind::TlsHandshakeHeaderTooShort => "TlsHandshakeHeaderTooShort",
-            ErrorKind::TlsHandshakeBodyTooShort => "TlsHandshakeBodyTooShort",
-            ErrorKind::TlsServerHelloTooShort => "TlsServerHelloTooShort",
-            ErrorKind::TlsServerHelloSessionIdInvalid => "TlsServerHelloSessionIdInvalid",
-            ErrorKind::TlsServerHelloExtTooShort => "TlsServerHelloExtTooShort",
-            ErrorKind::TlsExtensionHeaderTooShort => "TlsExtensionHeaderTooShort",
-            ErrorKind::TlsExtensionLengthInvalid => "TlsExtensionLengthInvalid",
-            ErrorKind::TlsKeyShareServerHelloInvalid => "TlsKeyShareServerHelloInvalid",
-            ErrorKind::TlsServerGroupUnsupported => "TlsServerGroupUnsupported",
-            ErrorKind::TlsKeyShareLengthInvalid => "TlsKeyShareLengthInvalid",
-            ErrorKind::TlsServerNotTls13 => "TlsServerNotTls13",
-            ErrorKind::TlsMissingServerKey => "TlsMissingServerKey",
-            ErrorKind::TlsAes128GcmDecryptFailed => "TlsAes128GcmDecryptFailed",
-
-            ErrorKind::TscCpuidLeafUnavailable => "TscCpuidLeafUnavailable",
-            ErrorKind::TscInvalidCalibration => "TscInvalidCalibration",
-            ErrorKind::TscMissingCrystalClock => "TscMissingCrystalClock",
-
-            ErrorKind::FormatError => "FormatError",
-            ErrorKind::RateLimited => "RateLimited",
-            ErrorKind::Other => "Other",
-        }
+    pub fn as_string(&self) -> String {
+        alloc::format!("{self:?}")
     }
 }
 
 pub type OrtResult<T> = Result<T, OrtError>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct OrtError {
     pub kind: ErrorKind,
-    pub context: &'static str,
+    pub context: Cow<'static, str>,
 }
 
 pub fn ort_error(kind: ErrorKind, context: &'static str) -> OrtError {
+    ort_err(kind, context.into())
+}
+
+pub fn ort_err(kind: ErrorKind, context: Cow<'static, str>) -> OrtError {
     OrtError { kind, context }
 }
 
@@ -227,9 +152,9 @@ impl OrtError {
     pub fn as_string(&self) -> String {
         let k = self.kind.as_string();
         let mut out = String::with_capacity(k.len() + 2 + self.context.len());
-        out.push_str(k);
+        out.push_str(&k);
         out.push_str(": ");
-        out.push_str(self.context);
+        out.push_str(self.context.borrow());
         out
     }
 
@@ -249,6 +174,7 @@ impl OrtError {
 pub trait Context<T, E> {
     /// Wrap the error value with additional context.
     fn context(self, context: &'static str) -> Result<T, OrtError>;
+    fn context_msg(self, context: String) -> Result<T, OrtError>;
 }
 
 impl<T, E> Context<T, E> for Result<T, E>
@@ -257,13 +183,23 @@ where
 {
     /// Wrap the error value with additional context.
     fn context(self, context: &'static str) -> OrtResult<T> {
-        match self {
-            Ok(ok) => Ok(ok),
-            Err(error) => {
-                let mut err: OrtError = error.into();
-                err.context = context;
-                Err(err)
-            }
+        ctx(self, context.into())
+    }
+    fn context_msg(self, context: String) -> Result<T, OrtError> {
+        ctx(self, context.into())
+    }
+}
+
+fn ctx<T, E: Into<OrtError>>(
+    result: Result<T, E>,
+    context: Cow<'static, str>,
+) -> Result<T, OrtError> {
+    match result {
+        Ok(ok) => Ok(ok),
+        Err(error) => {
+            let mut err: OrtError = error.into();
+            err.context = context;
+            Err(err)
         }
     }
 }

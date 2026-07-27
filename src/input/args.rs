@@ -14,11 +14,12 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::ErrorKind;
 use crate::OrtError;
 use crate::Priority;
 use crate::ReasoningEffort;
+use crate::common::error::ort_err;
 use crate::common::utils;
-use crate::{ErrorKind, ort_error};
 
 const MAX_CONCURRENT_MODELS: usize = 10;
 
@@ -297,15 +298,7 @@ impl ArgParseError {
 
 impl From<ArgParseError> for OrtError {
     fn from(err: ArgParseError) -> OrtError {
-        let _ = err;
-        match err.s {
-            Cow::Borrowed(static_str) => ort_error(ErrorKind::InvalidArguments, static_str),
-            Cow::Owned(owned_str) => {
-                // TODO: OrtError must be able to hold a String
-                crate::utils::print_string(c"ArgParseError: ", &owned_str);
-                ort_error(ErrorKind::InvalidArguments, "See above")
-            }
-        }
+        ort_err(ErrorKind::InvalidArguments, err.s)
     }
 }
 
