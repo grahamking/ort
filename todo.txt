@@ -1,3 +1,15 @@
+  --- error logging
+
+  - src/common/config.rs:66: config read errors discard both the filename and underlying read reason. Return something like "{config_file}: {e}". Also src/common/config.rs:296 should include the bad @filename for prompt/system prompt file failures.
+  - src/input/prompt.rs:133: load_last_data has last_file_path and parser error text, but returns static "Failed to parse last" or "Error reading last conversation file". Include the path and parser/read error.
+  - src/common/data.rs:535: JSON/content parsing already builds owned detail like "unsupported content type: {other}", "Invalid mime type...", and "Tool not found: {name}" around src/common/ data.rs:554, src/common/data.rs:583, and src/common/data.rs:888. Keep that owned detail when converting to OrtError at boundaries such as Message::with_files src/common/data.rs:387.
+  - src/common/tools.rs:110: parse_function throws away JSON parse errors and function names. Include tool name plus parser error. src/common/tools.rs:148 should include f.name.
+  - src/net/socket.rs:31: socket connect/read/write paths compute or have runtime details but discard them. Include fd/address/timeout and syscall errno where available, especially src/net/socket.rs:96 and src/net/socket.rs:110, which currently print err_code separately.
+  - src/common/resolver.rs:39: DNS failures should include host, resolver IP, and DNS response code. The server code is already computed at src/common/resolver.rs:95 then discarded in the returned error.
+  - src/net/tls.rs:268: TLS parser errors would benefit from lengths/types/codes. Good candidates: expected handshake type got actual type src/net/tls.rs:271, bad fragment preserving nested error src/net/tls.rs:467, TLS alert level/code src/net/tls.rs:704, short record actual length src/net/tls.rs:846, handshake body expected/actual lengths src/net/tls.rs:897, unsupported group actual value src/net/tls.rs:954.
+
+  Lower priority / mostly fine as static: schema invariants in src/input/to_json.rs:233, constant config validation text for invalid enum fields in src/common/config.rs:207, and simple EOF/chunked parser states. Those are already specific enough unless you want byte offsets.
+
 --- General
 
 - Add 'x-session-id' HTTP header to allow middle boxes and remote to track session. Persist it in last.json and across `-c` continue sessions.
