@@ -99,6 +99,7 @@ pub const IPPROTO_TCP: i32 = 6;
 pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
 pub const EPOLL_CTL_ADD: c_int = 1;
+pub const EPOLL_CTL_DEL: c_int = 2;
 pub const IN_MOVED_TO: u32 = 0x00000080;
 //pub const IN_MODIFY: u32 = 0x00000002; // File was modified
 pub const IN_CLOSE_WRITE: u32 = 0x00000008; // Writable file was closed

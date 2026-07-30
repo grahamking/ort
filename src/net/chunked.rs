@@ -103,6 +103,9 @@ impl<R: Read, const MAX_CHUNK_SIZE: usize> ChunkedIterator<R, MAX_CHUNK_SIZE> {
                 }
                 Ok(_) => {}
                 Err(err) => {
+                    if matches!(err.kind, ErrorKind::WouldBlock) {
+                        return Some(Err(err));
+                    }
                     err.debug_print();
                     return Some(Err(ort_error(ErrorKind::ChunkedSizeReadError, "")));
                 }

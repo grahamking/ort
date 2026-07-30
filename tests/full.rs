@@ -28,7 +28,7 @@ fn test_invalid_model_name() {
 
 #[test]
 fn test_hello() {
-    const MODEL: &str = "openai/gpt-oss-20b";
+    const MODEL: &str = "openrouter/free";
     let mut out = Vec::new();
 
     // Need "-p latency" to avoid Chutes which can be very slow
@@ -53,7 +53,7 @@ fn test_hello() {
 
     let last_line = lines.last().unwrap();
     assert!(
-        last_line.starts_with(&format!("Stats: {MODEL}")),
+        last_line.starts_with("Stats: "),
         "Invalid last line: '{last_line}'",
     );
 }

@@ -238,8 +238,10 @@ pub fn run_multi<W: Write + Send>(
         }
     }
 
-    let mut ready_events = vec![syscall::epoll_event { events: 0, data: 0 }; active_prompts.len()];
-    while !ready_events.is_empty() {
+    let mut is_active = vec![true; num_models];
+    let mut remaining = num_models;
+    let mut ready_events = vec![syscall::epoll_event { events: 0, data: 0 }; num_models];
+    while remaining > 0 {
         let num_ready = syscall::epoll_wait(
             epoll_fd.raw(),
             ready_events.as_mut_ptr(),
@@ -254,17 +256,30 @@ pub fn run_multi<W: Write + Send>(
             continue;
         }
 
-        let mut num_done = 0;
         for evt in ready_events[..num_ready as usize].iter() {
-            let active_prompt = &mut active_prompts[evt.data as usize];
-            let output_writer = &mut active_writers[evt.data as usize];
+            let idx = evt.data as usize;
+            if !is_active[idx] {
+                continue;
+            }
+
+            let active_prompt = &mut active_prompts[idx];
+            let output_writer = &mut active_writers[idx];
             //let name = &names[evt.data as usize];
 
             // TODO: loop until WouldBlock?
 
             match active_prompt.next() {
                 Ok(None) => {
-                    num_done += 1;
+                    is_active[idx] = false;
+                    remaining -= 1;
+                    let socket_fd = active_prompt.as_fd();
+                    let mut event = syscall::epoll_event { events: 0, data: 0 };
+                    let _ = syscall::epoll_ctl(
+                        epoll_fd.raw(),
+                        syscall::EPOLL_CTL_DEL,
+                        socket_fd,
+                        &mut event,
+                    );
 
                     let stats = active_prompt.stop();
                     output_writer.write(Response::Stats(stats))?;
@@ -289,10 +304,6 @@ pub fn run_multi<W: Write + Send>(
                     utils::print_string(c"active_prompt.next: ", &err.as_string());
                 }
             }
-        }
-
-        for _ in 0..num_done {
-            let _ = ready_events.pop();
         }
     }
     Ok(())
