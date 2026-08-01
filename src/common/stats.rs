@@ -50,7 +50,7 @@ impl Stats {
         &self.provider
     }
 
-    pub(crate) fn as_string(&self) -> String {
+    pub fn as_string(&self) -> String {
         // "{used_model} at {provider}. {cost_in_cents:.4} cents. {elapsed_time} ({time_to_first_token} TTFT, {inter_token_latency_ms}ms ITL)",
         let mut s = String::with_capacity(256);
         s.push_str(&self.used_model);

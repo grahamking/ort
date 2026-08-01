@@ -306,7 +306,7 @@ pub fn run_multi<W: Write + Send>(
 
 pub trait PromptReader: ReadLine + AsFd {}
 
-pub(in crate::input) struct ActivePrompt {
+pub struct ActivePrompt {
     api_key: String,
     cfg: Cfg,
     messages: Vec<Message>,

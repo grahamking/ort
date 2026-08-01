@@ -162,7 +162,7 @@ pub fn main<W: Write + Send>(
 }
 
 /// CLI opts always override the config
-fn override_config_from_cli(cfg: &mut Cfg, cli_opts: PromptOpts) {
+pub fn override_config_from_cli(cfg: &mut Cfg, cli_opts: PromptOpts) {
     if !cli_opts.models.is_empty() {
         cfg.models = cli_opts.models;
     }

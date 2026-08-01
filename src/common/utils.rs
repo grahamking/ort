@@ -183,7 +183,7 @@ pub fn print_string(prefix: &CStr, s: &str) {
 
 /// Replace any null bytes with an underscore, making it C-safe
 /// Makes this construction safe from panic: `CString::new(zclean(s)).unwrap()`
-pub(crate) fn zclean(s: &mut str) -> &str {
+pub fn zclean(s: &mut str) -> &str {
     for byte in unsafe { s.as_bytes_mut() } {
         if *byte == 0 {
             *byte = b'_';
@@ -281,7 +281,7 @@ pub(crate) fn filename_read_to_bytes(filename: &str) -> Result<Vec<u8>, &'static
 }
 
 /// Read a text file into memory
-pub(crate) fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
+pub fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let content = filename_read_to_bytes(filename)?;
     let out = String::from_utf8_lossy(&content);
     Ok(out.into_owned().to_string())

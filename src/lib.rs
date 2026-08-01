@@ -15,20 +15,27 @@ mod output;
 pub mod syscall;
 
 pub use common::alloc::ArenaAlloc;
+pub use common::config;
 pub use common::data::{
-    ChatCompletionsResponse, Choice, DEFAULT_MODEL, LastData, Message, Priority, ReasoningEffort,
-    Response, Role, ThinkEvent, Usage,
+    ChatCompletionsResponse, Choice, Content, DEFAULT_MODEL, LastData, Message, Priority,
+    ReasoningEffort, Response, Role, ThinkEvent, Tool, Usage,
 };
-pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_error};
+pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_error};
+pub use common::stats::Stats;
+pub use common::tools;
 pub use common::utils;
 pub use common::{io::Read, io::Write};
 pub use utils::print_string;
 
+pub use input::args;
 pub use input::cli;
+pub use input::prompt::ActivePrompt;
 pub use input::to_json::build_body;
 
 pub use net::socket::TcpSocket;
 pub use net::tls::TlsStream;
 pub use net::{chunked, http};
 
+pub use output::OutputWriter;
+pub use output::last_writer::LastWriter;
 pub use output::writer::StdoutWriter;
