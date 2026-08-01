@@ -4,7 +4,9 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-use ort_openrouter_cli::cli::{self, Env};
+use ort_openrouter_cli::cli;
+
+mod shared;
 
 /*
  * TODO: Get the error from the thread
@@ -28,7 +30,8 @@ fn test_invalid_model_name() {
 
 #[test]
 fn test_hello() {
-    const MODEL: &str = "openrouter/free";
+    //const MODEL: &str = "openrouter/free";
+    const MODEL: &str = "meta-llama/llama-3.1-8b-instruct";
     let mut out = Vec::new();
 
     // Need "-p latency" to avoid Chutes which can be very slow
@@ -36,7 +39,7 @@ fn test_hello() {
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-    let ret = cli::main(&args, env(), false, &mut out);
+    let ret = cli::main(&args, shared::env(), false, &mut out);
     assert!(matches!(ret, Ok(0)));
 
     let contents = String::from_utf8_lossy(&out);
@@ -47,8 +50,8 @@ fn test_hello() {
 
     let first_line = lines.next().unwrap();
     assert!(
-        first_line.contains("assist") || first_line.contains("help") || first_line.contains("ello"),
-        "Invalid line: '{first_line}'"
+        shared::HELLO.iter().any(|hello| first_line.contains(hello)),
+        "Response does not contain greeting: '{first_line}'"
     );
 
     let last_line = lines.last().unwrap();
@@ -63,7 +66,7 @@ fn test_list() {
     let mut out = Vec::new();
 
     let args: Vec<String> = ["ort", "list"].into_iter().map(|s| s.to_string()).collect();
-    match cli::main(&args, env(), false, &mut out) {
+    match cli::main(&args, shared::env(), false, &mut out) {
         // success
         Ok(0) => {}
         Ok(x) => {
@@ -85,24 +88,4 @@ fn test_list() {
     // List is ordered alphabetically, should have many before
     assert!(count > 20, "Too few lines: {count}");
     panic!("List did not include openrouter/auto");
-}
-
-fn env() -> Env {
-    macro_rules! env_str {
-        ($name:literal) => {
-            std::env::var($name).ok().map(|v| {
-                let s: &'static str = v.leak();
-                s
-            })
-        };
-    }
-    cli::Env {
-        HOME: env_str!("HOME"),
-        PWD: env_str!("PWD"),
-        TMUX_PANE: env_str!("TMUX_PANE"),
-        XDG_CONFIG_HOME: env_str!("XDG_CONFIG_HOME"),
-        XDG_CACHE_HOME: env_str!("XDG_CACHE_HOME"),
-        OPENROUTER_API_KEY: env_str!("OPENROUTER_API_KEY"),
-        NVIDIA_API_KEY: env_str!("NVIDIA_API_KEY"),
-    }
 }
