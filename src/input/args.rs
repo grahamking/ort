@@ -26,7 +26,6 @@ const MAX_CONCURRENT_MODELS: usize = 10;
 pub enum Cmd {
     List(ListOpts),
     Prompt(PromptOpts),
-    Agent(PromptOpts),
     ContinueConversation(PromptOpts),
 }
 
@@ -81,13 +80,6 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     let mut is_private = None;
 
     let mut i = 1usize;
-
-    let is_agent = if args[i] == "agent" {
-        i += 1;
-        true
-    } else {
-        false
-    };
 
     while i < args.len() {
         let arg = &args[i];
@@ -223,8 +215,6 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     };
     if continue_conversation {
         Ok(Cmd::ContinueConversation(prompt_opts))
-    } else if is_agent {
-        Ok(Cmd::Agent(prompt_opts))
     } else {
         Ok(Cmd::Prompt(prompt_opts))
     }

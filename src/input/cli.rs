@@ -14,7 +14,6 @@ use crate::Write;
 use crate::common::buf_read;
 use crate::common::config;
 use crate::common::config::Cfg;
-use crate::input::agent;
 use crate::input::args;
 use crate::input::args::Cmd;
 use crate::input::args::PromptOpts;
@@ -92,9 +91,7 @@ pub fn main<W: Write + Send>(
     };
     let config_file = match &cmd {
         Cmd::List(opts) => opts.config_file.as_deref(),
-        Cmd::Prompt(opts) | Cmd::Agent(opts) | Cmd::ContinueConversation(opts) => {
-            opts.config_file.as_deref()
-        }
+        Cmd::Prompt(opts) | Cmd::ContinueConversation(opts) => opts.config_file.as_deref(),
     };
 
     let mut cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg"))?;
@@ -133,16 +130,6 @@ pub fn main<W: Write + Send>(
             } else {
                 prompt::run_multi(&api_key, &cfg, cli_opts, messages, w)
             }
-        }
-        args::Cmd::Agent(cli_opts) => {
-            override_config_from_cli(&mut cfg, cli_opts.clone());
-            cfg.setup(&env)?;
-
-            // Agent mode always includes server-side web tools
-            cfg.include_web_tools = true;
-            cfg.quiet = true;
-            let messages = cfg.messages()?;
-            agent::run(&api_key, &cfg, &env, messages, w)
         }
         args::Cmd::ContinueConversation(cli_opts) => {
             let new_prompt = cli_opts.prompt.clone().unwrap();

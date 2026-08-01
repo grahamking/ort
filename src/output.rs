@@ -11,7 +11,6 @@
 use crate::OrtResult;
 use crate::common::data::Response;
 
-pub mod agent;
 pub mod last_writer;
 pub mod logger;
 pub mod writer;
@@ -43,16 +42,6 @@ pub const SPINNER: [&[u8]; 4] = [
     "-\x1b[1D".as_bytes(),
     "\\\x1b[1D".as_bytes(),
 ];
-
-pub const PROMPT_START: &[u8] = "\n\x1b[3m".as_bytes();
-pub const RESET: &[u8] = "\x1b[0m".as_bytes();
-
-pub const TOOL_CALL_START: &[u8] = "\n\x1b[0m".as_bytes();
-pub const TOOL_CALL_ARGUMENT_START: &[u8] = "\x1b[96m".as_bytes();
-pub const TOOL_CALL_END: &[u8] = "\x1b[0m\n".as_bytes();
-
-pub const AGENT_STATS_START: &[u8] = "\n\x1b[35m".as_bytes();
-pub const AGENT_STATS_END: &[u8] = "\x1b[0m\n".as_bytes();
 
 pub const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
