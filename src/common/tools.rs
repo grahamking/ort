@@ -5,14 +5,16 @@
 //! Copyright (c) 2026 Graham King
 
 extern crate alloc;
+use alloc::borrow::Borrow;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::ErrorKind;
 use crate::common::data::{Function, ToolDisplay};
-use crate::{ErrorKind, ort_error};
+use crate::common::error::ort_err;
 use crate::{
     OrtResult, Write,
     common::{
@@ -110,42 +112,45 @@ ded.",
 pub fn parse_function(f: &Function) -> OrtResult<Box<dyn ActiveTool>> {
     match f.name.as_ref() {
         "read" => {
-            let t = ReadTool::from_json(&f.arguments).map_err(|_err| {
-                ort_error(
+            let t = ReadTool::from_json(&f.arguments).map_err(|err| {
+                ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    "Parsing read tool params JSON",
+                    ("Parsing read tool params JSON - ".to_string() + err.borrow()).into(),
                 )
             })?;
             Ok(Box::new(t))
         }
         "bash" => {
-            let t = BashTool::from_json(&f.arguments).map_err(|_err| {
-                ort_error(
+            let t = BashTool::from_json(&f.arguments).map_err(|err| {
+                ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    "Parsing bash tool params JSON",
+                    ("Parsing bash tool params JSON - ".to_string() + err.borrow()).into(),
                 )
             })?;
             Ok(Box::new(t))
         }
         "write" => {
-            let t = WriteTool::from_json(&f.arguments).map_err(|_err| {
-                ort_error(
+            let t = WriteTool::from_json(&f.arguments).map_err(|err| {
+                ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    "Parsing write tool params JSON",
+                    ("Parsing write tool params JSON - ".to_string() + err.borrow()).into(),
                 )
             })?;
             Ok(Box::new(t))
         }
         "edit" => {
-            let t = EditTool::from_json(&f.arguments).map_err(|_err| {
-                ort_error(
+            let t = EditTool::from_json(&f.arguments).map_err(|err| {
+                ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    "Parsing edit tool params JSON",
+                    ("Parsing edit tool params JSON - ".to_string() + err.borrow()).into(),
                 )
             })?;
             Ok(Box::new(t))
         }
-        _ => Err(ort_error(ErrorKind::ToolDoesNotExist, "")),
+        missing => Err(ort_err(
+            ErrorKind::ToolDoesNotExist,
+            missing.to_string().into(),
+        )),
     }
 }
 
@@ -325,8 +330,10 @@ impl EditTool {
 
 impl ActiveTool for EditTool {
     fn run(&self) -> OrtResult<String> {
-        let mut content = utils::filename_read_to_string(&self.path)
-            .map_err(|str_err| ort_error(ErrorKind::Other, str_err))?;
+        let mut content = utils::filename_read_to_string(&self.path).map_err(|str_err| {
+            let msg = "filename_read_to_string ".to_string() + &self.path + " - " + str_err;
+            ort_err(ErrorKind::ToolRun, msg.into())
+        })?;
         let Some(idx) = content.find(&self.old_text) else {
             return Ok("old_text not found in ".to_string() + &self.path);
         };
@@ -336,8 +343,10 @@ impl ActiveTool for EditTool {
             content.replace_range(idx..idx + self.old_text.len(), &self.new_text);
         }
 
-        let c_path = CString::new(self.path.as_str())
-            .map_err(|_err| ort_error(ErrorKind::Other, "Edit path contains nul byte"))?;
+        let c_path = CString::new(self.path.as_str()).map_err(|_err| {
+            let msg = self.path.to_string() + ". Edit path contains nul byte";
+            ort_err(ErrorKind::ToolRun, msg.into())
+        })?;
         let mut target = unsafe { File::create(c_path.as_bytes_with_nul())? };
         target.write(content.as_bytes())?;
 

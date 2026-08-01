@@ -15,9 +15,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::base64;
+use crate::common::error::ort_err;
 use crate::common::json_parser::{JsonField, Parser, autoparser};
 use crate::utils::filename_read_to_bytes;
-use crate::{ErrorKind, OrtResult, ort_error};
+use crate::{ErrorKind, OrtResult};
 
 const IMAGE_EXT: [&str; 4] = ["jpg", "JPG", "png", "PNG"];
 
@@ -384,7 +385,12 @@ impl Message {
             if f.starts_with("http") {
                 m.content.push(Content::ImageUrl(f.clone()));
             } else {
-                let pf = PromptFile::load(f).map_err(|err| ort_error(ErrorKind::Other, err))?;
+                let pf = PromptFile::load(f).map_err(|err| {
+                    ort_err(
+                        ErrorKind::ReadingPromptFile,
+                        (f.to_string() + " - " + err).into(),
+                    )
+                })?;
                 m.content.push(pf.into_content());
             }
         }

@@ -4,10 +4,13 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+extern crate alloc;
+use alloc::string::ToString;
 use core::ffi::{c_int, c_void};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
+use crate::common::error::ort_err;
 use crate::{ErrorKind, OrtResult, Read, Write, ort_error, syscall, utils};
 
 pub struct TcpSocket {
@@ -94,8 +97,8 @@ impl Read for TcpSocket {
             }
             // see /usr/include/asm-generic/errno.h to translate the codes
             let err_code = utils::num_to_string(-bytes_read);
-            utils::print_string(c"socket read err: ", &err_code);
-            Err(ort_error(ErrorKind::SocketReadFailed, "syscall read error"))
+            let msg = "socket syscall::read err code ".to_string() + &err_code;
+            Err(ort_err(ErrorKind::SocketReadFailed, msg.into()))
         } else {
             Ok(bytes_read as usize)
         }
@@ -108,11 +111,8 @@ impl Write for TcpSocket {
         if bytes_written < 0 {
             // see /usr/include/asm-generic/errno.h to translate the codes
             let err_code = utils::num_to_string(-bytes_written);
-            utils::print_string(c"socket write err: ", &err_code);
-            Err(ort_error(
-                ErrorKind::SocketWriteFailed,
-                "syscall write error",
-            ))
+            let msg = "socket syscall::write err code ".to_string() + &err_code;
+            Err(ort_err(ErrorKind::SocketWriteFailed, msg.into()))
         } else {
             Ok(bytes_written as usize)
         }

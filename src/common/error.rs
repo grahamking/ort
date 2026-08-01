@@ -38,6 +38,7 @@ pub enum ErrorKind {
     InvalidMessageSchema,
     ParsingToolCallParams,
     ToolDoesNotExist,
+    ReadingPromptFile,
 
     // Output & streaming
     //
@@ -46,6 +47,7 @@ pub enum ErrorKind {
     MissingUsageStats,
     ResponseStreamError,
     LastWriterError,
+    ToolRun,
 
     // Filesystem
     //

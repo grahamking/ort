@@ -4,6 +4,7 @@
 //! MIT License
 //! Copyright (c) 2025, 2026 Graham King
 
+use core::borrow::Borrow;
 use core::cmp::max;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -133,23 +134,17 @@ pub fn run<W: Write + Send>(
 pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
     let last_file_path = last_writer::last_data_file(env)?;
     match utils::filename_read_to_string(&last_file_path) {
-        Ok(hist_str) => LastData::from_json(&hist_str)
-            .map_err(|err| ort_err(ErrorKind::HistoryParseFailed, err)),
-        Err("NOT FOUND") => Err(ort_error(
+        Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
+            let msg = last_file_path + " - " + err.borrow();
+            ort_err(ErrorKind::HistoryParseFailed, msg.into())
+        }),
+        Err("NOT FOUND") => Err(ort_err(
             ErrorKind::HistoryMissing,
-            "No last conversation, cannot continue",
+            (last_file_path + " not found. No last conversation, cannot continue").into(),
         )),
-        Err(_e) => {
-            #[cfg(debug_assertions)]
-            {
-                // In debug build print the path.
-                let c_last_file = alloc::ffi::CString::new(last_file_path).unwrap();
-                syscall::write(2, c_last_file.as_ptr().cast(), c_last_file.count_bytes());
-            }
-            Err(ort_error(
-                ErrorKind::HistoryReadFailed,
-                "Error reading last conversation file",
-            ))
+        Err(err) => {
+            let msg = last_file_path + " read error on last conversation file -" + err;
+            Err(ort_err(ErrorKind::HistoryReadFailed, msg.into()))
         }
     }
 }
