@@ -15,15 +15,16 @@ use core::{ffi::c_void, mem::MaybeUninit};
 
 use crate::ort_error;
 use ort_openrouter_cli::{
-    ActivePrompt, Content, ErrorKind, LastWriter, Message, OrtResult, OutputWriter as _, Response,
-    Role, Stats, Tool, Write,
+    ActivePrompt, Content, ErrorKind, Message, OrtResult, OutputWriter as _, Response, Role, Stats,
+    Tool, Write,
     cli::Env,
     config,
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
-    tools, utils,
+    utils,
 };
 
 use super::output::AgentWriter;
+use super::tools;
 
 pub fn run<W: Write + Send>(
     api_key: &str,
@@ -142,7 +143,6 @@ fn run_single<W: Write + Send>(
     output_writer: &mut AgentWriter<W>,
     total_stats: &mut Stats,
 ) -> OrtResult<bool> {
-    let mut last_writer = LastWriter::new(messages.clone(), tools.to_vec(), env, cfg)?;
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
@@ -199,7 +199,6 @@ fn run_single<W: Write + Send>(
                         _ => {}
                     }
                     output_writer.write(event.clone())?;
-                    last_writer.write(event)?;
                 }
             }
             Err(err) => {
@@ -233,11 +232,57 @@ fn run_single<W: Write + Send>(
     *total_stats += stats;
 
     output_writer.stop(true)?;
-    last_writer.stop(true)?; // Finalize JSON
 
     Ok(has_tool_call)
 }
 
 fn error(msg: &str) -> String {
     r#"{"success": false, "error": ""#.to_string() + msg + r#""}"#
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+    use alloc::string::ToString;
+    use alloc::vec;
+    use ort_openrouter_cli::build_body;
+
+    use crate::tools::ALL_TOOLS;
+
+    use super::*;
+
+    #[test]
+    fn test_build_body() {
+        let cfg = config::Cfg {
+            api_key: None,
+            base_url: "test".to_string(),
+            dns: vec![],
+            prompt: None,
+            models: vec!["google/gemma-3n-e4b-it:free".to_string()],
+            provider: Some("google-ai-studio".to_string()),
+            system_prompt: Some("System prompt here".to_string()),
+            priority: None,
+            effort: None,
+            show_reasoning: false,
+            quiet: false,
+            prompt_filename: None,
+            files: vec![], // TODO
+            include_web_tools: true,
+            is_private: false,
+        };
+        let messages = vec![
+            Message::user("Hello".to_string()),
+            Message::assistant("Hello there!".to_string()),
+        ];
+        let got = match build_body(0, &cfg, &messages, &[ALL_TOOLS[0]]) {
+            Ok(got) => got,
+            Err(err) => {
+                panic!("{}", err.as_string());
+            }
+        };
+
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"},{"type": "function", "function": {"name": "read", "description": "Read the contents of a text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},"offset": {"type": "number", "description": "Line number to start reading from (1-indexed)"},"limit": {"type": "number", "description": "Maximum number of lines to read"}}, "required": ["path"]}}}]}"#;
+
+        assert_eq!(got, expected);
+    }
 }

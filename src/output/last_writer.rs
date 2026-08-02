@@ -12,7 +12,6 @@ use alloc::vec::Vec;
 
 use crate::cli::Env;
 use crate::common::config::Cfg;
-use crate::common::data::Tool;
 use crate::output::OutputWriter;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, Response, Write, common::config,
@@ -74,16 +73,11 @@ pub(crate) fn last_cfg(env: &Env) -> OrtResult<Cfg> {
 }
 
 impl LastWriter {
-    pub fn new(
-        messages: Vec<Message>,
-        tools: Vec<&'static Tool>,
-        env: &Env,
-        cfg: &Cfg,
-    ) -> OrtResult<Self> {
+    pub fn new(messages: Vec<Message>, env: &Env, cfg: &Cfg) -> OrtResult<Self> {
         let (lp, end) = last_path(env, ".json")?;
         // end + 1 to add a null byte on the end
         let last_file = unsafe { file::File::create(&lp[..end + 1]).context("create last file")? };
-        let data = LastData { messages, tools };
+        let data = LastData { messages };
         Ok(LastWriter {
             data,
             env: env.clone(),
@@ -101,10 +95,7 @@ impl OutputWriter for LastWriter {
         match data {
             Response::Start => {
                 self.w.write_char('{')?;
-                self.w.write_str(r#""tools": "#)?;
-                Tool::write_json_array(&self.data.tools, false, &mut self.w)?;
-
-                self.w.write_str(r#", "messages":"#)?;
+                self.w.write_str(r#""messages":"#)?;
 
                 // Write the initial messages (system, user)
                 self.w.write_char('[')?;
@@ -201,11 +192,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{
-        LastData, ThinkEvent,
-        common::{stats, tools::ALL_TOOLS},
-        utils::num_to_string,
-    };
+    use crate::{LastData, ThinkEvent, common::stats, utils::num_to_string};
 
     #[test]
     fn test_run_success() {
@@ -220,10 +207,7 @@ mod tests {
             Ok(file) => file,
             Err(err) => panic!("{}", err.as_string()),
         };
-        let data = LastData {
-            messages,
-            tools: vec![&ALL_TOOLS[0]],
-        };
+        let data = LastData { messages };
         let mut writer = LastWriter {
             w: file,
             data,
@@ -278,6 +262,5 @@ mod tests {
         };
         assert!(content.starts_with("Hello world 1. "));
         assert!(content.ends_with("Hello world 99. "));
-        assert_eq!(data.tools.len(), 1);
     }
 }

@@ -386,7 +386,6 @@ mod tests {
 
     use super::*;
     use crate::common::config::DEFAULT_BASE_URL;
-    use crate::common::tools::ALL_TOOLS;
 
     #[test]
     fn test_build_body() {
@@ -411,14 +410,14 @@ mod tests {
             Message::user("Hello".to_string()),
             Message::assistant("Hello there!".to_string()),
         ];
-        let got = match build_body(0, &cfg, &messages, &[ALL_TOOLS[0]]) {
+        let got = match build_body(0, &cfg, &messages, &[]) {
             Ok(got) => got,
             Err(err) => {
                 panic!("{}", err.as_string());
             }
         };
 
-        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"},{"type": "function", "function": {"name": "read", "description": "Read the contents of a text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},"offset": {"type": "number", "description": "Line number to start reading from (1-indexed)"},"limit": {"type": "number", "description": "Maximum number of lines to read"}}, "required": ["path"]}}}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}]}"#;
 
         assert_eq!(got, expected);
     }

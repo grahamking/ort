@@ -118,15 +118,7 @@ pub fn main<W: Write + Send>(
 
             let messages = cfg.messages()?;
             if cli_opts.models.len() == 1 {
-                prompt::run(
-                    &api_key,
-                    &cfg,
-                    &env,
-                    messages,
-                    alloc::vec![],
-                    !is_terminal,
-                    w,
-                )
+                prompt::run(&api_key, &cfg, &env, messages, !is_terminal, w)
             } else {
                 prompt::run_multi(&api_key, &cfg, cli_opts, messages, w)
             }

@@ -212,7 +212,7 @@ impl Usage {
 
 pub struct LastData {
     pub messages: Vec<Message>,
-    pub tools: Vec<&'static Tool>,
+    //pub tools: Vec<&'static Tool>,
 }
 
 impl LastData {
@@ -225,7 +225,7 @@ impl LastData {
 
         let mut fields = [
             JsonField::new_vec_raw("messages"),
-            JsonField::new_vec_raw("tools"),
+            //JsonField::new_vec_raw("tools"),
         ];
         autoparser(json, &mut fields)?;
 
@@ -236,14 +236,16 @@ impl LastData {
             }
         }
 
+        /*
         let mut tools = vec![];
         if let Some(tools_vec) = fields[1].get_vec_raw() {
             for t in tools_vec {
                 tools.push(Tool::from_json(&t)?);
             }
         }
+        */
 
-        Ok(LastData { messages, tools })
+        Ok(LastData { messages })
     }
 }
 
@@ -747,6 +749,7 @@ pub struct Tool {
 
 // This one doesn't use autoparser because we need to skip a lot of the function object.
 // Later we likely will use all of it an use autoparser.
+/*
 impl Tool {
     pub fn find_by_name(name: &str) -> Option<&'static Tool> {
         super::tools::ALL_TOOLS
@@ -897,6 +900,7 @@ impl Tool {
         Ok(t)
     }
 }
+*/
 
 #[derive(Clone)]
 pub struct ToolParameter {

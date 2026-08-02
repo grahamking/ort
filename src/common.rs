@@ -20,5 +20,4 @@ pub mod json_parser;
 pub mod resolver;
 pub mod stats;
 pub mod time;
-pub mod tools;
 pub mod utils;

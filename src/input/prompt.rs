@@ -68,7 +68,6 @@ pub fn run<W: Write + Send>(
     cfg: &Cfg,
     env: &Env,
     messages: Vec<Message>,
-    tools: Vec<&'static Tool>,
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: &mut W,
 ) -> OrtResult<()> {
@@ -80,19 +79,13 @@ pub fn run<W: Write + Send>(
 
     let mut last_writer = if !cfg.is_private {
         // Save the config so we use the same next time
-        Some(LastWriter::new(messages.clone(), tools.clone(), env, cfg)?)
+        Some(LastWriter::new(messages.clone(), env, cfg)?)
     } else {
         None
     };
 
-    let mut active_prompt = ActivePrompt::new(
-        api_key.to_string(),
-        cfg,
-        messages,
-        tools.clone(),
-        0,
-        Some(env),
-    )?;
+    let mut active_prompt =
+        ActivePrompt::new(api_key.to_string(), cfg, messages, vec![], 0, Some(env))?;
     active_prompt.start()?;
 
     loop {
@@ -162,15 +155,7 @@ pub fn run_continue<W: Write + Send>(
     let mut last = load_last_data(env)?;
     last.messages.push(crate::Message::user(new_prompt));
 
-    run(
-        api_key,
-        cfg,
-        env,
-        last.messages,
-        last.tools,
-        is_pipe_output,
-        w,
-    )
+    run(api_key, cfg, env, last.messages, is_pipe_output, w)
 }
 
 pub fn run_multi<W: Write + Send>(

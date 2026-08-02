@@ -9,6 +9,7 @@ use ort_openrouter_cli::{ErrorKind, OrtResult, StdoutWriter, args, cli, config, 
 
 mod agent;
 mod output;
+mod tools;
 
 fn main() -> std::process::ExitCode {
     let env = build_env();

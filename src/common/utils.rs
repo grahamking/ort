@@ -235,7 +235,7 @@ pub fn tmux_pane_id(tmux_pane_var: &str, buf: &mut [u8]) -> usize {
 }
 
 /// Create this directory if necessary. Does not create ancestors.
-pub(crate) fn ensure_dir_exists(dir: &str) {
+pub fn ensure_dir_exists(dir: &str) {
     let cs = CString::new(dir).unwrap();
     if !path_exists(cs.as_ref()) {
         syscall::mkdir(cs.as_ptr(), 0o755);

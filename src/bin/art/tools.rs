@@ -12,18 +12,9 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::ErrorKind;
-use crate::common::data::{Function, ToolDisplay};
-use crate::common::error::ort_err;
-use crate::{
-    OrtResult, Write,
-    common::{
-        data::{Tool, ToolParameter},
-        file::File,
-        json_parser::{JsonField, autoparser},
-    },
-    syscall::system,
-    utils,
+use ort_openrouter_cli::{
+    ErrorKind, Function, OrtResult, Tool, ToolDisplay, ToolParameter, Write, file, json_parser,
+    ort_err, syscall::system, utils, write_json_str,
 };
 
 pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE, &TOOL_EDIT];
@@ -179,11 +170,11 @@ impl ReadTool {
     // Example JSON: { "path": "README.md", offset: 100, limit: 500 }
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut fields = [
-            JsonField::new_simple_string("path"),
-            JsonField::new_int("offset"),
-            JsonField::new_int("limit"),
+            json_parser::JsonField::new_simple_string("path"),
+            json_parser::JsonField::new_int("offset"),
+            json_parser::JsonField::new_int("limit"),
         ];
-        autoparser(json, &mut fields)?;
+        json_parser::autoparser(json, &mut fields)?;
         Ok(ReadTool {
             path: fields[0].get_string().expect("Missing ReadTool path"),
             offset: fields[1].get_int(),
@@ -225,8 +216,8 @@ pub struct BashTool {
 
 impl BashTool {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
-        let mut fields = [JsonField::new_string("command")];
-        autoparser(json, &mut fields)?;
+        let mut fields = [json_parser::JsonField::new_string("command")];
+        json_parser::autoparser(json, &mut fields)?;
         Ok(BashTool {
             command: fields[0].get_string().expect("Missing BashTool command"),
         })
@@ -258,10 +249,10 @@ pub struct WriteTool {
 impl WriteTool {
     pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
         let mut fields = [
-            JsonField::new_simple_string("path"),
-            JsonField::new_string("content"),
+            json_parser::JsonField::new_simple_string("path"),
+            json_parser::JsonField::new_string("content"),
         ];
-        autoparser(json, &mut fields)?;
+        json_parser::autoparser(json, &mut fields)?;
         Ok(WriteTool {
             path: fields[0].get_string().expect("Missing WriteTool path"),
             content: fields[1].get_string().expect("Missing WriteTool content"),
@@ -281,7 +272,7 @@ impl ActiveTool for WriteTool {
         let mut c_path = [0u8; 128];
         let end = self.path.len();
         c_path[..end].copy_from_slice(self.path.as_bytes());
-        let mut target = unsafe { File::create(&c_path[..end + 1])? }; // + 1 for null byte
+        let mut target = unsafe { file::File::create(&c_path[..end + 1])? }; // + 1 for null byte
         let num_bytes = target.write(self.content.as_bytes())?;
 
         Ok(success(
@@ -313,12 +304,12 @@ impl EditTool {
         //   "new_text": "Copyright (c) 2025, 2026 Graham King"
         // }
         let mut fields = [
-            JsonField::new_simple_string("path"),
-            JsonField::new_string("old_text"),
-            JsonField::new_string("new_text"),
-            JsonField::new_bool("replace_all"),
+            json_parser::JsonField::new_simple_string("path"),
+            json_parser::JsonField::new_string("old_text"),
+            json_parser::JsonField::new_string("new_text"),
+            json_parser::JsonField::new_bool("replace_all"),
         ];
-        autoparser(json, &mut fields)?;
+        json_parser::autoparser(json, &mut fields)?;
         Ok(EditTool {
             path: fields[0].get_string().expect("Missing EditTool path"),
             old_text: fields[1].get_string().expect("Missing EditTool old_text"),
@@ -347,7 +338,7 @@ impl ActiveTool for EditTool {
             let msg = self.path.to_string() + ". Edit path contains nul byte";
             ort_err(ErrorKind::ToolRun, msg.into())
         })?;
-        let mut target = unsafe { File::create(c_path.as_bytes_with_nul())? };
+        let mut target = unsafe { file::File::create(c_path.as_bytes_with_nul())? };
         target.write(content.as_bytes())?;
 
         Ok(success(&[], &[("path", &self.path)]))
@@ -386,7 +377,7 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
         out.push_str(key);
         out.push_str(r#"": "#);
         // With JSON escaping
-        let _ = crate::input::to_json::write_json_str(&mut out, s);
+        let _ = write_json_str(&mut out, s);
     }
 
     out.push('}');
@@ -396,6 +387,8 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
 
 #[cfg(test)]
 mod test {
+    use ort_openrouter_cli::utils;
+
     use super::success;
     #[test]
     pub fn test_success() {
@@ -406,6 +399,6 @@ mod test {
                 ("message", "Write completed."),
             ],
         );
-        crate::utils::print_string(c"OUTPUT: ", &res);
+        utils::print_string(c"OUTPUT: ", &res);
     }
 }
