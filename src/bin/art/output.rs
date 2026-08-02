@@ -4,13 +4,8 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
-extern crate alloc;
-use alloc::ffi::CString;
-use alloc::string::ToString;
-
 use ort_openrouter_cli::{
-    ErrorKind, OrtResult, OutputWriter, Response, ThinkEvent, Write, ort_err, ort_error, syscall,
-    utils,
+    ErrorKind, OrtResult, OutputWriter, Response, ThinkEvent, Write, ort_err, ort_error,
 };
 
 const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
@@ -95,13 +90,10 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(b"\n");
                 let _ = self.writer.flush();
             }
-            Response::Error(mut err_string) => {
+            Response::Error(err_string) => {
                 if err_string.contains(ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
-                let c_s =
-                    CString::new("\nERROR: ".to_string() + utils::zclean(&mut err_string)).unwrap();
-                syscall::write(2, c_s.as_ptr().cast(), c_s.count_bytes());
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
             Response::None => {

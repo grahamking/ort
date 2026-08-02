@@ -3,7 +3,7 @@ cargo-features = ["profile-rustflags"]
 
 [package]
 name = "ort-openrouter-cli"
-version = "0.6.0"
+version = "0.6.5"
 edition = "2024"
 description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]
@@ -20,6 +20,7 @@ print-allocations = []
 # Ideally all memory is correctly sized on first alloc.
 panic-on-realloc = []
 
+# Name it 'ort' not 'ort-openrouter-cli' which is the crates.io name
 [[bin]]
 name = "ort"
 path = "src/main.rs"

@@ -413,6 +413,7 @@ impl ActivePrompt {
         Ok(())
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> OrtResult<Option<Vec<Response>>> {
         let mut queue = vec![];
 

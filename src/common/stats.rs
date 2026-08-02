@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::string::ToString;
 
-use crate::utils;
+use crate::common::utils;
 
 #[derive(Default, Clone)]
 pub struct Stats {

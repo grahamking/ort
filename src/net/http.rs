@@ -13,8 +13,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::common::error::ort_err;
+use crate::common::utils;
 use crate::net::AsFd;
-use crate::utils;
 use crate::{
     Context, ErrorKind, OrtError, OrtResult, Read, TcpSocket, TlsStream, Write, common::buf_read,
     common::io::ReadLine, ort_error,

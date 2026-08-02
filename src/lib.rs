@@ -24,9 +24,9 @@ pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_er
 pub use common::file;
 pub use common::json_parser;
 pub use common::stats::Stats;
-pub use common::utils;
 pub use common::{io::Read, io::Write};
-pub use utils::print_string;
+// Only for panic_handler.rs
+pub use common::utils::num_to_string;
 
 pub use input::args;
 pub use input::cli;

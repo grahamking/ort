@@ -28,7 +28,15 @@ fn test_multi() {
     .map(|s| s.to_string())
     .collect();
     let ret = cli::main(&args, shared::env(), false, &mut out);
-    assert!(matches!(ret, Ok(0)));
+    match ret {
+        Ok(0) => {} // success
+        Ok(x) => {
+            panic!("cli::main exit code {x} expected 0");
+        }
+        Err(err) => {
+            panic!("cli::main error: {}", err.as_string());
+        }
+    }
 
     let contents = String::from_utf8_lossy(&out);
     if contents.is_empty() {

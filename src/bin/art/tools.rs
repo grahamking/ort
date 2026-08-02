@@ -12,9 +12,11 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use std::fs;
+
 use ort_openrouter_cli::{
     ErrorKind, Function, OrtResult, Tool, ToolDisplay, ToolParameter, Write, file, json_parser,
-    ort_err, syscall::system, utils, write_json_str,
+    ort_err, syscall::system, write_json_str,
 };
 
 pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE, &TOOL_EDIT];
@@ -185,11 +187,13 @@ impl ReadTool {
 
 impl ActiveTool for ReadTool {
     fn run(&self) -> OrtResult<String> {
-        let content = match utils::filename_read_to_string(&self.path) {
+        let content = match fs::read_to_string(&self.path) {
             Ok(content) => content,
             // Return the string error so the model sees it.
-            Err("NOT FOUND") => "No such file or directory: ".to_string() + &self.path,
-            Err(s) => "Tool call error ".to_string() + s + ": " + &self.path,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                "No such file or directory: ".to_string() + &self.path
+            }
+            Err(err) => "Tool call error ".to_string() + &err.to_string() + ": " + &self.path,
         };
         // Ideally limit would limit the original read, so we don't get whole file in memory
         let offset = self.offset.map_or(0, |offset| offset as usize);
@@ -264,8 +268,7 @@ impl ActiveTool for WriteTool {
     fn run(&self) -> OrtResult<String> {
         if let Some(idx) = self.path.rfind('/') {
             let dir_path = &self.path[..idx];
-            // TODO does not create ancestors
-            utils::ensure_dir_exists(dir_path);
+            let _ = fs::create_dir_all(dir_path);
         }
 
         // Write the file
@@ -321,8 +324,9 @@ impl EditTool {
 
 impl ActiveTool for EditTool {
     fn run(&self) -> OrtResult<String> {
-        let mut content = utils::filename_read_to_string(&self.path).map_err(|str_err| {
-            let msg = "filename_read_to_string ".to_string() + &self.path + " - " + str_err;
+        let mut content = fs::read_to_string(&self.path).map_err(|err| {
+            let msg =
+                "filename_read_to_string ".to_string() + &self.path + " - " + &err.to_string();
             ort_err(ErrorKind::ToolRun, msg.into())
         })?;
         let Some(idx) = content.find(&self.old_text) else {
@@ -368,8 +372,7 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
         out.push_str(r#", ""#);
         out.push_str(key);
         out.push_str(r#"": "#);
-        let num_s = utils::num_to_string(*num);
-        out.push_str(&num_s);
+        out.push_str(&num.to_string());
     }
 
     for (key, s) in strs {
@@ -387,8 +390,6 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
 
 #[cfg(test)]
 mod test {
-    use ort_openrouter_cli::utils;
-
     use super::success;
     #[test]
     pub fn test_success() {
@@ -399,6 +400,7 @@ mod test {
                 ("message", "Write completed."),
             ],
         );
-        utils::print_string(c"OUTPUT: ", &res);
+        let expected = r#"{"success": true, "bytes_written": 42, "path": "/home/graham/Temp/xyz.txt", "message": "Write completed."}"#;
+        assert_eq!(res, expected);
     }
 }

@@ -21,7 +21,7 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
         syscall::write(2, ", ".as_ptr().cast(), 2);
 
         let line = location.line();
-        let line_s = ort_openrouter_cli::utils::num_to_string(line);
+        let line_s = ort_openrouter_cli::num_to_string(line);
         syscall::write(2, line_s.as_ptr().cast(), line_s.len());
     }
     syscall::write(1, "\n".as_ptr().cast(), 1);

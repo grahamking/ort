@@ -166,6 +166,7 @@ impl Cfg {
         Ok(messages)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(cfg: &str) -> OrtResult<Cfg> {
         let mut api_key = None;
         let mut base_url = DEFAULT_BASE_URL.to_string();
@@ -269,6 +270,7 @@ impl Cfg {
         Ok(())
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Cfg {
         Cfg {
             base_url: DEFAULT_BASE_URL.to_string(),

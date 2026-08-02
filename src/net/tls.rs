@@ -15,8 +15,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, net::AsFd, ort_error,
-    syscall,
+    Context, ErrorKind, OrtResult, Read, Write, common::utils::to_ascii, net::AsFd, ort_err,
+    ort_error, syscall,
 };
 
 mod aead;
@@ -467,8 +467,10 @@ impl<T: Read + Write> TlsStream<T> {
             let (mtyp, body, full) = match read_handshake_message(&mut p) {
                 Ok(x) => x,
                 Err(err) => {
-                    crate::utils::print_string(c"read_handshake_message error: ", &err.as_string());
-                    return Err(ort_error(ErrorKind::TlsBadHandshakeFragment, ""));
+                    return Err(ort_err(
+                        ErrorKind::TlsBadHandshakeFragment,
+                        err.as_string().into(),
+                    ));
                 }
             };
             transcript.extend_from_slice(full);
@@ -986,9 +988,9 @@ fn debug_print(name: &str, value: &[u8]) {
         }
         let c_str = CString::new(name).unwrap();
         if !value.is_empty() {
-            crate::utils::print_hex(c_str.as_c_str(), value);
+            crate::common::utils::print_hex(c_str.as_c_str(), value);
         } else {
-            crate::utils::print_string(c_str.as_c_str(), "");
+            crate::common::utils::print_string(c_str.as_c_str(), "");
         }
     }
 }

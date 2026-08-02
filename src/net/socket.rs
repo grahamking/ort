@@ -11,7 +11,7 @@ use core::mem::size_of;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
 use crate::common::error::ort_err;
-use crate::{ErrorKind, OrtResult, Read, Write, ort_error, syscall, utils};
+use crate::{ErrorKind, OrtResult, Read, Write, common::utils, ort_error, syscall};
 
 pub struct TcpSocket {
     fd: i32,

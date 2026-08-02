@@ -10,8 +10,10 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
+use ort_openrouter_cli::ort_err;
 
 use core::{ffi::c_void, mem::MaybeUninit};
+use std::fs;
 
 use crate::ort_error;
 use ort_openrouter_cli::{
@@ -20,7 +22,6 @@ use ort_openrouter_cli::{
     cli::Env,
     config,
     syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
-    utils,
 };
 
 use super::output::AgentWriter;
@@ -47,7 +48,7 @@ pub fn run<W: Write + Send>(
     );
 
     // Load AGENTS.md
-    if let Ok(agents_md) = utils::filename_read_to_string("AGENTS.md") {
+    if let Ok(agents_md) = fs::read_to_string("AGENTS.md") {
         match messages.first_mut() {
             Some(Message {
                 role: Role::System,
@@ -128,8 +129,8 @@ fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
     // inotify watch
 
     // todo: Make an ErrorKind
-    let prompt = utils::filename_read_to_string(prompt_filename)
-        .map_err(|str_err| ort_error(ErrorKind::Other, str_err))?;
+    let prompt = fs::read_to_string(prompt_filename)
+        .map_err(|err| ort_err(ErrorKind::Other, err.to_string().into()))?;
     Ok(Some(prompt))
 }
 
@@ -188,7 +189,7 @@ fn run_single<W: Write + Send>(
                                     Err(ort_err) => {
                                         let msg = ort_err.as_string();
                                         // TODO: Send to output writer instead of printing here
-                                        utils::print_string(c"Tool call failed: ", &msg);
+                                        println!("Tool call failed: {msg}");
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), error(&msg)));
                                     }
@@ -202,7 +203,7 @@ fn run_single<W: Write + Send>(
                 }
             }
             Err(err) => {
-                utils::print_string(c"active_prompt.next: ", &err.as_string());
+                println!("active_prompt.next: {}", err.as_string());
             }
         }
     }

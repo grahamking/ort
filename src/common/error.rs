@@ -163,7 +163,7 @@ impl OrtError {
 
     #[cfg(debug_assertions)]
     pub fn debug_print(&self) {
-        use crate::{syscall, utils::zclean};
+        use crate::{common::utils::zclean, syscall};
         use alloc::ffi::CString;
         let mut s = self.as_string();
         let c_s = CString::new(zclean(&mut s)).unwrap();

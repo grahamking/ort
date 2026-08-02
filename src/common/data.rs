@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use crate::common::base64;
 use crate::common::error::ort_err;
 use crate::common::json_parser::{JsonField, Parser, autoparser};
-use crate::utils::filename_read_to_bytes;
+use crate::common::utils::filename_read_to_bytes;
 use crate::{ErrorKind, OrtResult};
 
 const IMAGE_EXT: [&str; 4] = ["jpg", "JPG", "png", "PNG"];
@@ -496,6 +496,10 @@ impl Content {
             ImageUrl(s) => s.len(),
             File(f) => f.len(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn text(&self) -> Option<&str> {

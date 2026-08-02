@@ -174,7 +174,7 @@ pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
 }
 
 #[allow(unused)]
-pub fn print_string(prefix: &CStr, s: &str) {
+pub(crate) fn print_string(prefix: &CStr, s: &str) {
     let msg = CString::new(zclean(&mut s.to_string())).unwrap();
     let _ = syscall::write(1, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
     let _ = syscall::write(1, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
@@ -183,7 +183,7 @@ pub fn print_string(prefix: &CStr, s: &str) {
 
 /// Replace any null bytes with an underscore, making it C-safe
 /// Makes this construction safe from panic: `CString::new(zclean(s)).unwrap()`
-pub fn zclean(s: &mut str) -> &str {
+pub(crate) fn zclean(s: &mut str) -> &str {
     for byte in unsafe { s.as_bytes_mut() } {
         if *byte == 0 {
             *byte = b'_';

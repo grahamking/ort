@@ -119,8 +119,8 @@ impl OutputWriter for LastWriter {
             Response::Content(content) => {
                 let b = content.as_bytes();
                 if b.len() > TOKEN_MEM_BUFFER {
-                    let l = crate::utils::num_to_string(b.len());
-                    crate::utils::print_string(c"Content too long: ", &l);
+                    let l = utils::num_to_string(b.len());
+                    utils::print_string(c"Content too long: ", &l);
                     panic!("Received content longer than TOKEN_MEM_BUFFER.");
                 }
 
@@ -192,7 +192,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{LastData, ThinkEvent, common::stats, utils::num_to_string};
+    use crate::{LastData, ThinkEvent, common::stats, common::utils::num_to_string};
 
     #[test]
     fn test_run_success() {

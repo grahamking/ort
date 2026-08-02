@@ -14,9 +14,9 @@ use alloc::vec::Vec;
 use crate::{
     ErrorKind, OrtResult,
     common::error::ort_err,
+    common::utils,
     ort_error,
     syscall::{self, AF_INET, SOCK_DGRAM},
-    utils,
 };
 
 // "openrouter.ai" response is 63 bytes. integrate.api.nvidia.com is more.

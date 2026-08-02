@@ -349,7 +349,7 @@ impl<'a> Parser<'a> {
         if self.peek() == Some(b'-') {
             return Err("negative not allowed");
         }
-        let out = crate::utils::parse_u32(&self.b[self.i..])?;
+        let out = crate::common::utils::parse_u32(&self.b[self.i..])?;
         self.i += if out == 0 { 1 } else { out.ilog10() + 1 } as usize;
         Ok(out)
     }
