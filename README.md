@@ -162,15 +162,17 @@ Non-reasoning models are much faster (and cheaper!) than reasoning models.
 
 `ort` has an experimental agent mode called `art`. This provides the model with some basic tools: read, write, edit and bash.
 
+This uses config file `art.cfg`. Copy your `ort.cfg` over but remove the system prompt.
+
 Usage:
 ```
 cargo build --release --bin=art # A regular 'cargo build' also builds it
-art -r medium -m openai/gpt-5.4-mini -s @agent_system_prompt.txt @/home/graham/prompt
+art -r medium -m openai/gpt-5.4-mini @/home/graham/prompt
 ```
 
 So far I have only tested it with `openai/gpt-5.4-mini`, `openai/gpt-oss-120b:exacto` and `qwen/qwen3.6-27b`.
 
-The `agent_system_prompt.txt` is in the root of this repo. Feel free to tune it. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
+`art` includes a default system prompt explaining the tools. That is nearly always what you want, but you can `-s <here>` to replace it, or in config file just like `ort. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
 
 The `prompt` file is the initial prompt (the `@` is required here). We then watch (with `inotify`) that file for a change, which is the next prompt. So instead of a CLI, the interface is that `prompt` file that you edit with your own editor, and on save the new prompt is sent to the agent. Stdout shows the agent output.
 

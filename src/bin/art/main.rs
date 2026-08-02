@@ -9,6 +9,7 @@ use ort_openrouter_cli::{ErrorKind, OrtResult, StdoutWriter, args, cli, config, 
 
 mod agent;
 mod output;
+mod system_prompt;
 mod tools;
 
 fn main() -> std::process::ExitCode {
@@ -29,16 +30,25 @@ fn main() -> std::process::ExitCode {
         panic!("not prompt cmd");
     };
     let config_file = cli_opts.config_file.as_deref();
-    let mut cfg = config::Cfg::load(&env, config_file.unwrap_or("ort.cfg")).unwrap();
+    // TODO: Have it read `ort.cfg` if `art.cfg` does not exist
+    let mut cfg = config::Cfg::load(&env, config_file.unwrap_or("art.cfg")).unwrap();
 
     cli::override_config_from_cli(&mut cfg, cli_opts.clone());
     cfg.setup(&env).unwrap();
 
     let api_key = get_api_key(&env, &cfg).unwrap();
 
+    // The default system prompt is nearly always what you want
+    if cfg.system_prompt.is_none() {
+        cfg.system_prompt = Some(system_prompt::DEFAULT.to_string());
+    }
+
     // Agent mode always includes server-side web tools
     cfg.include_web_tools = true;
+
+    // We display stats in a different way so silent the normal way
     cfg.quiet = true;
+
     let messages = cfg.messages().unwrap();
     agent::run(&api_key, &cfg, &env, messages, &mut StdoutWriter {}).unwrap();
 
