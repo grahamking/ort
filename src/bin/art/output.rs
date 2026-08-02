@@ -1,4 +1,5 @@
-//! ort: Open Router CLI
+//! art: Open Router Agent
+//! Part of the `ort` project
 //! https://github.com/grahamking/ort
 //!
 //! MIT License

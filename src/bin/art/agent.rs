@@ -1,4 +1,5 @@
-//! ort: Open Router CLI
+//! art: Open Router Agent
+//! Part of the `ort` project
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
@@ -10,18 +11,16 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use ort_openrouter_cli::ort_err;
+use ort_openrouter_cli::{ort_err, syscall};
 
 use core::{ffi::c_void, mem::MaybeUninit};
 use std::fs;
 
+use crate::inotify;
 use crate::ort_error;
 use ort_openrouter_cli::{
     ActivePrompt, Content, ErrorKind, Message, OrtResult, OutputWriter as _, Response, Role, Stats,
-    Tool, Write,
-    cli::Env,
-    config,
-    syscall::{self, IN_CLOSE_WRITE, IN_MOVED_TO},
+    Tool, Write, cli::Env, config,
 };
 
 use super::output::AgentWriter;
@@ -39,12 +38,12 @@ pub fn run<W: Write + Send>(
     // Watch the file immediately
     let filename = cfg.prompt_filename.as_ref().unwrap().to_string();
     let filename_ptr = CString::new(filename.to_string()).unwrap();
-    let ifd = syscall::inotify_init1(0);
-    let _wd = syscall::inotify_add_watch(
+    let ifd = inotify::inotify_init1(0);
+    let _wd = inotify::inotify_add_watch(
         ifd,
         filename_ptr.as_ptr().cast(),
         // IN_MOVED_TO should happen with a rename-and-move save, but I don't see it
-        IN_MOVED_TO | IN_CLOSE_WRITE,
+        inotify::IN_MOVED_TO | inotify::IN_CLOSE_WRITE,
     );
 
     // Load AGENTS.md
@@ -112,11 +111,11 @@ pub fn run<W: Write + Send>(
 
 /// Wait for next user prompt
 fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
-    let mut ie = MaybeUninit::<syscall::inotify_event>::uninit();
+    let mut ie = MaybeUninit::<inotify::inotify_event>::uninit();
     let res = syscall::read(
         ifd,
         ie.as_mut_ptr() as *mut c_void,
-        size_of::<syscall::inotify_event>(),
+        size_of::<inotify::inotify_event>(),
     );
     if res <= 0 {
         return Ok(None);

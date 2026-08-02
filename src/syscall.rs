@@ -37,9 +37,6 @@ pub type sa_family_t = u16;
 pub type in_addr_t = u32;
 pub type in_port_t = u16;
 
-// /usr/include/linux/limits.h
-const NAME_MAX: usize = 255;
-
 // /usr/include/asm/unistd_64.h
 const SYS_READ: u32 = 0;
 const SYS_WRITE: u32 = 1;
@@ -63,12 +60,10 @@ const SYS_WAIT4: i32 = 61;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
 const SYS_EPOLL_CREATE: i32 = 213;
-const SYS_INOTIFY_ADD_WATCH: i32 = 254;
 const SYS_EPOLL_WAIT: i32 = 232;
 const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
 const SYS_PIPE2: i32 = 293;
-const SYS_INOTIFY_INIT1: i32 = 294;
 
 pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EINTR: i32 = -4; // Interrupted system call
@@ -100,10 +95,6 @@ pub const TCP_FASTOPEN_CONNECT: i32 = 30;
 pub const EPOLLIN: u32 = 0x001;
 pub const EPOLL_CTL_ADD: c_int = 1;
 pub const EPOLL_CTL_DEL: c_int = 2;
-pub const IN_MOVED_TO: u32 = 0x00000080;
-//pub const IN_MODIFY: u32 = 0x00000002; // File was modified
-pub const IN_CLOSE_WRITE: u32 = 0x00000008; // Writable file was closed
-const IN_MASK_CREATE: u32 = 0x10000000;
 
 pub const DT_REG: u8 = 8;
 
@@ -185,15 +176,6 @@ pub struct Stat {
 pub struct epoll_event {
     pub events: u32,
     pub data: u64,
-}
-
-#[repr(C)]
-pub struct inotify_event {
-    pub wd: c_int,                // Watch descriptor
-    pub mask: u32,                // Mask describing event
-    pub cookie: u32,              // Unique cookie associating related events (for rename(2))
-    pub len: u32,                 // Size of name field
-    pub name: [c_char; NAME_MAX], // Optional null-terminated name
 }
 
 #[repr(C)]
@@ -540,36 +522,6 @@ pub fn fcntl(fd: c_int, op: c_int, flags: c_int) -> c_int {
             in("edi") fd,
             in("esi") op,
             in("edx") flags,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-        );
-    }
-    ret
-}
-
-pub fn inotify_init1(flags: c_int) -> c_int {
-    let mut ret: c_int;
-    unsafe {
-        asm!("syscall",
-            inout("eax") SYS_INOTIFY_INIT1 => ret,
-            in("edi") flags,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-        );
-    }
-    ret
-}
-
-pub fn inotify_add_watch(fd: c_int, path: *const c_char, mask: u32) -> c_int {
-    let mut ret: c_int;
-    unsafe {
-        asm!("syscall",
-            inout("eax") SYS_INOTIFY_ADD_WATCH => ret,
-            in("edi") fd,
-            in("rsi") path,
-            in("edx") mask | IN_MASK_CREATE,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),

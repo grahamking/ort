@@ -8,6 +8,7 @@
 use ort_openrouter_cli::{ErrorKind, OrtResult, StdoutWriter, args, cli, config, ort_error};
 
 mod agent;
+mod inotify;
 mod output;
 mod system_prompt;
 mod tools;
