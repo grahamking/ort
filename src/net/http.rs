@@ -84,7 +84,7 @@ const LIST_REQ_MIDDLE: &[u8] = concat!(
     env!("CARGO_PKG_VERSION"),
     "\r\n",
     "HTTP-Referer: https://github.com/grahamking/ort\r\n",
-    "X-Title: ort\r\n",
+    "X-OpenRouter-Title: ort\r\n",
     "Authorization: Bearer "
 )
 .as_bytes();
@@ -161,7 +161,7 @@ const CHAT_REQ_MIDDLE: &[u8] = concat!(
     // ID for openrouter.ai App rankings
     "HTTP-Referer: https://github.com/grahamking/ort\r\n",
     // Name to appear in openrouter.ai App rankings
-    "X-Title: ort\r\n",
+    "X-OpenRouter-Title: ort\r\n",
     "Authorization: Bearer "
 )
 .as_bytes();
