@@ -135,6 +135,10 @@ pub struct Cfg {
     /// Do not record prompt on disk. Use if running diskless or for privacy.
     /// Disables the "-c" continue functionality, and the `jsonl` log
     pub is_private: bool,
+
+    /// On disk only in last.cfg. Helps inference servers.
+    /// Always populated in memory. New one for each new session.
+    pub session_id: String,
 }
 
 impl Cfg {
@@ -182,6 +186,7 @@ impl Cfg {
         let mut effort = None;
         let mut files = Vec::new();
         let mut is_private = false;
+        let mut session_id = None;
 
         for line in cfg.lines().filter(|l| !l.trim().is_empty()) {
             if line.as_bytes()[0] == b'#' {
@@ -229,6 +234,7 @@ impl Cfg {
                     effort = Some(r);
                 }
                 "include_web_tools" => include_web_tools = value == "true",
+                "session_id" => session_id = Some(value.to_string()),
                 _ => {
                     /*
                     return Err(ort_error(
@@ -257,6 +263,7 @@ impl Cfg {
             effort,
             files,
             is_private,
+            session_id: session_id.unwrap_or_else(utils::generate_session_id),
             // Resolved later
             prompt_filename: None,
         })
@@ -406,6 +413,7 @@ impl fmt::Display for Cfg {
         }
         write_csv(f, "files", &self.files)?;
         writeln!(f, "private: {}", self.is_private)?;
+        writeln!(f, "session_id: {}", self.session_id)?;
         Ok(())
     }
 }
@@ -530,6 +538,7 @@ private: false
             effort: Some(ReasoningEffort::Low),
             files: vec!["image.png".to_string(), "other.jpg".to_string()],
             is_private: false,
+            session_id: "test".to_string(),
             ..Cfg::default()
         };
 
@@ -548,7 +557,8 @@ priority: price\n\
 include_web_tools: true\n\
 effort: low\n\
 files: image.png, other.jpg\n\
-private: false\n"
+private: false\n\
+session_id: test\n"
         );
 
         let parsed = Cfg::from_str(&cfg_str).unwrap();

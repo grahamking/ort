@@ -296,6 +296,7 @@ pub struct ActivePrompt {
     cfg: Cfg,
     messages: Vec<Message>,
     tools: Vec<&'static Tool>,
+    session_id: String,
 
     // When running multiple models, this thread should use this one
     model_idx: usize,
@@ -326,11 +327,17 @@ impl ActivePrompt {
         model_idx: usize,
         env: Option<&Env>,
     ) -> OrtResult<Self> {
+        let session_id = if model_idx == 0 {
+            cfg.session_id.clone()
+        } else {
+            alloc::format!("{}-{model_idx}", cfg.session_id)
+        };
         Ok(ActivePrompt {
             api_key,
             cfg: cfg.clone(),
             messages,
             tools,
+            session_id,
             model_idx,
             reader: None,
             stats: Stats {
@@ -389,8 +396,15 @@ impl ActivePrompt {
                 })
                 .collect()
         };
-        let mut buf_reader = http::chat_completions(&self.api_key, host, base_path, addrs, &body)
-            .context("http::chat_completions")?;
+        let mut buf_reader = http::chat_completions(
+            &self.api_key,
+            host,
+            base_path,
+            &self.session_id,
+            addrs,
+            &body,
+        )
+        .context("http::chat_completions")?;
 
         match http::skip_header(&mut buf_reader).context("http::skip_header")? {
             http::ResponseBody::Chunked => {

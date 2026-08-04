@@ -1,7 +1,3 @@
---- General
-
-- Add 'x-session-id' HTTP header to allow middle boxes and remote to track session. Persist it in last.json and across `-c` continue sessions.
-  Try to make it a UUID like other agents.
 
 --- TLS
 GPT 5.5. suggestions for consideration.

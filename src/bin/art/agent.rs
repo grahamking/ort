@@ -269,6 +269,7 @@ mod tests {
             files: vec![], // TODO
             include_web_tools: true,
             is_private: false,
+            session_id: "test".to_string(),
         };
         let messages = vec![
             Message::user("Hello".to_string()),

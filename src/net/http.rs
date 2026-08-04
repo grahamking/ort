@@ -34,6 +34,7 @@ const GET: &[u8] = "GET ".as_bytes();
 const HTTP_1_1: &[u8] = " HTTP/1.1\r\n".as_bytes();
 const HOST_HEADER: &[u8] = "Host: ".as_bytes();
 const CONTENT_LENGTH_HEADER: &[u8] = "Content-Length: ".as_bytes();
+const SESSION_ID_HEADER: &[u8] = "X-Session-Id: ".as_bytes();
 const CRLF: &[u8] = "\r\n".as_bytes();
 
 pub enum ResponseBody {
@@ -170,6 +171,7 @@ pub fn chat_completions(
     api_key: &str,
     host: &str,
     base_path: &str,
+    session_id: &str,
     addrs: Vec<SocketAddr>,
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
@@ -219,6 +221,18 @@ pub fn chat_completions(
     end += CRLF.len();
     req[start..end].copy_from_slice(CRLF);
 
+    // X-Session-Id: <session-id>\r\n
+    // This helps inference servers route the request.
+    start = end;
+    end += SESSION_ID_HEADER.len();
+    req[start..end].copy_from_slice(SESSION_ID_HEADER);
+    start = end;
+    end += session_id.len();
+    req[start..end].copy_from_slice(session_id.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
     // Rest of the HTTP headers
     start = end;
     end += CHAT_REQ_MIDDLE.len();
@@ -238,6 +252,9 @@ pub fn chat_completions(
 
     //let end_str = utils::num_to_string(end);
     //utils::print_string(c"REQ LEN ", &end_str);
+
+    //let headers = unsafe { String::from_utf8_unchecked(req[..end].to_vec()) };
+    //utils::print_string(c"HEADERS: ", &headers);
 
     tls.write_all(&req[..end])
         .context("write chat_completions header")?;

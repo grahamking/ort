@@ -327,6 +327,19 @@ pub fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
         })
 }
 
+/// Generate a hex string to use as the X-Session-Id
+pub(crate) fn generate_session_id() -> String {
+    let mut buf = [0u8; 8];
+    syscall::getrandom(&mut buf);
+    const HEX: &[u8] = b"0123456789abcdef";
+    let mut s = String::with_capacity(buf.len() * 2);
+    for b in buf {
+        s.push(HEX[(b >> 4) as usize] as char);
+        s.push(HEX[(b & 0xf) as usize] as char);
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::{float_to_string, num_to_string};
