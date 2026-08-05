@@ -111,12 +111,18 @@ fn nonce_xor(iv12: &[u8; 12], seq: u64) -> [u8; 12] {
     nonce_bytes[..12].try_into().unwrap()
 }
 
+/// The expanded key and 0-block encrypted with those keys.
+struct Aes128GcmKey {
+    round_keys: [[u8; 16]; 11],
+    h: u128,
+}
+
 // Very small record writer/reader after handshake
 pub struct TlsStream<T: Read + Write> {
     io: T,
     // Application traffic
-    aead_enc: [u8; 16],
-    aead_dec: [u8; 16],
+    write_key: Aes128GcmKey,
+    read_key: Aes128GcmKey,
     iv_enc: [u8; 12],
     iv_dec: [u8; 12],
     seq_enc: u64,
@@ -299,8 +305,8 @@ struct HandshakeState {
     server_hs_ts: [u8; 32],
     client_handshake_iv: [u8; 12],
     server_handshake_iv: [u8; 12],
-    aead_enc_hs: [u8; 16],
-    aead_dec_hs: [u8; 16],
+    write_key: Aes128GcmKey,
+    read_key: Aes128GcmKey,
     empty_hash: [u8; 32],
 }
 
@@ -360,6 +366,24 @@ impl<T: Read + Write> TlsStream<T> {
             &transcript,
         );
 
+        let read_key = {
+            let rk = aead::key_expansion(&aead_app_dec);
+            let enc = aead::aes_encrypt_block(&[0u8; 16], &rk);
+            Aes128GcmKey {
+                round_keys: rk,
+                h: u128::from_be_bytes(enc),
+            }
+        };
+
+        let write_key = {
+            let rk = aead::key_expansion(&aead_app_enc);
+            let enc = aead::aes_encrypt_block(&[0u8; 16], &rk);
+            Aes128GcmKey {
+                round_keys: rk,
+                h: u128::from_be_bytes(enc),
+            }
+        };
+
         let seq_app_enc = 0u64;
         let seq_app_dec = 0u64;
 
@@ -373,8 +397,8 @@ impl<T: Read + Write> TlsStream<T> {
         debug_print("TLS connect done", &[]);
         Ok(TlsStream {
             io,
-            aead_enc: aead_app_enc,
-            aead_dec: aead_app_dec,
+            read_key,
+            write_key,
             iv_enc: caiv,
             iv_dec: saiv,
             seq_enc: seq_app_enc,
@@ -444,14 +468,14 @@ impl<T: Read + Write> TlsStream<T> {
         let (typ, ct, _inner_type) = if let Some(record) = first_record.take() {
             read_record_cipher_from_record(
                 record,
-                &handshake.aead_dec_hs,
+                &handshake.read_key,
                 &handshake.server_handshake_iv,
                 seq_dec_hs,
             )?
         } else {
             read_record_cipher(
                 io,
-                &handshake.aead_dec_hs,
+                &handshake.read_key,
                 &handshake.server_handshake_iv,
                 seq_dec_hs,
             )?
@@ -558,14 +582,32 @@ impl<T: Read + Write> TlsStream<T> {
             .unwrap();
         debug_print("server_handshake_iv", &server_handshake_iv);
 
+        // Expand keys and encrypt the zero blocks
+        let read_key = {
+            let rk = aead::key_expansion(&server_handshake_key);
+            let enc = aead::aes_encrypt_block(&[0u8; 16], &rk);
+            Aes128GcmKey {
+                round_keys: rk,
+                h: u128::from_be_bytes(enc),
+            }
+        };
+        let write_key = {
+            let rk = aead::key_expansion(&client_handshake_key);
+            let enc = aead::aes_encrypt_block(&[0u8; 16], &rk);
+            Aes128GcmKey {
+                round_keys: rk,
+                h: u128::from_be_bytes(enc),
+            }
+        };
+
         Ok(HandshakeState {
             handshake_secret,
             client_hs_ts: c_hs_ts,
             server_hs_ts: s_hs_ts,
             client_handshake_iv,
             server_handshake_iv,
-            aead_enc_hs: client_handshake_key,
-            aead_dec_hs: server_handshake_key,
+            write_key,
+            read_key,
             empty_hash,
         })
     }
@@ -638,7 +680,7 @@ impl<T: Read + Write> TlsStream<T> {
             io,
             REC_TYPE_HANDSHAKE,
             &fin,
-            &handshake.aead_enc_hs,
+            &handshake.write_key,
             &handshake.client_handshake_iv,
             seq_enc_hs,
         )
@@ -656,7 +698,7 @@ impl<T: Read + Write> Write for TlsStream<T> {
                 &mut self.io,
                 REC_TYPE_APPDATA,
                 chunk,
-                &self.aead_enc,
+                &self.write_key,
                 &self.iv_enc,
                 &mut self.seq_enc,
             )?;
@@ -686,7 +728,7 @@ impl<T: Read + Write> Read for TlsStream<T> {
         loop {
             let (typ, plaintext, inner_type) = read_record_cipher(
                 &mut self.io,
-                &self.aead_dec,
+                &self.read_key,
                 &self.iv_dec,
                 &mut self.seq_dec,
             )?;
@@ -794,7 +836,7 @@ fn write_record_cipher<W: Write>(
     w: &mut W,
     outer_type: u8,
     inner: &[u8],
-    key: &[u8; 16],
+    key: &Aes128GcmKey,
     iv12: &[u8; 12],
     seq: &mut u64,
 ) -> OrtResult<()> {
@@ -814,7 +856,7 @@ fn write_record_cipher<W: Write>(
     hdr[1..3].copy_from_slice(&LEGACY_REC_VER.to_be_bytes());
     hdr[3..5].copy_from_slice(&(total_len as u16).to_be_bytes());
 
-    let out = aead::aes_128_gcm_encrypt(key, &nonce, &hdr, &plain).unwrap();
+    let out = aead::aes_128_gcm_encrypt(&key.round_keys, key.h, &nonce, &hdr, &plain).unwrap();
 
     debug_print("write_record_cipher header", &hdr);
     //let final_label = format!("write_record_cipher final {total_len}");
@@ -827,7 +869,7 @@ fn write_record_cipher<W: Write>(
 
 fn read_record_cipher<R: Read>(
     r: &mut R,
-    key: &[u8; 16],
+    key: &Aes128GcmKey,
     iv12: &[u8; 12],
     seq: &mut u64,
 ) -> OrtResult<(u8, Vec<u8>, u8)> {
@@ -837,7 +879,7 @@ fn read_record_cipher<R: Read>(
 
 fn read_record_cipher_from_record(
     record: Record,
-    key: &[u8; 16],
+    key: &Aes128GcmKey,
     iv12: &[u8; 12],
     seq: &mut u64,
 ) -> OrtResult<(u8, Vec<u8>, u8)> {
@@ -860,7 +902,8 @@ fn read_record_cipher_from_record(
     let nonce = nonce_xor(iv12, *seq);
     *seq = seq.wrapping_add(1);
 
-    let mut out = match aead::aes_128_gcm_decrypt(key, &nonce, &hdr, &ciphertext) {
+    let mut out = match aead::aes_128_gcm_decrypt(&key.round_keys, key.h, &nonce, &hdr, &ciphertext)
+    {
         Ok(out) => out,
         Err(s) => {
             return Err(ort_error(ErrorKind::TlsAes128GcmDecryptFailed, s));

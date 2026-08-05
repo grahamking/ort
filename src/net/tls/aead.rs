@@ -13,31 +13,12 @@ use alloc::vec::Vec;
 /// `aad` is additional authenticated data (can be empty) that is authenticated
 /// but not encrypted.
 pub fn aes_128_gcm_encrypt(
-    key: &[u8],
+    round_keys: &[[u8; 16]; 11],
+    h: u128,
     nonce: &[u8],
     aad: &[u8],
     plaintext: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    #[cfg(debug_assertions)]
-    {
-        if key.len() != 16 {
-            return Err("AES-128 key must be 16 bytes");
-        }
-        if nonce.len() != 12 {
-            return Err("Nonce must be 12 bytes");
-        };
-    }
-
-    // Expand round keys once.
-    let round_keys = key_expansion(key);
-
-    // Hash subkey H = AES_K(0^128)
-    let h = {
-        let zero_block = [0u8; 16];
-        let enc = aes_encrypt_block(&zero_block, &round_keys);
-        u128::from_be_bytes(enc)
-    };
-
     // Build initial counter J0
     let j0 = {
         let mut j = [0u8; 16];
@@ -52,7 +33,7 @@ pub fn aes_128_gcm_encrypt(
 
     let mut ciphertext = Vec::with_capacity(plaintext.len() + 16);
     for chunk in plaintext.chunks(16) {
-        let keystream = aes_encrypt_block(&ctr, &round_keys);
+        let keystream = aes_encrypt_block(&ctr, round_keys);
         let mut block = [0u8; 16];
         for i in 0..chunk.len() {
             block[i] = chunk[i] ^ keystream[i];
@@ -65,7 +46,7 @@ pub fn aes_128_gcm_encrypt(
     let tag = {
         let ghash = ghash(h, aad, &ciphertext);
         let s = {
-            let s_block = aes_encrypt_block(&j0, &round_keys);
+            let s_block = aes_encrypt_block(&j0, round_keys);
             u128::from_be_bytes(s_block)
         };
         let tag_u128 = ghash ^ s;
@@ -79,38 +60,29 @@ pub fn aes_128_gcm_encrypt(
 /// AES-128 GCM decryption. Returns the plaintext.
 /// `aad` must match the value supplied during encryption (can be empty).
 pub fn aes_128_gcm_decrypt(
-    key: &[u8],
+    round_keys: &[[u8; 16]; 11],
+    h: u128,
     nonce: &[u8],
     aad: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
     #[cfg(debug_assertions)]
     {
-        if key.len() != 16 {
-            return Err("AES-128 key must be 16 bytes");
-        }
-        if nonce.len() != 12 {
-            return Err("Nonce must be 12 bytes");
-        };
         if ciphertext.len() <= 16 {
             return Err("Ciphertext must include at least authentication tag");
         };
     }
 
     let (ct, tag) = ciphertext.split_at(ciphertext.len() - 16);
-    let round_keys = key_expansion(key);
 
     let mut j0 = [0u8; 16];
     j0[..12].copy_from_slice(nonce);
     j0[15] = 0x01;
 
     // Verify tag first.
-    let zero_block = [0u8; 16];
-    let enc = aes_encrypt_block(&zero_block, &round_keys);
-    let h = u128::from_be_bytes(enc);
 
     let ghash_val = ghash(h, aad, ct);
-    let s_block = aes_encrypt_block(&j0, &round_keys);
+    let s_block = aes_encrypt_block(&j0, round_keys);
     let s = u128::from_be_bytes(s_block);
     let tag_u128 = ghash_val ^ s;
     let expected_tag = tag_u128.to_be_bytes();
@@ -123,7 +95,7 @@ pub fn aes_128_gcm_decrypt(
     inc32(&mut ctr);
     let mut plaintext = Vec::with_capacity(ct.len());
     for chunk in ct.chunks(16) {
-        let keystream = aes_encrypt_block(&ctr, &round_keys);
+        let keystream = aes_encrypt_block(&ctr, round_keys);
         let mut block = [0u8; 16];
         for i in 0..chunk.len() {
             block[i] = chunk[i] ^ keystream[i];
@@ -139,7 +111,7 @@ pub fn aes_128_gcm_decrypt(
 
 // Generate 11 round keys (11 * 16 bytes)
 // Target assumption: modern x86_64 CPUs with AES-NI support.
-fn key_expansion(key: &[u8]) -> [[u8; 16]; 11] {
+pub(super) fn key_expansion(key: &[u8]) -> [[u8; 16]; 11] {
     unsafe { key_expansion_aesni(key) }
 }
 
@@ -198,7 +170,7 @@ unsafe fn key_expansion_aesni(key: &[u8]) -> [[u8; 16]; 11] {
 }
 
 // Target assumption: modern x86_64 CPUs with AES-NI support.
-fn aes_encrypt_block(input: &[u8; 16], round_keys: &[[u8; 16]; 11]) -> [u8; 16] {
+pub(super) fn aes_encrypt_block(input: &[u8; 16], round_keys: &[[u8; 16]; 11]) -> [u8; 16] {
     unsafe { aes_encrypt_block_aesni(input, round_keys) }
 }
 
@@ -359,39 +331,53 @@ mod tests {
     const PLAINTEXT_SHORT: &[u8] = b"Hello, world!";
     const PLAINTEXT_LONG: &[u8] = b"This is a longer plaintext to test various block alignments and ensure the GCM mode works correctly.";
 
+    fn expand(key: &[u8]) -> ([[u8; 16]; 11], u128) {
+        let round_keys = key_expansion(key);
+        let enc = aes_encrypt_block(&[0u8; 16], &round_keys);
+        let h = u128::from_be_bytes(enc);
+        (round_keys, h)
+    }
+
     #[test]
     fn test_encrypt_decrypt_cycle() {
-        let ciphertext = aes_128_gcm_encrypt(&KEY, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
-        let decrypted = aes_128_gcm_decrypt(&KEY, &NONCE, &[], &ciphertext).unwrap();
+        let (rk, h) = expand(&KEY);
+        let ciphertext = aes_128_gcm_encrypt(&rk, h, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
+        let decrypted = aes_128_gcm_decrypt(&rk, h, &NONCE, &[], &ciphertext).unwrap();
+
         assert_eq!(PLAINTEXT_SHORT, decrypted);
     }
 
     #[test]
     fn test_encrypt_decrypt_cycle_long_plaintext() {
-        let ciphertext = aes_128_gcm_encrypt(&KEY, &NONCE, &[], PLAINTEXT_LONG).unwrap();
-        let decrypted = aes_128_gcm_decrypt(&KEY, &NONCE, &[], &ciphertext).unwrap();
+        let (rk, h) = expand(&KEY);
+        let ciphertext = aes_128_gcm_encrypt(&rk, h, &NONCE, &[], PLAINTEXT_LONG).unwrap();
+        let decrypted = aes_128_gcm_decrypt(&rk, h, &NONCE, &[], &ciphertext).unwrap();
         assert_eq!(PLAINTEXT_LONG, decrypted);
     }
 
     #[test]
     fn test_encrypt_decrypt_with_aad() {
         let aad = b"metadata";
-        let ciphertext = aes_128_gcm_encrypt(&KEY, &NONCE, aad, PLAINTEXT_SHORT).unwrap();
-        let decrypted = aes_128_gcm_decrypt(&KEY, &NONCE, aad, &ciphertext).unwrap();
+        let (rk, h) = expand(&KEY);
+        let ciphertext = aes_128_gcm_encrypt(&rk, h, &NONCE, aad, PLAINTEXT_SHORT).unwrap();
+        let decrypted = aes_128_gcm_decrypt(&rk, h, &NONCE, aad, &ciphertext).unwrap();
         assert_eq!(PLAINTEXT_SHORT, decrypted);
     }
 
     #[test]
     fn test_decrypt_with_wrong_aad_fails() {
-        let ciphertext = aes_128_gcm_encrypt(&KEY, &NONCE, b"auth-data", PLAINTEXT_SHORT).unwrap();
-        let result = aes_128_gcm_decrypt(&KEY, &NONCE, b"different", &ciphertext);
+        let (rk, h) = expand(&KEY);
+        let ciphertext =
+            aes_128_gcm_encrypt(&rk, h, &NONCE, b"auth-data", PLAINTEXT_SHORT).unwrap();
+        let result = aes_128_gcm_decrypt(&rk, h, &NONCE, b"different", &ciphertext);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_different_aad_changes_ciphertext() {
-        let ct1 = aes_128_gcm_encrypt(&KEY, &NONCE, b"A", PLAINTEXT_SHORT).unwrap();
-        let ct2 = aes_128_gcm_encrypt(&KEY, &NONCE, b"B", PLAINTEXT_SHORT).unwrap();
+        let (rk, h) = expand(&KEY);
+        let ct1 = aes_128_gcm_encrypt(&rk, h, &NONCE, b"A", PLAINTEXT_SHORT).unwrap();
+        let ct2 = aes_128_gcm_encrypt(&rk, h, &NONCE, b"B", PLAINTEXT_SHORT).unwrap();
         assert_ne!(ct1, ct2);
     }
 
@@ -407,22 +393,26 @@ mod tests {
 
     #[test]
     fn test_decrypt_with_wrong_key_fails() {
-        let ciphertext = aes_128_gcm_encrypt(&KEY, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
-        let result = aes_128_gcm_decrypt(&WRONG_KEY, &NONCE, &[], &ciphertext);
+        let (rk_ok, h_ok) = expand(&KEY);
+        let ciphertext = aes_128_gcm_encrypt(&rk_ok, h_ok, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
+        let (rk, h) = expand(&WRONG_KEY);
+        let result = aes_128_gcm_decrypt(&rk, h, &NONCE, &[], &ciphertext);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_decrypt_with_wrong_nonce_fails() {
-        let ciphertext = aes_128_gcm_encrypt(&KEY, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
-        let result = aes_128_gcm_decrypt(&KEY, &WRONG_NONCE, &[], &ciphertext);
+        let (rk, h) = expand(&KEY);
+        let ciphertext = aes_128_gcm_encrypt(&rk, h, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
+        let result = aes_128_gcm_decrypt(&rk, h, &WRONG_NONCE, &[], &ciphertext);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_different_nonce_produces_different_ciphertext() {
-        let ciphertext1 = aes_128_gcm_encrypt(&KEY, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
-        let ciphertext2 = aes_128_gcm_encrypt(&KEY, &WRONG_NONCE, &[], PLAINTEXT_SHORT).unwrap();
+        let (rk, h) = expand(&KEY);
+        let ciphertext1 = aes_128_gcm_encrypt(&rk, h, &NONCE, &[], PLAINTEXT_SHORT).unwrap();
+        let ciphertext2 = aes_128_gcm_encrypt(&rk, h, &WRONG_NONCE, &[], PLAINTEXT_SHORT).unwrap();
         assert_ne!(ciphertext1, ciphertext2);
     }
 
@@ -530,8 +520,8 @@ mod tests {
         let key = hex_to_bytes("11754cd72aec309bf52f7687212e8957");
         let nonce = hex_to_bytes("3c819d9a9bed087615030b65");
         let plaintext = vec![];
-
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let (rk, h) = expand(&key);
+        let result = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         // Expected: empty ciphertext + 16-byte tag
         let expected_tag = hex_to_bytes("250327c674aaf477aef2675748cf6971");
@@ -552,7 +542,8 @@ mod tests {
         let nonce = hex_to_bytes("ee283a3fc75575e33efd4887");
         let plaintext = hex_to_bytes("d5de42b461646c255c87bd2962d3b9a2");
 
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let (rk, h) = expand(&key);
+        let result = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         // Expected: 16 bytes ciphertext + 16 bytes tag
         let expected =
@@ -574,7 +565,8 @@ mod tests {
         let nonce = hex_to_bytes("14852791065b66ccfa0b2d80");
         let plaintext = hex_to_bytes("819abf03a7a6b72892a5ac85604035c2");
 
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let (rk, h) = expand(&key);
+        let result = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         // Expected ciphertext + tag (partial from test vector)
         let expected_ciphertext_start = hex_to_bytes("48371bd7af4235c4f11c45");
@@ -597,7 +589,8 @@ mod tests {
         let nonce = hex_to_bytes("000000000000000000000000");
         let plaintext = hex_to_bytes("00000000000000000000000000000000");
 
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let (rk, h) = expand(&key);
+        let result = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         // Should produce 16 bytes ciphertext + 16 bytes tag
         assert_eq!(result.len(), 32);
@@ -615,7 +608,8 @@ mod tests {
              b16aedf5aa0de657ba637b391aafd255",
         );
 
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let (rk, h) = expand(&key);
+        let result = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         // Expected: 64 bytes ciphertext + 16 bytes tag = 80 bytes
         let expected = hex_to_bytes(
@@ -649,8 +643,9 @@ mod tests {
         let key = hex_to_bytes("00000000000000000000000000000000");
         let nonce = hex_to_bytes("000000000000000000000000");
         let plaintext = vec![0x42];
+        let (rk, h) = expand(&key);
 
-        let result = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let result = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         // Should produce 1 byte ciphertext + 16 bytes tag
         assert_eq!(result.len(), 17);
@@ -664,8 +659,9 @@ mod tests {
         let nonce = hex_to_bytes("000000000000000000000000");
         let plaintext = vec![0x00; 16];
 
-        let result1 = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
-        let result2 = aes_128_gcm_encrypt(&key, &nonce, &[], &plaintext).unwrap();
+        let (rk, h) = expand(&key);
+        let result1 = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
+        let result2 = aes_128_gcm_encrypt(&rk, h, &nonce, &[], &plaintext).unwrap();
 
         assert_eq!(result1, result2, "Encryption should be deterministic");
         assert_eq!(result1.len(), 32);
@@ -736,11 +732,13 @@ mod tests {
         // OpenAI chat completions responses are typically 400 - 500 bytes
         let mut plaintext = [0u8; 448];
         crate::syscall::getrandom(&mut plaintext);
-        let ciphertext = aes_128_gcm_encrypt(&key, &nonce[..12], &hdr[..5], &plaintext).unwrap();
+
+        let (rk, h) = expand(&key);
+        let ciphertext = aes_128_gcm_encrypt(&rk, h, &nonce[..12], &hdr[..5], &plaintext).unwrap();
 
         // Timed part
         b.iter(|| {
-            aes_128_gcm_decrypt(&key, &nonce[..12], &hdr[..5], &ciphertext).unwrap();
+            aes_128_gcm_decrypt(&rk, h, &nonce[..12], &hdr[..5], &ciphertext).unwrap();
         });
     }
 }

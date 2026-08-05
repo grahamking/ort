@@ -18,9 +18,6 @@ GPT 5.5. suggestions for consideration.
 
 Performance ideas for the prompt path of ort, ordered by expected gain.
 
-Context from the current code and binary:
-- TLS application-data decrypt currently recomputes AES key schedule and GHASH state for every record, and allocates fresh `Vec`s per record.
-
 1. Implement TLS 1.3 session resumption and persist tickets across runs.
 - This is the biggest warm-path latency win because the CLI always makes a fresh connection today.
 - Right now post-handshake TLS handshake messages are dropped, including session tickets, so every run pays the full X25519 + HKDF + server-flight cost.
@@ -36,12 +33,6 @@ Context from the current code and binary:
 - `src/net/http.rs` writes the HTTP header and JSON body as two separate TLS writes, so that becomes two TLS records and extra encryption/syscall work.
 - Build the POST headers and body into one contiguous plaintext buffer, then encrypt and write once.
 - This also gives the server the full request earlier and reduces local AES-GCM work.
-
-5. Cache AES-GCM expanded keys and GHASH state per traffic key.
-- `src/net/tls/aead.rs` calls `key_expansion(key)` and recomputes `H = AES_K(0)` on every encrypt and every decrypt.
-- In the prompt path the read side is the hot side, so this repeats on every streamed TLS record.
-- Store the expanded round keys and precomputed GHASH input in `TlsStream` for both application directions and the handshake direction.
-- This directly speeds the steady-state stream without increasing code complexity much.
 
 6. Remove per-record TLS heap allocation and extra copies.
 - `src/net/tls.rs` allocates a fresh `Vec` for the 5-byte record header, another for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
@@ -130,7 +121,7 @@ Context from the current code and binary:
 Summary of where I would spend time first:
 1. TLS resumption + 0-RTT.
 2. Real client-side TFO and one-record request send.
-3. Cache AES-GCM key schedule/GHASH state and remove per-record TLS allocations/copies.
+3. remove per-record TLS allocations/copies.
 5. Direct byte-oriented SSE/JSON parsing.
 
 --- Agent
@@ -156,9 +147,6 @@ Summary of where I would spend time first:
 
 ### 9. **Support tool parameter arrays** (`src/input/to_json.rs:292`)
 **Value: High.** Tool schemas can have `type: "array"` parameters, which need `"items": {...}` in the JSON schema. Without this, any tool with an array parameter (e.g., `list_files(["dir1", "dir2"])`) can't generate correct schemas. Blocks agent tooling capabilities.
-
-### 10. **OrtError must be able to hold a String** (`src/input/args.rs:339`, also `src/common/data.rs:1075`)
-**Value: Medium-High.** The error type can only hold `&'static str`, so dynamic error messages (from owned strings) must be printed to stdout and then replaced with "See above". This makes error handling inconsistent and loses context when errors propagate. Fixing this has a cascading benefit across all error handling in the codebase.
 
 ---
 
@@ -197,15 +185,9 @@ I found **37 TODOs** in the project source/tests, excluding `.git/hooks` sample 
    **Value: 7/10**
    OpenRouter returns structured error JSON, but `ort` mostly treats it as raw text. Parsing it would improve user-facing errors, allow better `ErrorKind`s, and make rate-limit handling cleaner.
 
-9. **`src/input/args.rs:339` / `src/common/data.rs:1075` — Let `OrtError` hold owned `String`s**
-   **Value: 7/10**
-   Several places lose useful dynamic error messages or print side-channel diagnostics because errors can’t own strings. Fixing this would improve diagnostics
- across argument parsing, tool parsing, HTTP errors, and tests.
-
 10. **`src/common/tools.rs:271` — Make `WriteTool` create ancestor directories**
    **Value: 7/10**
    Agent mode’s write tool currently only creates one directory level. Recursive ancestor creation would make file-writing tools much more dependable for real coding-agent tasks.Malformed: unterminated string in scan_string_end
-
 
 
 . "Read" tool ToolDisplay should show the lines it reads as START-END (offset - offset+num)
