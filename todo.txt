@@ -29,11 +29,6 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - For a CLI that performs exactly one request, 0-RTT is the highest-leverage way to reduce time to first byte on warm connections because the request can leave in the first flight.
 - If OpenRouter does not accept early data, keep the resumption machinery anyway and just fall back to resumed 1-RTT.
 
-4. Collapse the HTTP request into one TLS application record and one send path.
-- `src/net/http.rs` writes the HTTP header and JSON body as two separate TLS writes, so that becomes two TLS records and extra encryption/syscall work.
-- Build the POST headers and body into one contiguous plaintext buffer, then encrypt and write once.
-- This also gives the server the full request earlier and reduces local AES-GCM work.
-
 6. Remove per-record TLS heap allocation and extra copies.
 - `src/net/tls.rs` allocates a fresh `Vec` for the 5-byte record header, another for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
 - `nonce_xor` also allocates with `concat()` for every record, which is pure overhead on the hot path.

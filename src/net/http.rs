@@ -180,85 +180,51 @@ pub fn chat_completions(
 
     let body = json_body.as_bytes();
 
-    // Built HTTP request header on the stack.
-    // With longest current model name headers len is 341.
-    let mut req = [0u8; 512];
+    // Built HTTP request header on our arena heap with space for body on end.
+    // This allows us to send a single TLS packet.
+    // With longest current model name headers len is 341 so use 512.
+    let mut req = Vec::with_capacity(512 + body.len());
 
     // POST <chat_completions_url> HTTP/1.1\r\n
     let chat_completions_url = base_path.to_string() + "/chat/completions";
-    let mut start = 0;
-    let mut end = POST.len();
-    req[start..end].copy_from_slice(POST);
-    start = end;
-    end += chat_completions_url.len();
-    req[start..end].copy_from_slice(chat_completions_url.as_bytes());
-    start = end;
-    end += HTTP_1_1.len();
-    req[start..end].copy_from_slice(HTTP_1_1);
+    req.extend_from_slice(POST);
+    req.extend_from_slice(chat_completions_url.as_bytes());
+    req.extend_from_slice(HTTP_1_1); // CRLF included
 
     // Host: <host>\r\n
-    start = end;
-    end += HOST_HEADER.len();
-    req[start..end].copy_from_slice(HOST_HEADER);
-    start = end;
-    end += host.len();
-    req[start..end].copy_from_slice(host.as_bytes());
-    start = end;
-    end += CRLF.len();
-    req[start..end].copy_from_slice(CRLF);
+    req.extend_from_slice(HOST_HEADER);
+    req.extend_from_slice(host.as_bytes());
+    req.extend_from_slice(CRLF);
 
     // Content-Length: <body-len>\r\n
-    start = end;
-    end += CONTENT_LENGTH_HEADER.len();
-    req[start..end].copy_from_slice(CONTENT_LENGTH_HEADER);
+    req.extend_from_slice(CONTENT_LENGTH_HEADER);
     let mut body_len_buf: [u8; 16] = [0; 16];
     let buf_len = utils::to_ascii(body.len(), &mut body_len_buf[..]);
-    start = end;
     // Subtract two to strip the \n and \0 that to_ascii adds
-    end += buf_len - 2;
-    req[start..end].copy_from_slice(&body_len_buf[..buf_len - 2]);
-    start = end;
-    end += CRLF.len();
-    req[start..end].copy_from_slice(CRLF);
+    req.extend_from_slice(&body_len_buf[..buf_len - 2]);
+    req.extend_from_slice(CRLF);
 
     // X-Session-Id: <session-id>\r\n
     // This helps inference servers route the request.
-    start = end;
-    end += SESSION_ID_HEADER.len();
-    req[start..end].copy_from_slice(SESSION_ID_HEADER);
-    start = end;
-    end += session_id.len();
-    req[start..end].copy_from_slice(session_id.as_bytes());
-    start = end;
-    end += CRLF.len();
-    req[start..end].copy_from_slice(CRLF);
+    req.extend_from_slice(SESSION_ID_HEADER);
+    req.extend_from_slice(session_id.as_bytes());
+    req.extend_from_slice(CRLF);
 
     // Rest of the HTTP headers
-    start = end;
-    end += CHAT_REQ_MIDDLE.len();
-    req[start..end].copy_from_slice(CHAT_REQ_MIDDLE);
+    req.extend_from_slice(CHAT_REQ_MIDDLE);
 
     // The constant part finished with "Authorization: Bearer ".
     // Append the API key and the final double CRLF.
-    start = end;
-    end += api_key.len();
-    req[start..end].copy_from_slice(api_key.as_bytes());
-    start = end;
-    end += CRLF.len();
-    req[start..end].copy_from_slice(CRLF);
-    start = end;
-    end += CRLF.len();
-    req[start..end].copy_from_slice(CRLF);
+    req.extend_from_slice(api_key.as_bytes());
+    req.extend_from_slice(CRLF);
+    req.extend_from_slice(CRLF);
 
-    //let end_str = utils::num_to_string(end);
-    //utils::print_string(c"REQ LEN ", &end_str);
+    // Add the body on the end
+    req.extend_from_slice(body);
 
-    //let headers = unsafe { String::from_utf8_unchecked(req[..end].to_vec()) };
-    //utils::print_string(c"HEADERS: ", &headers);
-
-    tls.write_all(&req[..end])
-        .context("write chat_completions header")?;
-    tls.write_all(body).context("write chat_completions body")?;
+    // Send as a single TLS packet - if it fits
+    tls.write_all(req.as_mut())
+        .context("write chat_completions")?;
     tls.flush().context("flush chat_completions")?;
 
     Ok(buf_read::OrtBufReader::new(tls))
