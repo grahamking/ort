@@ -30,9 +30,8 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - If OpenRouter does not accept early data, keep the resumption machinery anyway and just fall back to resumed 1-RTT.
 
 6. Remove per-record TLS heap allocation and extra copies.
-- `src/net/tls.rs` allocates a fresh `Vec` for the 5-byte record header, another for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
-- `nonce_xor` also allocates with `concat()` for every record, which is pure overhead on the hot path.
-- Replace this with fixed scratch buffers inside `TlsStream`, read the header into `[u8; 5]`, decrypt directly into a reusable plaintext buffer, and build the nonce in a `[u8; 12]` stack array.
+- `src/net/tls.rs` allocates a fresh `Vec` for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
+- Replace this with fixed scratch buffers inside `TlsStream`, decrypt directly into a reusable plaintext buffer.
 - This should cut allocator pressure, copies, and branchy small-object work.
 
 10. Parse SSE and JSON directly from bytes instead of building `String`s and mini ASTs.

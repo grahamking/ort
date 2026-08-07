@@ -102,13 +102,14 @@ fn digest_bytes(data: &[u8]) -> [u8; 32] {
 
 // AEAD nonce = iv XOR seq (seq in BE on the rightmost 8 bytes)
 fn nonce_xor(iv12: &[u8; 12], seq: u64) -> [u8; 12] {
+    let mut nonce_bytes = [0u8; 12];
     // seq number in big endian on rightmost 8 bytes
-    let mut nonce_bytes = [[0, 0, 0, 0].as_ref(), &u64::to_be_bytes(seq)].concat();
+    nonce_bytes[4..].copy_from_slice(&u64::to_be_bytes(seq));
     // xor them
     nonce_bytes.iter_mut().zip(iv12.iter()).for_each(|(s, iv)| {
         *s ^= *iv;
     });
-    nonce_bytes[..12].try_into().unwrap()
+    nonce_bytes
 }
 
 /// The expanded key and 0-block encrypted with those keys.
