@@ -45,11 +45,6 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - That works by accident but forces useless line parsing work on every chunk-size line.
 - A small chunked decoder feeding the SSE parser byte slices will be faster and simpler than the current workaround.
 
-12. Replace the generic X25519 with an x86_64-specialized implementation.
-- The current code uses a portable 16-limb `i64/i128` implementation.
-- On modern Linux x86_64 CPUs, a 5x51 or 4x64 implementation using BMI2/ADX or tight inline assembly should be materially faster for cold handshakes.
-- This matters less once resumption is done, but it is still the main remaining cold-handshake CPU cost.
-
 14. Prefer direct syscalls and `writev`/`sendmsg` over hand-written assembler for libc replacement.
 - Replacing a libc call with inline assembly that still performs the same syscall will not buy much.
 - The real win is cutting the dynamic dependency and fusing operations, for example with `writev`/`sendmsg` for request/output batching.
@@ -75,12 +70,6 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - `filename_read_to_string` currently reads into a `Vec`, then runs `String::from_utf8_lossy`, then makes another owned copy.
 - `mmap` plus borrowed slices is smaller and faster than repeated buffered reads plus string copying for tiny config files.
 - The same trick can be used for the `last-*.json` file on `-c`.
-
-19. Fix `LastWriter` buffering; it currently flushes every content chunk by mistake.
-- In `src/output/last_writer.rs`, the condition is `if buffer.len() >= TOKEN_MEM_BUFFER`, but `buffer.len()` is always 1088.
-- That means the code effectively encodes and writes on every token chunk instead of batching until `buf_idx` reaches the threshold.
-- This wastes file-write bandwidth and CPU.
-- The correct condition is `if buf_idx >= TOKEN_MEM_BUFFER`.
 
 20. Batch stdout writes and throttle the spinner.
 - `ConsoleWriter` writes and flushes on almost every reasoning chunk and every content chunk.
