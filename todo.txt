@@ -87,20 +87,6 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - These are cold-path allocations, so they rank below the app-data path, but they are still worth cleaning up because you care about both speed and binary size.
 - Stack or scratch-buffer versions should be straightforward because the message sizes are known and small.
 
-23. Keep allocator work off the hot path instead of optimizing the allocator itself.
-- The arena allocator feature is useful, but the best outcome is that prompt streaming no longer allocates in steady state.
-- After the TLS record, SSE parser, queue, and writer changes, allocator choice should matter much less.
-- In other words, attack allocation count first, allocator speed second.
-
-24. Remove `-Cforce-frame-pointers=yes` unless you actively need it in release.
-- Frame pointers increase register pressure and often add a little code size and instruction count in hot loops.
-- Because this binary is so small, the absolute win will not be huge, but it is one of the few compiler-flag changes that can improve both speed and size.
-- Keep it only if your profiling workflow truly depends on it.
-
-25. Fix timing math before trusting the built-in stats for optimization decisions.
-- `Instant::sub` appears to add `rhs.nanos` instead of subtracting it, so some elapsed/TTFT numbers can be wrong.
-- Incorrect measurements will cause you to mis-rank changes, especially once you start chasing sub-millisecond startup wins.
-
 Summary of where I would spend time first:
 1. TLS resumption + 0-RTT.
 2. Real client-side TFO and one-record request send.
@@ -139,10 +125,7 @@ Summary of where I would spend time first:
 |---|------|-------|-----|
 | 11 | Warn about missing TSC calibration (`src/input/prompt.rs:398`) | Medium | Nice diagnostic, not blocking |
 | 12 | 429 rate-limit detection (`src/input/prompt.rs:121`) | Medium | Helpful UX for retry logic |
-| 13 | Singleton Logger (`src/output/logger.rs:21`) | Low | Architecture cleanup |
 | 14 | Remove copy in TLS handshake (`src/net/tls.rs:258`) | Low | Performance micro-optimization |
-| 15 | Tool write doesn't create ancestor dirs (`src/common/tools.rs:271`) | Medium | Minor agent capability gap |
-| 16 | Error as String in tool lookup (`src/common/data.rs:1075`) | Low | Subsumed by #10 |
 | 17 | Various "can this still happen?" checks (output module) | Low | Dead code / defensive cleanup |
 | 18 | Capacity pre-alloc for tools in JSON (`src/input/to_json.rs:25`) | Low | Minor perf optimization |
 | 19 | Check syscall numbers in decimal (`src/syscall.rs:77`) | Low | Readability, not correctness |
@@ -167,10 +150,6 @@ I found **37 TODOs** in the project source/tests, excluding `.git/hooks` sample 
 8. **`src/net/http.rs:295` / `src/input/prompt.rs:121` — Parse API error JSON and classify useful errors like 429**
    **Value: 7/10**
    OpenRouter returns structured error JSON, but `ort` mostly treats it as raw text. Parsing it would improve user-facing errors, allow better `ErrorKind`s, and make rate-limit handling cleaner.
-
-10. **`src/common/tools.rs:271` — Make `WriteTool` create ancestor directories**
-   **Value: 7/10**
-   Agent mode’s write tool currently only creates one directory level. Recursive ancestor creation would make file-writing tools much more dependable for real coding-agent tasks.Malformed: unterminated string in scan_string_end
 
 
 . "Read" tool ToolDisplay should show the lines it reads as START-END (offset - offset+num)

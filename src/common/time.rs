@@ -2,7 +2,7 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025, 2026 Graham King
 //!
 
 use core::ops::Sub;
@@ -26,8 +26,8 @@ impl Sub for Instant {
     type Output = Duration;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let total_nanos =
-            self.secs as f64 * 1e9 + self.nanos as f64 - rhs.secs as f64 * 1e9 + rhs.nanos as f64;
+        let total_nanos = (self.secs as f64 * 1e9 + self.nanos as f64)
+            - (rhs.secs as f64 * 1e9 + rhs.nanos as f64);
         Duration::from_nanos(total_nanos as u64)
     }
 }
