@@ -149,7 +149,7 @@ fn run_single<W: Write + Send>(
         messages.clone(),
         tools.to_vec(),
         0,
-        Some(env),
+        env,
     )?;
     active_prompt.start()?;
 

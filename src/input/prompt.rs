@@ -84,8 +84,7 @@ pub fn run<W: Write + Send>(
         None
     };
 
-    let mut active_prompt =
-        ActivePrompt::new(api_key.to_string(), cfg, messages, vec![], 0, Some(env))?;
+    let mut active_prompt = ActivePrompt::new(api_key.to_string(), cfg, messages, vec![], 0, env)?;
     active_prompt.start()?;
 
     loop {
@@ -161,6 +160,7 @@ pub fn run_continue<W: Write + Send>(
 pub fn run_multi<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
+    env: &Env,
     opts: PromptOpts,
     messages: Vec<crate::Message>,
     w: &mut W,
@@ -185,17 +185,11 @@ pub fn run_multi<W: Write + Send>(
     // Start all the queries.
     // We negotiate TLS one at a time, should start epoll earlier to do all at once.
     for idx in 0..num_models {
-        let model_name = opts.models.get(idx).unwrap().clone();
-        names.push(model_name);
+        let model_id = opts.models.get(idx).unwrap().clone();
+        names.push(model_id);
 
-        let mut active_prompt = ActivePrompt::new(
-            api_key.to_string(),
-            cfg,
-            messages.clone(),
-            vec![],
-            idx,
-            None,
-        )?;
+        let mut active_prompt =
+            ActivePrompt::new(api_key.to_string(), cfg, messages.clone(), vec![], idx, env)?;
         active_prompt.start()?;
         let socket_fd = active_prompt.as_fd();
 
@@ -325,12 +319,18 @@ impl ActivePrompt {
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
         model_idx: usize,
-        env: Option<&Env>,
+        env: &Env,
     ) -> OrtResult<Self> {
         let session_id = if model_idx == 0 {
             cfg.session_id.clone()
         } else {
             alloc::format!("{}-{model_idx}", cfg.session_id)
+        };
+        let model_id = cfg.models.get(model_idx).expect("Missing model name");
+        let logger = if cfg.is_private {
+            None
+        } else {
+            Some(Logger::new(env, &utils::slug(model_id.as_str()))?)
         };
         Ok(ActivePrompt {
             api_key,
@@ -342,11 +342,7 @@ impl ActivePrompt {
             reader: None,
             stats: Stats {
                 // Default the model to the passed one, in case provider stats don't include it
-                used_model: cfg
-                    .models
-                    .get(model_idx)
-                    .cloned()
-                    .expect("Missing model name"),
+                used_model: model_id.clone(),
                 // Provider doesn't make sense for build.nvidia.com
                 provider: "".to_string(),
                 ..Default::default()
@@ -362,13 +358,7 @@ impl ActivePrompt {
             is_first_content: true,
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
-            logger: if let Some(env) = env
-                && !cfg.is_private
-            {
-                Some(Logger::new(env)?)
-            } else {
-                None
-            },
+            logger,
         })
     }
 

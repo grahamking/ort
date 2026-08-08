@@ -14,16 +14,17 @@ pub struct Logger {
     w: file::File,
 }
 
-const LOG_FILENAME: &str = "log.jsonl";
+const LOG_FILENAME: &str = "_log.jsonl";
 
 impl Logger {
-    /// Only make one!
-    /// TODO: Probably make it a singleton
-    pub fn new(env: &Env) -> OrtResult<Self> {
+    pub fn new(env: &Env, model_slug: &str) -> OrtResult<Self> {
         let mut log_path = [0u8; 128];
         let idx = config::cache_dir(env, &mut log_path)?;
         log_path[idx] = b'/';
         let start = idx + 1;
+        let end = start + model_slug.len();
+        log_path[start..end].copy_from_slice(model_slug.as_bytes());
+        let start = end;
         let end = start + LOG_FILENAME.len();
         log_path[start..end].copy_from_slice(LOG_FILENAME.as_bytes());
         // end + 1 to add a null byte on the end
