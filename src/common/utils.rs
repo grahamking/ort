@@ -175,10 +175,19 @@ pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
 
 #[allow(unused)]
 pub(crate) fn print_string(prefix: &CStr, s: &str) {
+    print_string_internal(1, prefix, s);
+}
+
+#[allow(unused)]
+pub(crate) fn eprint_string(prefix: &CStr, s: &str) {
+    print_string_internal(2, prefix, s);
+}
+
+pub(crate) fn print_string_internal(fd: i32, prefix: &CStr, s: &str) {
     let msg = CString::new(zclean(&mut s.to_string())).unwrap();
-    let _ = syscall::write(1, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
-    let _ = syscall::write(1, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
-    let _ = syscall::write(1, c"\n".as_ptr().cast::<c_void>(), c"\n".count_bytes());
+    let _ = syscall::write(fd, prefix.as_ptr().cast::<c_void>(), prefix.count_bytes());
+    let _ = syscall::write(fd, msg.as_ptr().cast::<c_void>(), msg.count_bytes());
+    let _ = syscall::write(fd, c"\n".as_ptr().cast::<c_void>(), c"\n".count_bytes());
 }
 
 /// Replace any null bytes with an underscore, making it C-safe
