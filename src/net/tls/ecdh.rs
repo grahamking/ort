@@ -8,22 +8,21 @@
 //! as described in RFC 7748.
 //!
 //! Originally contributed by GPT-5.
-//! Re-written to specialized SIMD friendly code by GPT-5.5 xhigh.
+//! Updated to Radix-51 field arithmetic inspired by curve25519-dalek by GPT-5.6 Sol.
 
 type Fe = [u64; 5];
 
 const MASK51: u64 = (1u64 << 51) - 1;
-const MASK51_U128: u128 = MASK51 as u128;
-const TWO_P0: u64 = 2 * ((1u64 << 51) - 19);
-const TWO_PI: u64 = 2 * MASK51;
+const P2_0: u64 = 2 * ((1u64 << 51) - 19);
+const P2_I: u64 = 2 * MASK51;
 const BASEPOINT: [u8; 32] = [
     9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
+const A24: Fe = [121665, 0, 0, 0, 0];
 
 pub fn x25519_public_key(private: &[u8]) -> [u8; 32] {
-    assert!(private.len() >= 32, "private key must be 32 bytes");
-    let mut scalar = [0u8; 32];
-    scalar.copy_from_slice(&private[..32]);
+    debug_assert!(private.len() >= 32, "private key must be 32 bytes");
+    let scalar = unsafe { private.as_ptr().cast::<[u8; 32]>().read_unaligned() };
     x25519(&scalar, &BASEPOINT)
 }
 
@@ -34,15 +33,14 @@ pub fn x25519_agreement(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> [
 fn x25519(scalar: &[u8; 32], point: &[u8; 32]) -> [u8; 32] {
     let mut e = *scalar;
     e[0] &= 248;
-    e[31] &= 127;
-    e[31] |= 64;
+    e[31] = (e[31] & 127) | 64;
 
     let x1 = fe_from_bytes(point);
     let mut x2 = [1, 0, 0, 0, 0];
     let mut z2 = [0; 5];
     let mut x3 = x1;
     let mut z3 = [1, 0, 0, 0, 0];
-    let mut swap = 0u64;
+    let mut swap = 0;
 
     for pos in (0..255).rev() {
         let bit = ((e[pos >> 3] >> (pos & 7)) & 1) as u64;
@@ -52,240 +50,154 @@ fn x25519(scalar: &[u8; 32], point: &[u8; 32]) -> [u8; 32] {
         swap = bit;
 
         let a = fe_add(&x2, &z2);
-        let aa = fe_square(&a);
+        let aa = fe_square_n(&a, 1);
         let b = fe_sub(&x2, &z2);
-        let bb = fe_square(&b);
-        let e = fe_sub(&aa, &bb);
+        let bb = fe_square_n(&b, 1);
+        let difference = fe_sub(&aa, &bb);
         let c = fe_add(&x3, &z3);
         let d = fe_sub(&x3, &z3);
         let da = fe_mul(&d, &a);
         let cb = fe_mul(&c, &b);
-        let da_plus_cb = fe_add(&da, &cb);
-        let da_minus_cb = fe_sub(&da, &cb);
-        x3 = fe_square(&da_plus_cb);
-        z3 = fe_mul(&x1, &fe_square(&da_minus_cb));
+        x3 = fe_square_n(&fe_add(&da, &cb), 1);
+        z3 = fe_mul(&x1, &fe_square_n(&fe_sub(&da, &cb), 1));
         x2 = fe_mul(&aa, &bb);
-        z2 = fe_mul(&e, &fe_add(&aa, &fe_mul_const(&e, 121665)));
+        z2 = fe_mul(&difference, &fe_add(&aa, &fe_mul(&difference, &A24)));
     }
 
-    fe_cswap(&mut x2, &mut x3, swap);
-    fe_cswap(&mut z2, &mut z3, swap);
-
-    fe_to_bytes(&fe_mul(&x2, &fe_invert(&z2)))
+    // The clamped scalar's low three bits are zero, so `swap` is zero here.
+    fe_to_bytes(fe_mul(&x2, &fe_invert(&z2)))
 }
 
-#[inline(always)]
-fn fe_from_bytes(bytes: &[u8; 32]) -> Fe {
-    let mut bytes = *bytes;
-    bytes[31] &= 127;
-
+fn fe_add(a: &Fe, b: &Fe) -> Fe {
     [
-        load64(&bytes, 0) & MASK51,
-        (load64(&bytes, 6) >> 3) & MASK51,
-        (load64(&bytes, 12) >> 6) & MASK51,
-        (load64(&bytes, 19) >> 1) & MASK51,
-        (load64(&bytes, 24) >> 12) & MASK51,
+        a[0] + b[0],
+        a[1] + b[1],
+        a[2] + b[2],
+        a[3] + b[3],
+        a[4] + b[4],
     ]
 }
 
-#[inline(always)]
-fn fe_to_bytes(f: &Fe) -> [u8; 32] {
-    let f = fe_freeze(f);
-    let mut out = [0; 32];
+#[inline(never)]
+fn fe_sub(a: &Fe, b: &Fe) -> Fe {
+    [
+        a[0] + P2_0 - b[0],
+        a[1] + P2_I - b[1],
+        a[2] + P2_I - b[2],
+        a[3] + P2_I - b[3],
+        a[4] + P2_I - b[4],
+    ]
+}
 
-    store64(&mut out, 0, f[0] | (f[1] << 51));
-    store64(&mut out, 8, (f[1] >> 13) | (f[2] << 38));
-    store64(&mut out, 16, (f[2] >> 26) | (f[3] << 25));
-    store64(&mut out, 24, (f[3] >> 39) | (f[4] << 12));
+fn fe_reduce(mut h: Fe) -> Fe {
+    let c0 = h[0] >> 51;
+    let c1 = h[1] >> 51;
+    let c2 = h[2] >> 51;
+    let c3 = h[3] >> 51;
+    let c4 = h[4] >> 51;
 
+    h[0] = (h[0] & MASK51) + 19 * c4;
+    h[1] = (h[1] & MASK51) + c0;
+    h[2] = (h[2] & MASK51) + c1;
+    h[3] = (h[3] & MASK51) + c2;
+    h[4] = (h[4] & MASK51) + c3;
+    h
+}
+
+#[inline(never)]
+fn fe_mul(a: &Fe, b: &Fe) -> Fe {
+    let b1_19 = b[1] * 19;
+    let b2_19 = b[2] * 19;
+    let b3_19 = b[3] * 19;
+    let b4_19 = b[4] * 19;
+
+    let mut c0 = m(a[0], b[0]) + m(a[4], b1_19) + m(a[3], b2_19) + m(a[2], b3_19) + m(a[1], b4_19);
+    let mut c1 = m(a[1], b[0]) + m(a[0], b[1]) + m(a[4], b2_19) + m(a[3], b3_19) + m(a[2], b4_19);
+    let mut c2 = m(a[2], b[0]) + m(a[1], b[1]) + m(a[0], b[2]) + m(a[4], b3_19) + m(a[3], b4_19);
+    let mut c3 = m(a[3], b[0]) + m(a[2], b[1]) + m(a[1], b[2]) + m(a[0], b[3]) + m(a[4], b4_19);
+    let mut c4 = m(a[4], b[0]) + m(a[3], b[1]) + m(a[2], b[2]) + m(a[1], b[3]) + m(a[0], b[4]);
+
+    c1 += (c0 >> 51) as u64 as u128;
+    c0 &= MASK51 as u128;
+    c2 += (c1 >> 51) as u64 as u128;
+    c1 &= MASK51 as u128;
+    c3 += (c2 >> 51) as u64 as u128;
+    c2 &= MASK51 as u128;
+    c4 += (c3 >> 51) as u64 as u128;
+    c3 &= MASK51 as u128;
+
+    let carry = (c4 >> 51) as u64;
+    let mut out = [
+        c0 as u64 + carry * 19,
+        c1 as u64,
+        c2 as u64,
+        c3 as u64,
+        c4 as u64 & MASK51,
+    ];
+    out[1] += out[0] >> 51;
+    out[0] &= MASK51;
     out
 }
 
-#[inline(always)]
-fn load64(bytes: &[u8; 32], offset: usize) -> u64 {
-    let mut word = [0; 8];
-    word.copy_from_slice(&bytes[offset..offset + 8]);
-    u64::from_le_bytes(word)
+#[inline(never)]
+fn fe_square_n(x: &Fe, mut n: u32) -> Fe {
+    let mut a = *x;
+    while n != 0 {
+        let a3_19 = a[3] * 19;
+        let a4_19 = a[4] * 19;
+        let mut c0 = m(a[0], a[0]) + 2 * (m(a[1], a4_19) + m(a[2], a3_19));
+        let mut c1 = m(a[3], a3_19) + 2 * (m(a[0], a[1]) + m(a[2], a4_19));
+        let mut c2 = m(a[1], a[1]) + 2 * (m(a[0], a[2]) + m(a[4], a3_19));
+        let mut c3 = m(a[4], a4_19) + 2 * (m(a[0], a[3]) + m(a[1], a[2]));
+        let mut c4 = m(a[2], a[2]) + 2 * (m(a[0], a[4]) + m(a[1], a[3]));
+
+        c1 += (c0 >> 51) as u64 as u128;
+        c0 &= MASK51 as u128;
+        c2 += (c1 >> 51) as u64 as u128;
+        c1 &= MASK51 as u128;
+        c3 += (c2 >> 51) as u64 as u128;
+        c2 &= MASK51 as u128;
+        c4 += (c3 >> 51) as u64 as u128;
+        c3 &= MASK51 as u128;
+
+        let carry = (c4 >> 51) as u64;
+        a = [
+            c0 as u64 + carry * 19,
+            c1 as u64,
+            c2 as u64,
+            c3 as u64,
+            c4 as u64 & MASK51,
+        ];
+        a[1] += a[0] >> 51;
+        a[0] &= MASK51;
+        n -= 1;
+    }
+    a
 }
 
-#[inline(always)]
-fn store64(out: &mut [u8; 32], offset: usize, value: u64) {
-    out[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-}
-
-#[inline(always)]
-fn fe_add(a: &Fe, b: &Fe) -> Fe {
-    carry_reduce([
-        a[0] as u128 + b[0] as u128,
-        a[1] as u128 + b[1] as u128,
-        a[2] as u128 + b[2] as u128,
-        a[3] as u128 + b[3] as u128,
-        a[4] as u128 + b[4] as u128,
-    ])
-}
-
-#[inline(always)]
-fn fe_sub(a: &Fe, b: &Fe) -> Fe {
-    carry_reduce([
-        a[0] as u128 + TWO_P0 as u128 - b[0] as u128,
-        a[1] as u128 + TWO_PI as u128 - b[1] as u128,
-        a[2] as u128 + TWO_PI as u128 - b[2] as u128,
-        a[3] as u128 + TWO_PI as u128 - b[3] as u128,
-        a[4] as u128 + TWO_PI as u128 - b[4] as u128,
-    ])
-}
-
-#[inline(always)]
-fn fe_mul(a: &Fe, b: &Fe) -> Fe {
-    let a0 = a[0] as u128;
-    let a1 = a[1] as u128;
-    let a2 = a[2] as u128;
-    let a3 = a[3] as u128;
-    let a4 = a[4] as u128;
-    let b0 = b[0] as u128;
-    let b1 = b[1] as u128;
-    let b2 = b[2] as u128;
-    let b3 = b[3] as u128;
-    let b4 = b[4] as u128;
-
-    carry_reduce([
-        a0 * b0 + 19 * (a1 * b4 + a2 * b3 + a3 * b2 + a4 * b1),
-        a0 * b1 + a1 * b0 + 19 * (a2 * b4 + a3 * b3 + a4 * b2),
-        a0 * b2 + a1 * b1 + a2 * b0 + 19 * (a3 * b4 + a4 * b3),
-        a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0 + 19 * a4 * b4,
-        a0 * b4 + a1 * b3 + a2 * b2 + a3 * b1 + a4 * b0,
-    ])
-}
-
-#[inline(always)]
-fn fe_square(a: &Fe) -> Fe {
-    let a0 = a[0] as u128;
-    let a1 = a[1] as u128;
-    let a2 = a[2] as u128;
-    let a3 = a[3] as u128;
-    let a4 = a[4] as u128;
-
-    carry_reduce([
-        a0 * a0 + 38 * (a1 * a4 + a2 * a3),
-        2 * a0 * a1 + 19 * (2 * a2 * a4 + a3 * a3),
-        2 * a0 * a2 + a1 * a1 + 38 * a3 * a4,
-        2 * a0 * a3 + 2 * a1 * a2 + 19 * a4 * a4,
-        2 * a0 * a4 + 2 * a1 * a3 + a2 * a2,
-    ])
-}
-
-#[inline(always)]
-fn fe_mul_const(a: &Fe, c: u64) -> Fe {
-    let c = c as u128;
-
-    carry_reduce([
-        a[0] as u128 * c,
-        a[1] as u128 * c,
-        a[2] as u128 * c,
-        a[3] as u128 * c,
-        a[4] as u128 * c,
-    ])
-}
-
-#[inline(always)]
-fn carry_reduce(mut h: [u128; 5]) -> Fe {
-    carry_round(&mut h);
-    carry_round(&mut h);
-
-    [
-        h[0] as u64,
-        h[1] as u64,
-        h[2] as u64,
-        h[3] as u64,
-        h[4] as u64,
-    ]
-}
-
-#[inline(always)]
-fn carry_round(h: &mut [u128; 5]) {
-    let c0 = h[0] >> 51;
-    h[0] &= MASK51_U128;
-    h[1] += c0;
-
-    let c1 = h[1] >> 51;
-    h[1] &= MASK51_U128;
-    h[2] += c1;
-
-    let c2 = h[2] >> 51;
-    h[2] &= MASK51_U128;
-    h[3] += c2;
-
-    let c3 = h[3] >> 51;
-    h[3] &= MASK51_U128;
-    h[4] += c3;
-
-    let c4 = h[4] >> 51;
-    h[4] &= MASK51_U128;
-    h[0] += 19 * c4;
-}
-
-#[inline(always)]
-fn fe_freeze(f: &Fe) -> Fe {
-    let mut h = [
-        f[0] as u128,
-        f[1] as u128,
-        f[2] as u128,
-        f[3] as u128,
-        f[4] as u128,
-    ];
-
-    carry_round(&mut h);
-    carry_round(&mut h);
-    carry_round(&mut h);
-    carry_round(&mut h);
-
-    let reduced = [
-        h[0] as u64,
-        h[1] as u64,
-        h[2] as u64,
-        h[3] as u64,
-        h[4] as u64,
-    ];
-
-    let mut wrapped = reduced;
-    wrapped[0] += 19;
-    let carry0 = wrapped[0] >> 51;
-    wrapped[0] &= MASK51;
-    wrapped[1] += carry0;
-    let carry1 = wrapped[1] >> 51;
-    wrapped[1] &= MASK51;
-    wrapped[2] += carry1;
-    let carry2 = wrapped[2] >> 51;
-    wrapped[2] &= MASK51;
-    wrapped[3] += carry2;
-    let carry3 = wrapped[3] >> 51;
-    wrapped[3] &= MASK51;
-    wrapped[4] += carry3;
-    let carry4 = wrapped[4] >> 51;
-    wrapped[4] &= MASK51;
-
-    let mask = 0u64.wrapping_sub(carry4);
-    [
-        (reduced[0] & !mask) | (wrapped[0] & mask),
-        (reduced[1] & !mask) | (wrapped[1] & mask),
-        (reduced[2] & !mask) | (wrapped[2] & mask),
-        (reduced[3] & !mask) | (wrapped[3] & mask),
-        (reduced[4] & !mask) | (wrapped[4] & mask),
-    ]
+fn m(a: u64, b: u64) -> u128 {
+    a as u128 * b as u128
 }
 
 fn fe_invert(z: &Fe) -> Fe {
-    let mut c = *z;
-    for a in (0..=253).rev() {
-        c = fe_square(&c);
-        if a != 2 && a != 4 {
-            c = fe_mul(&c, z);
-        }
+    let z2 = fe_square_n(z, 1);
+    let z3 = fe_mul(&z2, z);
+    let z4 = fe_square_n(&z2, 1);
+    let z7 = fe_mul(&z4, &z3);
+    let z8 = fe_square_n(&z4, 1);
+    let z11 = fe_mul(&z8, &z3);
+    let z14 = fe_square_n(&z7, 1);
+    let z15 = fe_mul(&z14, z);
+
+    // p - 2 = 0x7fff...ffeb: append 61 f-nibbles, then e and b.
+    let mut c = z7;
+    for _ in 0..61 {
+        c = fe_mul(&fe_square_n(&c, 4), &z15);
     }
-    c
+    c = fe_mul(&fe_square_n(&c, 4), &z14);
+    fe_mul(&fe_square_n(&c, 4), &z11)
 }
 
-#[inline(always)]
 fn fe_cswap(a: &mut Fe, b: &mut Fe, swap: u64) {
     let mask = 0u64.wrapping_sub(swap);
     for i in 0..5 {
@@ -293,6 +205,53 @@ fn fe_cswap(a: &mut Fe, b: &mut Fe, swap: u64) {
         a[i] ^= t;
         b[i] ^= t;
     }
+}
+
+fn fe_from_bytes(bytes: &[u8; 32]) -> Fe {
+    fn load(bytes: &[u8; 32], offset: usize) -> u64 {
+        // SAFETY: every fixed offset below leaves eight bytes in the array.
+        u64::from_le(unsafe { bytes.as_ptr().add(offset).cast::<u64>().read_unaligned() })
+    }
+    [
+        load(bytes, 0) & MASK51,
+        (load(bytes, 6) >> 3) & MASK51,
+        (load(bytes, 12) >> 6) & MASK51,
+        (load(bytes, 19) >> 1) & MASK51,
+        (load(bytes, 24) >> 12) & MASK51,
+    ]
+}
+
+fn fe_to_bytes(f: Fe) -> [u8; 32] {
+    let mut h = fe_reduce(f);
+    let mut q = (h[0] + 19) >> 51;
+    q = (h[1] + q) >> 51;
+    q = (h[2] + q) >> 51;
+    q = (h[3] + q) >> 51;
+    q = (h[4] + q) >> 51;
+    h[0] += 19 * q;
+    for i in 0..4 {
+        h[i + 1] += h[i] >> 51;
+        h[i] &= MASK51;
+    }
+    h[4] &= MASK51;
+
+    let words = [
+        h[0] | (h[1] << 51),
+        (h[1] >> 13) | (h[2] << 38),
+        (h[2] >> 26) | (h[3] << 25),
+        (h[3] >> 39) | (h[4] << 12),
+    ];
+    let mut out = [0; 32];
+    for (i, word) in words.into_iter().enumerate() {
+        // SAFETY: i is in 0..4, writes are unaligned and stay within out.
+        unsafe {
+            out.as_mut_ptr()
+                .add(8 * i)
+                .cast::<u64>()
+                .write_unaligned(word.to_le());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
