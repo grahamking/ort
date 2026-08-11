@@ -17,7 +17,7 @@ use crate::common::base64;
 use crate::common::error::ort_err;
 use crate::common::json_parser::{JsonField, Parser, autoparser};
 use crate::common::utils::filename_read_to_bytes;
-use crate::{ErrorKind, OrtResult};
+use crate::{Context as _, ErrorKind, OrtResult};
 
 const IMAGE_EXT: [&str; 4] = ["jpg", "JPG", "png", "PNG"];
 
@@ -68,12 +68,12 @@ impl ChatCompletionsResponse {
             JsonField::new_vec_raw("choices"),
             JsonField::new_raw("usage"),
         ];
-        autoparser(json, &mut fields)?;
+        autoparser(json, &mut fields).context("ChatCompletionsResponse autoparser")?;
 
         let mut choices = vec![];
         if let Some(v) = fields[2].get_vec_raw() {
             for c in v {
-                choices.push(Choice::from_json(&c)?);
+                choices.push(Choice::from_json(&c).context("Choice")?);
             }
         }
 
@@ -111,7 +111,7 @@ impl Choice {
         let delta_json = fields[0].get_raw().expect("Missing delta in message");
 
         Ok(Choice {
-            delta: Message::from_json(&delta_json)?,
+            delta: Message::from_json(&delta_json).context("Message")?,
             finish_reason: fields[1].get_string(),
         })
     }
@@ -450,7 +450,7 @@ impl Message {
                 if !p.try_consume(b']') {
                     loop {
                         let j = p.value_slice()?;
-                        content.push(Content::from_json(j)?);
+                        content.push(Content::from_json(j).context("Content")?);
                         p.skip_ws();
                         if p.try_consume(b',') {
                             continue;

@@ -575,6 +575,7 @@ impl ActivePrompt {
                 }
                 Err(err) => {
                     utils::print_string(c"Malformed: ", &err.as_string());
+                    utils::print_string(c"DATA: ", data);
                 }
             }
 
