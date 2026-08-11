@@ -5,10 +5,12 @@
 //! Copyright (c) 2026 Graham King
 
 extern crate alloc;
-use alloc::borrow::{Cow, ToOwned};
+use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+
+use crate::{ErrorKind, OrtResult, ort_err};
 
 pub struct JsonField {
     pub name: &'static str,
@@ -65,18 +67,24 @@ impl JsonField {
         }
     }
 
-    fn parse(&mut self, p: &mut Parser) -> Result<(), Cow<'static, str>> {
+    fn parse(&mut self, p: &mut Parser) -> OrtResult<()> {
         match &mut self.value {
             JsonValue::SimpleString(inner) => {
-                let s = p
-                    .parse_simple_str()
-                    .map_err(|err| "Parsing field: ".to_string() + err)?;
+                let s = p.parse_simple_str().map_err(|err| {
+                    ort_err(
+                        ErrorKind::FormatError,
+                        ("Parsing field: ".to_string() + err.context.as_ref()).into(),
+                    )
+                })?;
                 inner.replace(s.to_string());
             }
             JsonValue::String(inner) => {
-                let s = p
-                    .parse_string()
-                    .map_err(|err| "Parsing field: ".to_string() + &err)?;
+                let s = p.parse_string().map_err(|err| {
+                    ort_err(
+                        ErrorKind::FormatError,
+                        ("Parsing field: ".to_string() + err.context.as_ref()).into(),
+                    )
+                })?;
                 inner.replace(s);
             }
             JsonValue::Int(inner) => {
@@ -95,7 +103,7 @@ impl JsonField {
             }
             JsonValue::VecRaw(inner) => {
                 if !p.try_consume(b'[') {
-                    return Err("Expected array".into());
+                    return Err(ort_err(ErrorKind::FormatError, "Expected array".into()));
                 }
                 p.skip_ws();
                 let mut v = vec![];
@@ -200,7 +208,7 @@ pub enum JsonValue {
 
 impl JsonValue {}
 
-pub fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'static, str>> {
+pub fn autoparser(json: &str, fields: &mut [JsonField]) -> OrtResult<()> {
     let mut p = Parser::new(json);
     p.skip_ws();
     p.expect(b'{')?;
@@ -211,9 +219,12 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'stati
             break;
         }
 
-        let key = p
-            .parse_simple_str()
-            .map_err(|err| "parsing key: ".to_string() + err)?;
+        let key = p.parse_simple_str().map_err(|err| {
+            ort_err(
+                ErrorKind::FormatError,
+                ("parsing key: ".to_string() + err.context.as_ref()).into(),
+            )
+        })?;
         p.skip_ws();
         p.expect(b':')?;
         p.skip_ws();
@@ -222,7 +233,10 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'stati
         for field in fields.iter_mut() {
             if field.name == key {
                 if !field.is_empty() {
-                    return Err(("duplicate field: ".to_string() + field.name).into());
+                    return Err(ort_err(
+                        ErrorKind::FormatError,
+                        ("duplicate field: ".to_string() + field.name).into(),
+                    ));
                 }
                 if p.peek_is_null() {
                     p.skip_null()?;
@@ -248,7 +262,10 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> Result<(), Cow<'stati
 
     p.skip_ws();
     if !p.eof() {
-        return Err("trailing characters after JSON object".into());
+        return Err(ort_err(
+            ErrorKind::FormatError,
+            "trailing characters after JSON object".into(),
+        ));
     }
 
     Ok(())
@@ -293,11 +310,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn expect(&mut self, ch: u8) -> Result<(), &'static str> {
+    pub fn expect(&mut self, ch: u8) -> OrtResult<()> {
         if self.try_consume(ch) {
             Ok(())
         } else {
-            Err("expected character")
+            Err(ort_err(ErrorKind::FormatError, "expected character".into()))
         }
     }
 
@@ -315,12 +332,12 @@ impl<'a> Parser<'a> {
         end <= self.b.len() && &self.b[self.i..end] == pat
     }
 
-    pub fn skip_null(&mut self) -> Result<(), &'static str> {
+    pub fn skip_null(&mut self) -> OrtResult<()> {
         if self.starts_with_bytes(b"null") {
             self.i += 4;
             Ok(())
         } else {
-            Err("expected null")
+            Err(ort_err(ErrorKind::FormatError, "expected null".into()))
         }
     }
 
@@ -328,7 +345,7 @@ impl<'a> Parser<'a> {
         self.starts_with_bytes(b"null")
     }
 
-    fn parse_bool(&mut self) -> Result<bool, String> {
+    fn parse_bool(&mut self) -> OrtResult<bool> {
         self.skip_ws();
         if self.starts_with_bytes(b"true") {
             self.i += 4;
@@ -337,27 +354,36 @@ impl<'a> Parser<'a> {
             self.i += 5;
             Ok(false)
         } else {
-            Err("Expected boolean, got: ".to_string() + &String::from_utf8_lossy(&self.b[self.i..]))
+            Err(ort_err(
+                ErrorKind::FormatError,
+                ("Expected boolean, got: ".to_string()
+                    + &String::from_utf8_lossy(&self.b[self.i..]))
+                    .into(),
+            ))
         }
     }
 
-    fn parse_u32(&mut self) -> Result<u32, &'static str> {
+    fn parse_u32(&mut self) -> OrtResult<u32> {
         self.skip_ws();
         if self.eof() {
-            return Err("expected number");
+            return Err(ort_err(ErrorKind::FormatError, "expected number".into()));
         }
         if self.peek() == Some(b'-') {
-            return Err("negative not allowed");
+            return Err(ort_err(
+                ErrorKind::FormatError,
+                "negative not allowed".into(),
+            ));
         }
-        let out = crate::common::utils::parse_u32(&self.b[self.i..])?;
+        let out = crate::common::utils::parse_u32(&self.b[self.i..])
+            .map_err(|err| ort_err(ErrorKind::FormatError, err.into()))?;
         self.i += if out == 0 { 1 } else { out.ilog10() + 1 } as usize;
         Ok(out)
     }
 
-    fn parse_f32(&mut self) -> Result<f32, &'static str> {
+    fn parse_f32(&mut self) -> OrtResult<f32> {
         self.skip_ws();
         if self.eof() {
-            return Err("expected number");
+            return Err(ort_err(ErrorKind::FormatError, "expected number".into()));
         }
 
         let len = self.b.len();
@@ -414,7 +440,7 @@ impl<'a> Parser<'a> {
         }
 
         if ints == 0 && !frac_any {
-            return Err("expected number");
+            return Err(ort_err(ErrorKind::FormatError, "expected number".into()));
         }
 
         // Exponent part
@@ -433,7 +459,7 @@ impl<'a> Parser<'a> {
                 }
             }
             if self.eof() || !self.b[self.i].is_ascii_digit() {
-                return Err("expected exponent");
+                return Err(ort_err(ErrorKind::FormatError, "expected exponent".into()));
             }
             let mut eacc: i32 = 0;
             while self.i < len {
@@ -477,7 +503,7 @@ impl<'a> Parser<'a> {
                 let chunk = if e > 38 { 38 } else { e } as usize;
                 val *= POW10_POS[chunk];
                 if !val.is_finite() {
-                    return Err("f32 overflow");
+                    return Err(ort_err(ErrorKind::FormatError, "f32 overflow".into()));
                 }
                 e -= chunk as i32;
             }
@@ -495,7 +521,7 @@ impl<'a> Parser<'a> {
 
         let mut out = val as f32;
         if !out.is_finite() {
-            return Err("f32 overflow");
+            return Err(ort_err(ErrorKind::FormatError, "f32 overflow".into()));
         }
         if neg {
             out = -out;
@@ -503,10 +529,10 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
-    pub fn parse_simple_str(&mut self) -> Result<&'a str, &'static str> {
+    pub fn parse_simple_str(&mut self) -> OrtResult<&'a str> {
         self.skip_ws();
         if self.peek() != Some(b'"') {
-            return Err("expected string");
+            return Err(ort_err(ErrorKind::FormatError, "expected string".into()));
         }
         self.i += 1;
         let start = self.i;
@@ -515,7 +541,10 @@ impl<'a> Parser<'a> {
             let c = self.b[self.i];
             if c == b'\\' {
                 // For maximum speed and simplicity, we reject escapes.
-                return Err("string escapes are not supported");
+                return Err(ort_err(
+                    ErrorKind::FormatError,
+                    "string escapes are not supported".into(),
+                ));
             }
             if c == b'"' {
                 let end = self.i;
@@ -526,15 +555,20 @@ impl<'a> Parser<'a> {
             }
             self.i += 1;
         }
-        Err("unterminated string in parse_simple_str")
+        Err(ort_err(
+            ErrorKind::FormatError,
+            "unterminated string in parse_simple_str".into(),
+        ))
     }
 
-    pub fn parse_string(&mut self) -> Result<String, Cow<'static, str>> {
+    pub fn parse_string(&mut self) -> OrtResult<String> {
         self.skip_ws();
         if self.peek() != Some(b'"') {
-            return Err(("expected string got: ".to_string()
-                + &String::from_utf8_lossy(&self.b[self.i..]))
-                .into());
+            return Err(ort_err(
+                ErrorKind::FormatError,
+                ("expected string got: ".to_string() + &String::from_utf8_lossy(&self.b[self.i..]))
+                    .into(),
+            ));
         }
         let start = self.i + 1;
         let mut i = start;
@@ -550,14 +584,18 @@ impl<'a> Parser<'a> {
             }
             if c == b'"' {
                 // no escapes
-                let s = core::str::from_utf8(&self.b[start..i]).map_err(|_| "utf8 error")?;
+                let s = core::str::from_utf8(&self.b[start..i])
+                    .map_err(|_| ort_err(ErrorKind::FormatError, "utf8 error".into()))?;
                 self.i = i + 1;
                 return Ok(s.to_owned());
             }
             i += 1;
         }
         if !needs_unescape {
-            return Err("unterminated string in parse_string escape scan".into());
+            return Err(ort_err(
+                ErrorKind::FormatError,
+                "unterminated string in parse_string escape scan".into(),
+            ));
         }
 
         // Second pass: build with unescape
@@ -570,13 +608,16 @@ impl<'a> Parser<'a> {
             if c == b'\\' {
                 // push preceding segment
                 if i > seg_start {
-                    let prev =
-                        core::str::from_utf8(&self.b[seg_start..i]).map_err(|_| "utf8 error")?;
+                    let prev = core::str::from_utf8(&self.b[seg_start..i])
+                        .map_err(|_| ort_err(ErrorKind::FormatError, "utf8 error".into()))?;
                     out.push_str(prev);
                 }
                 i += 1;
                 if i >= len {
-                    return Err("wrong length parsing escape".into());
+                    return Err(ort_err(
+                        ErrorKind::FormatError,
+                        "wrong length parsing escape".into(),
+                    ));
                 }
                 let e = self.b[i];
                 match e {
@@ -594,7 +635,7 @@ impl<'a> Parser<'a> {
                         if let Some(ch) = core::char::from_u32(cp) {
                             out.push(ch);
                         } else {
-                            return Err("invalid unicode".into());
+                            return Err(ort_err(ErrorKind::FormatError, "invalid unicode".into()));
                         }
                     }
                     0 => { // skip null bytes
@@ -602,7 +643,7 @@ impl<'a> Parser<'a> {
                     _ => {
                         //let x_s = crate::utils::num_to_string(x);
                         //crate::utils::print_string(c"Unhandled escape: ", &x_s);
-                        return Err("unhandled escape".into());
+                        return Err(ort_err(ErrorKind::FormatError, "unhandled escape".into()));
                     }
                 }
                 i += 1;
@@ -612,7 +653,8 @@ impl<'a> Parser<'a> {
                 // end
                 if i > seg_start {
                     out.push_str(
-                        core::str::from_utf8(&self.b[seg_start..i]).map_err(|_| "utf8 error")?,
+                        core::str::from_utf8(&self.b[seg_start..i])
+                            .map_err(|_| ort_err(ErrorKind::FormatError, "utf8 error".into()))?,
                     );
                 }
                 self.i = i + 1;
@@ -621,15 +663,18 @@ impl<'a> Parser<'a> {
                 i += 1;
             }
         }
-        Err("unterminated string in parse_string".into())
+        Err(ort_err(
+            ErrorKind::FormatError,
+            "unterminated string in parse_string".into(),
+        ))
     }
 
     // Parses \uXXXX (with surrogate-pair handling). Input index points at first hex digit after 'u'.
-    fn parse_u_escape(&self, i: usize) -> Result<(u32, usize), &'static str> {
-        fn hex4(bytes: &[u8], i: usize) -> Result<(u16, usize), &'static str> {
+    fn parse_u_escape(&self, i: usize) -> OrtResult<(u32, usize)> {
+        fn hex4(bytes: &[u8], i: usize) -> OrtResult<(u16, usize)> {
             let end = i + 4;
             if end > bytes.len() {
-                return Err("short \\u");
+                return Err(ort_err(ErrorKind::FormatError, "short \\u".into()));
             }
             let mut v: u16 = 0;
             for b in bytes.iter().take(end).skip(i) {
@@ -637,12 +682,12 @@ impl<'a> Parser<'a> {
             }
             Ok((v, end))
         }
-        fn hex_val(b: u8) -> Result<u16, &'static str> {
+        fn hex_val(b: u8) -> OrtResult<u16> {
             match b {
                 b'0'..=b'9' => Ok((b - b'0') as u16),
                 b'a'..=b'f' => Ok((b - b'a' + 10) as u16),
                 b'A'..=b'F' => Ok((b - b'A' + 10) as u16),
-                _ => Err("bad hex"),
+                _ => Err(ort_err(ErrorKind::FormatError, "bad hex".into())),
             }
         }
 
@@ -653,25 +698,34 @@ impl<'a> Parser<'a> {
         if (0xD800..=0xDBFF).contains(&first) {
             // Expect \uXXXX next
             if i2 + 2 > self.b.len() || self.b[i2] != b'\\' || self.b[i2 + 1] != b'u' {
-                return Err("missing low surrogate");
+                return Err(ort_err(
+                    ErrorKind::FormatError,
+                    "missing low surrogate".into(),
+                ));
             }
             let (second, i3) = hex4(self.b, i2 + 2)?;
             if !(0xDC00..=0xDFFF).contains(&second) {
-                return Err("invalid low surrogate");
+                return Err(ort_err(
+                    ErrorKind::FormatError,
+                    "invalid low surrogate".into(),
+                ));
             }
             let high = (first as u32) - 0xD800;
             let low = (second as u32) - 0xDC00;
             let code = 0x10000 + ((high << 10) | low);
             Ok((code, i3))
         } else if (0xDC00..=0xDFFF).contains(&first) {
-            Err("unpaired low surrogate")
+            Err(ort_err(
+                ErrorKind::FormatError,
+                "unpaired low surrogate".into(),
+            ))
         } else {
             Ok((cp, i2))
         }
     }
 
     // Returns a slice of the next JSON value and advances past it.
-    pub fn value_slice(&mut self) -> Result<&'a str, &'static str> {
+    pub fn value_slice(&mut self) -> OrtResult<&'a str> {
         self.skip_ws();
         let start = self.i;
         let end = self.find_value_end()?;
@@ -681,14 +735,14 @@ impl<'a> Parser<'a> {
     }
 
     // Skips the next JSON value (string/number/boolean/null/object/array).
-    pub fn skip_value(&mut self) -> Result<(), &'static str> {
+    pub fn skip_value(&mut self) -> OrtResult<()> {
         let _ = self.value_slice()?;
         Ok(())
     }
 
-    fn find_value_end(&mut self) -> Result<usize, &'static str> {
+    fn find_value_end(&mut self) -> OrtResult<usize> {
         if self.eof() {
-            return Err("unexpected end");
+            return Err(ort_err(ErrorKind::FormatError, "unexpected end".into()));
         }
         match self.b[self.i] {
             b'"' => self.scan_string_end(),
@@ -698,33 +752,36 @@ impl<'a> Parser<'a> {
                 if self.starts_with_bytes(b"true") {
                     Ok(self.i + 4)
                 } else {
-                    Err("bad literal")
+                    Err(ort_err(ErrorKind::FormatError, "bad literal".into()))
                 }
             }
             b'f' => {
                 if self.starts_with_bytes(b"false") {
                     Ok(self.i + 5)
                 } else {
-                    Err("bad literal")
+                    Err(ort_err(ErrorKind::FormatError, "bad literal".into()))
                 }
             }
             b'n' => {
                 if self.starts_with_bytes(b"null") {
                     Ok(self.i + 4)
                 } else {
-                    Err("bad literal")
+                    Err(ort_err(ErrorKind::FormatError, "bad literal".into()))
                 }
             }
             b'-' | b'0'..=b'9' => self.scan_number_end(),
             _t => {
                 //let t_str = crate::utils::num_to_string(t as usize);
                 //crate::utils::print_string(c"unexpected token: ", &t_str);
-                Err("unexpected token in find_value_end")
+                Err(ort_err(
+                    ErrorKind::FormatError,
+                    "unexpected token in find_value_end".into(),
+                ))
             }
         }
     }
 
-    fn scan_string_end(&self) -> Result<usize, &'static str> {
+    fn scan_string_end(&self) -> OrtResult<usize> {
         let mut i = self.i + 1;
         let len = self.b.len();
         let mut escaped = false;
@@ -745,10 +802,13 @@ impl<'a> Parser<'a> {
             }
             i += 1;
         }
-        Err("unterminated string in scan_string_end")
+        Err(ort_err(
+            ErrorKind::FormatError,
+            "unterminated string in scan_string_end".into(),
+        ))
     }
 
-    fn scan_brace_block(&self, open: u8, close: u8) -> Result<usize, &'static str> {
+    fn scan_brace_block(&self, open: u8, close: u8) -> OrtResult<usize> {
         let mut i = self.i;
         let len = self.b.len();
         let mut depth = 0usize;
@@ -774,17 +834,20 @@ impl<'a> Parser<'a> {
             }
             i += 1;
         }
-        Err("unterminated structure")
+        Err(ort_err(
+            ErrorKind::FormatError,
+            "unterminated structure".into(),
+        ))
     }
 
-    fn scan_number_end(&self) -> Result<usize, &'static str> {
+    fn scan_number_end(&self) -> OrtResult<usize> {
         let len = self.b.len();
         let mut i = self.i;
 
         if self.b[i] == b'-' {
             i += 1;
             if i >= len {
-                return Err("bad number");
+                return Err(ort_err(ErrorKind::FormatError, "bad number".into()));
             }
         }
 
@@ -802,14 +865,14 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            _ => return Err("bad number"),
+            _ => return Err(ort_err(ErrorKind::FormatError, "bad number".into())),
         }
 
         // frac
         if i < len && self.b[i] == b'.' {
             i += 1;
             if i >= len || !self.b[i].is_ascii_digit() {
-                return Err("bad number");
+                return Err(ort_err(ErrorKind::FormatError, "bad number".into()));
             }
             while i < len && self.b[i].is_ascii_digit() {
                 i += 1;
@@ -823,7 +886,7 @@ impl<'a> Parser<'a> {
                 i += 1;
             }
             if i >= len || !self.b[i].is_ascii_digit() {
-                return Err("bad number");
+                return Err(ort_err(ErrorKind::FormatError, "bad number".into()));
             }
             while i < len && self.b[i].is_ascii_digit() {
                 i += 1;

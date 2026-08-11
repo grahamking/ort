@@ -6,8 +6,6 @@
 //! Copyright (c) 2026 Graham King
 
 extern crate alloc;
-use alloc::borrow::Borrow;
-use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::ffi::CString;
 use alloc::string::{String, ToString};
@@ -109,7 +107,7 @@ pub fn parse_function(f: &Function) -> OrtResult<Box<dyn ActiveTool>> {
             let t = ReadTool::from_json(&f.arguments).map_err(|err| {
                 ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    ("Parsing read tool params JSON - ".to_string() + err.borrow()).into(),
+                    ("Parsing read tool params JSON - ".to_string() + &err.as_string()).into(),
                 )
             })?;
             Ok(Box::new(t))
@@ -118,7 +116,7 @@ pub fn parse_function(f: &Function) -> OrtResult<Box<dyn ActiveTool>> {
             let t = BashTool::from_json(&f.arguments).map_err(|err| {
                 ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    ("Parsing bash tool params JSON - ".to_string() + err.borrow()).into(),
+                    ("Parsing bash tool params JSON - ".to_string() + &err.as_string()).into(),
                 )
             })?;
             Ok(Box::new(t))
@@ -127,7 +125,7 @@ pub fn parse_function(f: &Function) -> OrtResult<Box<dyn ActiveTool>> {
             let t = WriteTool::from_json(&f.arguments).map_err(|err| {
                 ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    ("Parsing write tool params JSON - ".to_string() + err.borrow()).into(),
+                    ("Parsing write tool params JSON - ".to_string() + &err.as_string()).into(),
                 )
             })?;
             Ok(Box::new(t))
@@ -136,7 +134,7 @@ pub fn parse_function(f: &Function) -> OrtResult<Box<dyn ActiveTool>> {
             let t = EditTool::from_json(&f.arguments).map_err(|err| {
                 ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    ("Parsing edit tool params JSON - ".to_string() + err.borrow()).into(),
+                    ("Parsing edit tool params JSON - ".to_string() + &err.as_string()).into(),
                 )
             })?;
             Ok(Box::new(t))
@@ -171,7 +169,7 @@ pub struct ReadTool {
 
 impl ReadTool {
     // Example JSON: { "path": "README.md", offset: 100, limit: 500 }
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             json_parser::JsonField::new_simple_string("path"),
             json_parser::JsonField::new_int("offset"),
@@ -220,7 +218,7 @@ pub struct BashTool {
 }
 
 impl BashTool {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [json_parser::JsonField::new_string("command")];
         json_parser::autoparser(json, &mut fields)?;
         Ok(BashTool {
@@ -252,7 +250,7 @@ pub struct WriteTool {
 }
 
 impl WriteTool {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             json_parser::JsonField::new_simple_string("path"),
             json_parser::JsonField::new_string("content"),
@@ -301,7 +299,7 @@ pub struct EditTool {
 }
 
 impl EditTool {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         // Example JSON:
         // { "path": "LICENSE",
         //   "old_text": "Copyright (c) 2025 Graham King",

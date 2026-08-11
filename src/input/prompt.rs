@@ -4,7 +4,6 @@
 //! MIT License
 //! Copyright (c) 2025, 2026 Graham King
 
-use core::borrow::Borrow;
 use core::cmp::max;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -127,7 +126,7 @@ pub(in crate::input) fn load_last_data(env: &Env) -> OrtResult<LastData> {
     let last_file_path = last_writer::last_data_file(env)?;
     match utils::filename_read_to_string(&last_file_path) {
         Ok(hist_str) => LastData::from_json(&hist_str).map_err(|err| {
-            let msg = last_file_path + " - " + err.borrow();
+            let msg = last_file_path + " - " + &err.as_string();
             ort_err(ErrorKind::HistoryParseFailed, msg.into())
         }),
         Err("NOT FOUND") => Err(ort_err(
@@ -575,7 +574,7 @@ impl ActivePrompt {
                     }
                 }
                 Err(err) => {
-                    utils::print_string(c"Malformed: ", &err);
+                    utils::print_string(c"Malformed: ", &err.as_string());
                 }
             }
 

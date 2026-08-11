@@ -9,7 +9,6 @@
 use core::str::FromStr;
 
 extern crate alloc;
-use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -62,7 +61,7 @@ pub struct ChatCompletionsResponse {
 }
 
 impl ChatCompletionsResponse {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_simple_string("provider"),
             JsonField::new_simple_string("model"),
@@ -103,7 +102,7 @@ impl Choice {
         matches!(self.finish_reason.as_deref(), Some("tool_calls"))
     }
 
-    pub fn from_json(json: &str) -> Result<Self, String> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_raw("delta"),
             JsonField::new_simple_string("finish_reason"),
@@ -140,7 +139,7 @@ impl ToolCall {
         }
     }
 
-    pub fn from_json(json: &str) -> Result<Self, String> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_int("index"),
             JsonField::new_simple_string("id"),
@@ -168,7 +167,7 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn from_json(json: &str) -> Result<Self, String> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_simple_string("name"),
             JsonField::new_string("arguments"),
@@ -189,7 +188,7 @@ pub struct Usage {
 }
 
 impl Usage {
-    pub fn from_json(json: &str) -> Result<Self, String> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_float("cost"),
             JsonField::new_raw("server_tool_use"),
@@ -216,11 +215,12 @@ pub struct LastData {
 }
 
 impl LastData {
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         if json.is_empty() {
-            return Err(
+            return Err(ort_err(
+                ErrorKind::FormatError,
                 "Cannot continue, last-<$TMUX_PANE>.json file is empty. Usually that mains previous run failed.".into(),
-            );
+            ));
         }
 
         let mut fields = [
@@ -413,7 +413,7 @@ impl Message {
         (content_len.max(reasoning_len) + 10) as u32
     }
 
-    pub fn from_json(json: &str) -> Result<Self, Cow<'static, str>> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_simple_string("role"),
             JsonField::new_raw("content"),
@@ -425,7 +425,9 @@ impl Message {
         let role = fields[0]
             .get_raw()
             .as_deref()
-            .map(Role::from_str)
+            .map(|role| {
+                Role::from_str(role).map_err(|err| ort_err(ErrorKind::FormatError, err.into()))
+            })
             .transpose()?;
         let reasoning = fields[2].get_string();
 
@@ -519,7 +521,7 @@ impl Content {
         }
     }
 
-    pub fn from_json(json: &str) -> Result<Self, String> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_simple_string("type"),
             JsonField::new_string("text"),
@@ -551,26 +553,42 @@ impl Content {
             .transpose()?;
 
         match kind.as_deref() {
-            Some("text") => Ok(Content::Text(text.ok_or("missing text")?)),
+            Some("text") => {
+                Ok(Content::Text(text.ok_or_else(|| {
+                    ort_err(ErrorKind::FormatError, "missing text".into())
+                })?))
+            }
             Some("image_url") => {
                 if let Some(image_url) = image_url {
                     Ok(Content::ImageUrl(image_url.to_string()))
                 } else {
                     Ok(Content::Image {
-                        base64: base64_data.ok_or("missing image_url")?,
+                        base64: base64_data.ok_or_else(|| {
+                            ort_err(ErrorKind::FormatError, "missing image_url".into())
+                        })?,
                         mime_type: mime_type.unwrap(),
                     })
                 }
             }
-            Some("file") => Ok(Content::File(file.ok_or("missing file")?)),
-            Some(other) => Err("unsupported content type: ".to_string() + other),
-            None => Err("missing content type".to_string()),
+            Some("file") => {
+                Ok(Content::File(file.ok_or_else(|| {
+                    ort_err(ErrorKind::FormatError, "missing file".into())
+                })?))
+            }
+            Some(other) => Err(ort_err(
+                ErrorKind::FormatError,
+                ("unsupported content type: ".to_string() + other).into(),
+            )),
+            None => Err(ort_err(
+                ErrorKind::FormatError,
+                "missing content type".into(),
+            )),
         }
     }
 }
 
 /// Returns (base64_data, mime_type)
-fn parse_image_url(json: &str) -> Result<(String, &'static str), String> {
+fn parse_image_url(json: &str) -> OrtResult<(String, &'static str)> {
     let mut fields = [JsonField::new_string("url")];
     autoparser(json, &mut fields)?;
 
@@ -592,7 +610,10 @@ fn parse_image_url(json: &str) -> Result<(String, &'static str), String> {
             "image/png",
         ))
     } else {
-        Err("Invalid mime type in saved image_url".to_string())
+        Err(ort_err(
+            ErrorKind::FormatError,
+            "Invalid mime type in saved image_url".into(),
+        ))
     }
 }
 
@@ -720,7 +741,7 @@ impl PromptFile {
         "application/octet-stream"
     }
 
-    pub fn from_json(json: &str) -> Result<Self, String> {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_string("filename"),
             JsonField::new_raw("file_data"),
@@ -737,8 +758,8 @@ impl PromptFile {
 
         Ok(PromptFile::from_parts(
             PromptFileKind::File,
-            filename.ok_or("missing filename")?,
-            base64.ok_or("missing file_data")?,
+            filename.ok_or_else(|| ort_err(ErrorKind::FormatError, "missing filename".into()))?,
+            base64.ok_or_else(|| ort_err(ErrorKind::FormatError, "missing file_data".into()))?,
         ))
     }
 }
