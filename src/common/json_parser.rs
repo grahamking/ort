@@ -10,7 +10,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{ErrorKind, OrtResult, ort_err};
+use crate::common::utils;
+use crate::{Context as _, ErrorKind, OrtResult, ort_err};
 
 pub struct JsonField {
     pub name: &'static str,
@@ -97,7 +98,7 @@ impl JsonField {
                 inner.replace(p.parse_bool()?);
             }
             JsonValue::Raw(inner) => {
-                let v = p.value_slice()?;
+                let v = p.value_slice().context("JsonValue::Raw")?;
                 // figure out lifetimes and keep as &str
                 inner.replace(v.to_string());
             }
@@ -110,7 +111,7 @@ impl JsonField {
                 // If the array isn't empty..
                 if !p.try_consume(b']') {
                     loop {
-                        let j = p.value_slice()?;
+                        let j = p.value_slice().context("JsonValue::VecRaw array")?;
                         v.push(j.to_string());
                         p.skip_ws();
                         if p.try_consume(b',') {
@@ -247,8 +248,9 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> OrtResult<()> {
                 break;
             }
         }
-        if !is_parsed {
-            p.skip_value()?;
+        if !is_parsed && let Err(err) = p.skip_value() {
+            let msg = err.as_string() + ", not parsed w/ key: " + key;
+            return Err(ort_err(ErrorKind::FormatError, msg.into()));
         }
         p.skip_ws();
         if p.try_consume(b',') {
@@ -728,7 +730,7 @@ impl<'a> Parser<'a> {
     pub fn value_slice(&mut self) -> OrtResult<&'a str> {
         self.skip_ws();
         let start = self.i;
-        let end = self.find_value_end()?;
+        let end = self.find_value_end().context("value_slice")?;
         let out = &self.s[start..end];
         self.i = end;
         Ok(out)
@@ -736,7 +738,7 @@ impl<'a> Parser<'a> {
 
     // Skips the next JSON value (string/number/boolean/null/object/array).
     pub fn skip_value(&mut self) -> OrtResult<()> {
-        let _ = self.value_slice()?;
+        let _ = self.value_slice().context("skip_value")?;
         Ok(())
     }
 
@@ -745,9 +747,15 @@ impl<'a> Parser<'a> {
             return Err(ort_err(ErrorKind::FormatError, "unexpected end".into()));
         }
         match self.b[self.i] {
-            b'"' => self.scan_string_end(),
-            b'{' => self.scan_brace_block(b'{', b'}'),
-            b'[' => self.scan_brace_block(b'[', b']'),
+            b'"' => self
+                .scan_string_end()
+                .context("find_value_end double quote"),
+            b'{' => self
+                .scan_brace_block(b'{', b'}')
+                .context("find_value_end curly"),
+            b'[' => self
+                .scan_brace_block(b'[', b']')
+                .context("find_value_end square"),
             b't' => {
                 if self.starts_with_bytes(b"true") {
                     Ok(self.i + 4)
@@ -802,10 +810,9 @@ impl<'a> Parser<'a> {
             }
             i += 1;
         }
-        Err(ort_err(
-            ErrorKind::FormatError,
-            "unterminated string in scan_string_end".into(),
-        ))
+        let len_string = utils::num_to_string(len);
+        let msg = "unterminated string in scan_string_end after bytes: ".to_string() + &len_string;
+        Err(ort_err(ErrorKind::FormatError, msg.into()))
     }
 
     fn scan_brace_block(&self, open: u8, close: u8) -> OrtResult<usize> {
@@ -821,7 +828,7 @@ impl<'a> Parser<'a> {
                     b: self.b,
                     i,
                 };
-                i = p.scan_string_end()?; // returns position after closing "
+                i = p.scan_string_end().context("scan_brace_block")?; // returns position after closing "
                 continue;
             }
             if c == open {
@@ -836,7 +843,7 @@ impl<'a> Parser<'a> {
         }
         Err(ort_err(
             ErrorKind::FormatError,
-            "unterminated structure".into(),
+            "unterminated structure in scan_brace_block".into(),
         ))
     }
 
