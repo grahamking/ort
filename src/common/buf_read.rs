@@ -8,12 +8,12 @@ use core::cmp::min;
 use core::ffi::c_int;
 
 extern crate alloc;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::cmp;
 
 use crate::{
-    ErrorKind, OrtResult, Read, common::io::ReadLine, input::prompt::PromptReader, net::AsFd,
-    ort_error,
+    Context as _, ErrorKind, OrtResult, Read, common::io::ReadLine, input::prompt::PromptReader,
+    net::AsFd, ort_err, ort_error,
 };
 
 const BUF_SIZE: usize = 8 * 1024;
@@ -146,7 +146,7 @@ impl<R: Read> ReadLine for OrtBufReader<R> {
 
         loop {
             if self.buffer_consumed() {
-                self.fill_buf()?;
+                self.fill_buf().context("fill_buf")?;
                 if self.cap == 0 {
                     // EOF and no more buffered data
                     return Ok(total);
@@ -172,8 +172,15 @@ impl<R: Read> ReadLine for OrtBufReader<R> {
             let chunk = &self.buf[self.pos..end];
 
             // Interpret as UTF-8 and append to the caller's String
-            let s = core::str::from_utf8(chunk)
-                .map_err(|_| ort_error(ErrorKind::FormatError, "utf8 decode"))?;
+            let s = match core::str::from_utf8(chunk) {
+                Ok(converted) => converted,
+                Err(utf8_error) => {
+                    let chunk = String::from_utf8_lossy(chunk);
+                    let msg =
+                        "Utf8Error: ".to_string() + &utf8_error.to_string() + ". Chunk: " + &chunk;
+                    return Err(ort_err(ErrorKind::FormatError, msg.into()));
+                }
+            };
             buf.push_str(s);
 
             total += chunk.len();

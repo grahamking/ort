@@ -10,8 +10,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::common::io::ReadLine;
+use crate::common::utils;
 use crate::input::prompt::PromptReader;
 use crate::net::AsFd;
+use crate::ort_err;
 use crate::{ErrorKind, OrtResult, Read, common::buf_read, ort_error, syscall};
 
 /// Read a transfer encoding chunked body, chunk by chunk.
@@ -106,8 +108,9 @@ impl<R: Read, const MAX_CHUNK_SIZE: usize> ChunkedIterator<R, MAX_CHUNK_SIZE> {
                     if matches!(err.kind, ErrorKind::WouldBlock) {
                         return Some(Err(err));
                     }
-                    err.debug_print();
-                    return Some(Err(ort_error(ErrorKind::ChunkedSizeReadError, "")));
+                    let br = utils::num_to_string(bytes_read);
+                    let msg = err.as_string() + ". bytes_read = " + &br;
+                    return Some(Err(ort_err(ErrorKind::ChunkedSizeReadError, msg.into())));
                 }
             }
             let size_str = self.size_buf.trim();
