@@ -68,6 +68,7 @@ const EXT_ALPN: u16 = 0x0010;
 const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
 //const EXT_PSK_MODES: u16 = 0x002d;
 const EXT_KEY_SHARE: u16 = 0x0033;
+const EXT_SESSION_TICKET: u16 = 0x0023;
 
 // AEAD tag length (GCM)
 const AEAD_TAG_LEN: usize = 16;
@@ -246,6 +247,10 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
         put_u16(&mut exts, ks.len() as u16);
         exts.extend_from_slice(&ks);
     }
+
+    // we don't have a session ticket
+    put_u16(&mut exts, EXT_SESSION_TICKET);
+    put_u16(&mut exts, 0);
 
     // add extensions to CH
     put_u16(&mut ch_body, exts.len() as u16);
@@ -482,6 +487,7 @@ impl<T: Read + Write> TlsStream<T> {
             )?
         };
         if typ != REC_TYPE_APPDATA {
+            // All TLS 1.3 records are wrapped as TLS 1.2 application records
             return Err(ort_error(ErrorKind::TlsExpectedEncryptedRecords, ""));
         }
 
@@ -733,8 +739,9 @@ impl<T: Read + Write> Read for TlsStream<T> {
                 &self.iv_dec,
                 &mut self.seq_dec,
             )?;
+
             if typ != REC_TYPE_APPDATA {
-                // Ignore unexpected (e.g., post-handshake Handshake like NewSessionTicket)
+                // All TLS 1.3 records are wrapped as TLS 1.2 application records
                 continue;
             }
             // plaintext ends with inner content type byte; for app data it is 0x17.
@@ -742,6 +749,8 @@ impl<T: Read + Write> Read for TlsStream<T> {
                 continue;
             }
             if inner_type == REC_TYPE_HANDSHAKE {
+                //crate::utils::eprint_string(c"GOT H TYPE: ", &crate::utils::num_to_string(inner_type));
+
                 // Drop post-handshake messages (tickets, etc.)
                 continue;
             }
@@ -766,6 +775,7 @@ impl<T: Read + Write> Read for TlsStream<T> {
             if inner_type != REC_TYPE_APPDATA {
                 // Some servers pad with 0x00.. then type; we already consumed type.
                 // If not 0x17, treat preceding bytes (if any) as app anyway.
+                //crate::utils::eprint_string(c"GOT TYPE: ", &crate::utils::num_to_string(inner_type));
             }
             if plaintext.is_empty() {
                 continue;
