@@ -68,7 +68,7 @@ const EXT_ALPN: u16 = 0x0010;
 const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
 const EXT_PSK_MODES: u16 = 0x002d;
 const EXT_KEY_SHARE: u16 = 0x0033;
-const EXT_SESSION_TICKET: u16 = 0x0023;
+//const EXT_SESSION_TICKET: u16 = 0x0023;
 
 // AEAD tag length (GCM)
 const AEAD_TAG_LEN: usize = 16;
@@ -253,9 +253,10 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     put_u16(&mut exts, 2); // extension length
     exts.extend_from_slice(&[1, 1]); // vec length, psk_dhe_ke
 
+    // This isn't in RFC 9846. Maybe is deprecated and now unused?
     // we don't have a session ticket to send right now
-    put_u16(&mut exts, EXT_SESSION_TICKET);
-    put_u16(&mut exts, 0);
+    //put_u16(&mut exts, EXT_SESSION_TICKET);
+    //put_u16(&mut exts, 0);
 
     // add extensions to CH
     put_u16(&mut ch_body, exts.len() as u16);
