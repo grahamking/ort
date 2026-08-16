@@ -39,7 +39,7 @@ const LEGACY_REC_VER: u16 = 0x0303;
 
 const HS_CLIENT_HELLO: u8 = 1;
 const HS_SERVER_HELLO: u8 = 2;
-const HS_NEW_SESSION_TICKET: u8 = 4;
+//const HS_NEW_SESSION_TICKET: u8 = 4;
 //const HS_ENCRYPTED_EXTENSIONS: u8 = 8;
 //const HS_CERTIFICATE: u8 = 11;
 //const HS_CERT_VERIFY: u8 = 15;
@@ -66,7 +66,7 @@ const EXT_SUPPORTED_GROUPS: u16 = 0x000a;
 const EXT_SIGNATURE_ALGS: u16 = 0x000d;
 const EXT_ALPN: u16 = 0x0010;
 const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
-const EXT_PSK_MODES: u16 = 0x002d;
+//const EXT_PSK_MODES: u16 = 0x002d;
 const EXT_KEY_SHARE: u16 = 0x0033;
 //const EXT_SESSION_TICKET: u16 = 0x0023;
 
@@ -248,15 +248,13 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
         exts.extend_from_slice(&ks);
     }
 
-    // we would like session tickets
-    put_u16(&mut exts, EXT_PSK_MODES);
-    put_u16(&mut exts, 2); // extension length
-    exts.extend_from_slice(&[1, 1]); // vec length, psk_dhe_ke
-
-    // This isn't in RFC 9846. Maybe is deprecated and now unused?
-    // we don't have a session ticket to send right now
-    //put_u16(&mut exts, EXT_SESSION_TICKET);
-    //put_u16(&mut exts, 0);
+    // Pre-shared keys / session tickets allow skipping cert verification
+    // on resume. Server doesn't need to send it's cert.
+    // We don't verify it anyway so not a big benefit.
+    //
+    // put_u16(&mut exts, EXT_PSK_MODES);
+    // put_u16(&mut exts, 2); // extension length
+    // exts.extend_from_slice(&[1, 1]); // vec length, psk_dhe_ke
 
     // add extensions to CH
     put_u16(&mut ch_body, exts.len() as u16);
@@ -755,17 +753,19 @@ impl<T: Read + Write> Read for TlsStream<T> {
                 continue;
             }
             if inner_type == REC_TYPE_HANDSHAKE {
+                // See the note on EXT_PSK_MODES
+                //
                 // This should be our two session tickets.
-                let mut messages = plaintext.as_slice();
+                //let mut messages = plaintext.as_slice();
                 // read_handshake_message will move `messages` to point at the next
                 // message in `plaintext`. Both tickets are in there.
-                while let Ok((message_type, _h_body, _h_full)) =
-                    read_handshake_message(&mut messages)
-                {
-                    if message_type == HS_NEW_SESSION_TICKET {
-                        // utils::eprint_string(c"Got session ticket", "");
-                    }
-                }
+                //while let Ok((message_type, h_body, _h_full)) =
+                //    read_handshake_message(&mut messages)
+                //{
+                //    if message_type == HS_NEW_SESSION_TICKET {
+                //        crate::common::utils::print_hex(c"NewSessionTicket: ", h_body);
+                //    }
+                //}
 
                 // Drop post-handshake messages (tickets, etc.)
                 continue;
