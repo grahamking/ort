@@ -74,8 +74,7 @@ const TOOL_WRITE: Tool = Tool {
 
 const TOOL_EDIT: Tool = Tool {
     name: "edit",
-    description: "Edit a file by replacing an exact old_text span with new_text. Fails if old_text is not found exactly once unless replace_all is true or expected_occurrences is provi
-ded.",
+    description: "Edit a file by replacing an exact old_text span with new_text. By default old_text must occur exactly once. If expected_occurrences is provided, old_text must occur exactly that many times and all occurrences are replaced.",
     parameters: &[
         ToolParameter {
             name: "path",
@@ -93,9 +92,9 @@ ded.",
             description: "Replacement text.",
         },
         ToolParameter {
-            name: "replace_all",
-            param_type: "boolean",
-            description: "If true, replace all matches of old_text. Defaults to false, meaning only replace the first match.",
+            name: "expected_occurrences",
+            param_type: "number",
+            description: "If provided, fail unless old_text occurs exactly this many times before editing.",
         },
     ],
     required_parameters: &["path", "old_text", "new_text"],
@@ -295,7 +294,7 @@ pub struct EditTool {
     pub path: String,
     pub old_text: String,
     pub new_text: String,
-    pub replace_all: bool,
+    pub expected_occurrences: Option<u32>,
 }
 
 impl EditTool {
@@ -309,31 +308,44 @@ impl EditTool {
             json_parser::JsonField::new_simple_string("path"),
             json_parser::JsonField::new_string("old_text"),
             json_parser::JsonField::new_string("new_text"),
-            json_parser::JsonField::new_bool("replace_all"),
+            json_parser::JsonField::new_int("expected_occurrences"),
         ];
         json_parser::autoparser(json, &mut fields)?;
         Ok(EditTool {
             path: fields[0].get_string().expect("Missing EditTool path"),
             old_text: fields[1].get_string().expect("Missing EditTool old_text"),
             new_text: fields[2].get_string().expect("Missing EditTool new_text"),
-            replace_all: fields[3].get_bool().unwrap_or(false),
+            expected_occurrences: fields[3].get_int(),
         })
     }
 }
 
 impl ActiveTool for EditTool {
     fn run(&self) -> OrtResult<String> {
+        if self.old_text.is_empty() {
+            return Err(ort_err(
+                ErrorKind::ToolRun,
+                "edit old_text cannot be empty".into(),
+            ));
+        }
+
         let mut content = fs::read_to_string(&self.path).map_err(|err| {
             let msg =
                 "filename_read_to_string ".to_string() + &self.path + " - " + &err.to_string();
             ort_err(ErrorKind::ToolRun, msg.into())
         })?;
-        let Some(idx) = content.find(&self.old_text) else {
-            return Ok("old_text not found in ".to_string() + &self.path);
-        };
-        if self.replace_all {
+        let occurrences = content.matches(&self.old_text).count();
+        self.validate_occurrences(occurrences)?;
+
+        if self.expected_occurrences.is_some() {
             content = content.replace(&self.old_text, &self.new_text);
         } else {
+            let Some(idx) = content.find(&self.old_text) else {
+                return Err(ort_err(
+                    ErrorKind::ToolRun,
+                    ("old_text not found in ".to_string() + &self.path).into(),
+                ));
+            };
             content.replace_range(idx..idx + self.old_text.len(), &self.new_text);
         }
 
@@ -352,6 +364,47 @@ impl ActiveTool for EditTool {
             name: "Edit ",
             arguments: self.path.clone(),
         }
+    }
+}
+
+impl EditTool {
+    fn validate_occurrences(&self, actual: usize) -> OrtResult<()> {
+        if let Some(expected) = self.expected_occurrences {
+            if expected == 0 {
+                return Err(ort_err(
+                    ErrorKind::ToolRun,
+                    "edit expected_occurrences must be greater than zero".into(),
+                ));
+            }
+            if actual != expected as usize {
+                let msg = "edit expected_occurrences mismatch in ".to_string()
+                    + &self.path
+                    + ": expected "
+                    + &expected.to_string()
+                    + ", found "
+                    + &actual.to_string();
+                return Err(ort_err(ErrorKind::ToolRun, msg.into()));
+            }
+            return Ok(());
+        }
+
+        if actual == 0 {
+            return Err(ort_err(
+                ErrorKind::ToolRun,
+                ("old_text not found in ".to_string() + &self.path).into(),
+            ));
+        }
+
+        if actual != 1 {
+            let msg = "edit old_text is ambiguous in ".to_string()
+                + &self.path
+                + ": found "
+                + &actual.to_string()
+                + " occurrences";
+            return Err(ort_err(ErrorKind::ToolRun, msg.into()));
+        }
+
+        Ok(())
     }
 }
 
@@ -389,7 +442,14 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
 
 #[cfg(test)]
 mod test {
-    use super::success;
+    use super::{ActiveTool, EditTool, success};
+
+    fn temp_path(name: &str) -> String {
+        let mut path = std::env::temp_dir();
+        path.push(format!("ort_art_tools_{name}_{}", std::process::id()));
+        path.to_string_lossy().into_owned()
+    }
+
     #[test]
     pub fn test_success() {
         let res = success(
@@ -401,5 +461,44 @@ mod test {
         );
         let expected = r#"{"success": true, "bytes_written": 42, "path": "/home/graham/Temp/xyz.txt", "message": "Write completed."}"#;
         assert_eq!(res, expected);
+    }
+
+    #[test]
+    pub fn edit_validates_occurrence_count_before_replacing() {
+        let path = temp_path("edit_occurrences");
+
+        std::fs::write(&path, "alpha\nalpha\n").unwrap();
+        let ambiguous = EditTool {
+            path: path.clone(),
+            old_text: "alpha".to_string(),
+            new_text: "beta".to_string(),
+            expected_occurrences: None,
+        }
+        .run();
+        assert!(ambiguous.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "alpha\nalpha\n");
+
+        EditTool {
+            path: path.clone(),
+            old_text: "alpha".to_string(),
+            new_text: "beta".to_string(),
+            expected_occurrences: Some(2),
+        }
+        .run()
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "beta\nbeta\n");
+
+        std::fs::write(&path, "alpha\nalpha\n").unwrap();
+        let mismatch = EditTool {
+            path: path.clone(),
+            old_text: "alpha".to_string(),
+            new_text: "beta".to_string(),
+            expected_occurrences: Some(1),
+        }
+        .run();
+        assert!(mismatch.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "alpha\nalpha\n");
+
+        let _ = std::fs::remove_file(path);
     }
 }

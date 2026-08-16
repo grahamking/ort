@@ -1,4 +1,22 @@
 
+--- agent tools
+
+1. Harden bash
+	- Add a timeout.
+	- Add stdout/stderr byte caps with truncation metadata.
+	- Consider optional cwd.
+	- Current implementation can hang forever and capture unlimited output: src/syscall.rs:792.
+
+2. Fix read
+	- The schema says offset is 1-indexed, but implementation uses skip(offset), so offset: 1 starts at line 2: src/bin/art/tools.rs:198.
+	- Add default/max limit, total/truncated metadata, and ideally line numbers.
+	- Reading whole files into memory before slicing is risky for large files.
+
+4. Harden write
+	- It uses a fixed 128-byte path buffer and can panic on longer paths: src/bin/art/tools.rs:274.
+	- Use CString like edit.
+	- Consider refusing to overwrite existing files unless overwrite: true; otherwise agents can clobber work too easily.
+
 --- TLS
 GPT 5.5. suggestions for consideration.
 
@@ -18,17 +36,6 @@ GPT 5.5. suggestions for consideration.
 
 Performance ideas for the prompt path of ort, ordered by expected gain.
 
-1. Implement TLS 1.3 session resumption and persist tickets across runs.
-- This is the biggest warm-path latency win because the CLI always makes a fresh connection today.
-- Right now post-handshake TLS handshake messages are dropped, including session tickets, so every run pays the full X25519 + HKDF + server-flight cost.
-- Cache tickets in the existing config/cache area, keyed by host and maybe IP, and fall back cleanly to a full handshake if the ticket is rejected.
-- Even without 0-RTT, plain resumption cuts handshake CPU and usually one RTT worth of work on the server side.
-
-2. Add 0-RTT early data for the POST body if the server accepts it.
-- Given your stated constraints, replay risk is not a blocker.
-- For a CLI that performs exactly one request, 0-RTT is the highest-leverage way to reduce time to first byte on warm connections because the request can leave in the first flight.
-- If OpenRouter does not accept early data, keep the resumption machinery anyway and just fall back to resumed 1-RTT.
-
 6. Remove per-record TLS heap allocation and extra copies.
 - `src/net/tls.rs` allocates a fresh `Vec` for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
 - Replace this with fixed scratch buffers inside `TlsStream`, decrypt directly into a reusable plaintext buffer.
@@ -39,11 +46,6 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - Right now the code reads line-by-line into a `String`, parses a full `ChatCompletionsResponse`, allocates strings, then allocates more strings for `Response::Content` and `ThinkEvent::Content`.
 - A specialized byte parser for `data:` lines can write content straight to stdout and to the last-writer buffer without intermediate objects.
 - This is one of the bigger response-side wins after the TLS fixes.
-
-11. Decode chunked transfer encoding in the HTTP layer instead of treating chunk-size lines as garbage text.
-- The current code notices `Transfer-Encoding: chunked` but then relies on the line parser to skip non-`data:` lines.
-- That works by accident but forces useless line parsing work on every chunk-size line.
-- A small chunked decoder feeding the SSE parser byte slices will be faster and simpler than the current workaround.
 
 14. Prefer direct syscalls and `writev`/`sendmsg` over hand-written assembler for libc replacement.
 - Replacing a libc call with inline assembly that still performs the same syscall will not buy much.
