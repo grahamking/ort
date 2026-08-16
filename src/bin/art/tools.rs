@@ -56,7 +56,7 @@ const TOOL_BASH: Tool = Tool {
 
 const TOOL_WRITE: Tool = Tool {
     name: "write",
-    description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories. Use only for new files or complete rewrites.",
+    description: "Write content to a file. Creates the file if it doesn't exist. Refuses to overwrite an existing file unless overwrite is true. Automatically creates parent directories. Use only for new files or complete rewrites.",
     parameters: &[
         ToolParameter {
             name: "path",
@@ -67,6 +67,11 @@ const TOOL_WRITE: Tool = Tool {
             name: "content",
             param_type: "string",
             description: "Content to write to the file",
+        },
+        ToolParameter {
+            name: "overwrite",
+            param_type: "boolean",
+            description: "If true, allow overwriting an existing file. Defaults to false.",
         },
     ],
     required_parameters: &["path", "content"],
@@ -246,6 +251,7 @@ impl ActiveTool for BashTool {
 pub struct WriteTool {
     pub path: String,
     pub content: String,
+    pub overwrite: bool,
 }
 
 impl WriteTool {
@@ -253,17 +259,37 @@ impl WriteTool {
         let mut fields = [
             json_parser::JsonField::new_simple_string("path"),
             json_parser::JsonField::new_string("content"),
+            json_parser::JsonField::new_bool("overwrite"),
         ];
         json_parser::autoparser(json, &mut fields)?;
         Ok(WriteTool {
             path: fields[0].get_string().expect("Missing WriteTool path"),
             content: fields[1].get_string().expect("Missing WriteTool content"),
+            overwrite: fields[2].get_bool().unwrap_or(false),
         })
     }
 }
 
 impl ActiveTool for WriteTool {
     fn run(&self) -> OrtResult<String> {
+        match fs::metadata(&self.path) {
+            Ok(_) if !self.overwrite => {
+                let msg = "write refuses to overwrite existing file without overwrite=true: "
+                    .to_string()
+                    + &self.path;
+                return Err(ort_err(ErrorKind::ToolRun, msg.into()));
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                let msg = "write failed to check existing file ".to_string()
+                    + &self.path
+                    + " - "
+                    + &err.to_string();
+                return Err(ort_err(ErrorKind::ToolRun, msg.into()));
+            }
+        }
+
         if let Some(idx) = self.path.rfind('/') {
             let dir_path = &self.path[..idx];
             let _ = fs::create_dir_all(dir_path);

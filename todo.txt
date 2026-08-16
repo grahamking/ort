@@ -15,7 +15,6 @@
 4. Harden write
 	- It uses a fixed 128-byte path buffer and can panic on longer paths: src/bin/art/tools.rs:274.
 	- Use CString like edit.
-	- Consider refusing to overwrite existing files unless overwrite: true; otherwise agents can clobber work too easily.
 
 --- TLS
 GPT 5.5. suggestions for consideration.
