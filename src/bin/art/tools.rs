@@ -12,6 +12,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use std::fs;
+use std::io::{BufRead as _, BufReader};
 
 use ort_openrouter_cli::{
     ErrorKind, Function, OrtResult, Tool, ToolDisplay, ToolParameter, Write, file, json_parser,
@@ -19,6 +20,9 @@ use ort_openrouter_cli::{
 };
 
 pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE, &TOOL_EDIT];
+
+/// How many lines to read in the Read tool if model does not specify
+pub const DEFAULT_READ_LIMIT: usize = 2000;
 
 const TOOL_READ: Tool = Tool {
     name: "read",
@@ -32,7 +36,7 @@ const TOOL_READ: Tool = Tool {
         ToolParameter {
             name: "offset",
             param_type: "number",
-            description: "Line number to start reading from (1-indexed)",
+            description: "Line number to start reading from (0-indexed)",
         },
         ToolParameter {
             name: "limit",
@@ -190,22 +194,57 @@ impl ReadTool {
 
 impl ActiveTool for ReadTool {
     fn run(&self) -> OrtResult<String> {
-        let content = match fs::read_to_string(&self.path) {
-            Ok(content) => content,
+        let f = match fs::File::open(&self.path) {
+            Ok(f) => f,
             // Return the string error so the model sees it.
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                "No such file or directory: ".to_string() + &self.path
+                return Err(ort_err(
+                    ErrorKind::ToolRun,
+                    ("No such file or directory: ".to_string() + &self.path).into(),
+                ));
             }
-            Err(err) => "Tool call error ".to_string() + &err.to_string() + ": " + &self.path,
+            Err(err) => {
+                return Err(ort_err(
+                    ErrorKind::ToolRun,
+                    ("Tool call error ".to_string() + &err.to_string() + ": " + &self.path).into(),
+                ));
+            }
         };
-        // Ideally limit would limit the original read, so we don't get whole file in memory
+        let metadata = f
+            .metadata()
+            .map_err(|err| ort_err(ErrorKind::ToolRun, err.to_string().into()))?;
+
         let offset = self.offset.map_or(0, |offset| offset as usize);
-        let limit = self.limit.map_or(usize::MAX, |limit| limit as usize);
-        let content_lines: Vec<&str> = content.lines().skip(offset).take(limit).collect();
+        let limit = self
+            .limit
+            .map_or(DEFAULT_READ_LIMIT, |limit| limit as usize);
+
+        let reader = BufReader::new(f);
+        let content_lines: Vec<String> = reader
+            .lines()
+            .skip(offset)
+            // We read one past the end to check if there is more
+            .take(limit + 1)
+            .filter_map(|l| l.ok())
+            .collect();
         let num_lines = content_lines.len();
+        let is_truncated = if num_lines > limit { "true" } else { "false" };
+        let content = if is_truncated == "true" {
+            content_lines[..limit].join("\n")
+        } else {
+            content_lines.join("\n")
+        };
+
         Ok(success(
-            &[("lines", num_lines)],
-            &[("path", &self.path), ("output", &content_lines.join("\n"))],
+            &[
+                ("lines", num_lines),
+                ("file_size_in_bytes", metadata.len() as usize),
+            ],
+            &[
+                ("path", &self.path),
+                ("is_truncated", is_truncated),
+                ("output", &content),
+            ],
         ))
     }
 

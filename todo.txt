@@ -8,13 +8,7 @@
 	- Current implementation can hang forever and capture unlimited output: src/syscall.rs:792.
 
 2. Fix read
-	- The schema says offset is 1-indexed, but implementation uses skip(offset), so offset: 1 starts at line 2: src/bin/art/tools.rs:198.
-	- Add default/max limit, total/truncated metadata, and ideally line numbers.
-	- Reading whole files into memory before slicing is risky for large files.
-
-4. Harden write
-	- It uses a fixed 128-byte path buffer and can panic on longer paths: src/bin/art/tools.rs:274.
-	- Use CString like edit.
+	- Add ideally line numbers.
 
 --- TLS
 GPT 5.5. suggestions for consideration.
