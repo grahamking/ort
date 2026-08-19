@@ -1,4 +1,12 @@
 
+OpenRouter's web search tool sometimes truncates citations
+
+"annotations":[{"type":"url_citation","url_citation":{"url":"https://discourse.haproxy.org/t/leastconn-for-websockets/5860","title":"Leastconn for Websockets","start_index":0,"end_index":0,"content":"It’s for new co
+
+The above lines ends like that with a carriage return making it a full SSE event.
+
+On error the parser should close all the things and pretend everything ended cleanly.
+
 --- agent tools
 
 1. Harden bash

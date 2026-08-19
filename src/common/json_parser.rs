@@ -789,6 +789,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Skip a string by moving i to the next char after the closing quote.
     fn scan_string_end(&self) -> OrtResult<usize> {
         let mut i = self.i + 1;
         let len = self.b.len();

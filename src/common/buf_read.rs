@@ -245,38 +245,45 @@ pub fn fd_read_to_string(fd: c_int, buffer: &mut String) {
     }
 }
 
+/// Only used by unit tests so far
+/// Wraps a `String` as a byte source, using `copy_nonoverlapping` to
+/// transfer bytes into the read buffer.
+#[allow(unused)]
+pub struct StringReader {
+    pub data: String,
+    pub pos: usize,
+}
+
+impl Read for StringReader {
+    fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
+        let src = self.data.as_bytes().as_ptr();
+        let bytes_remaining = self.data.len() - self.pos;
+        let count = bytes_remaining.min(buf.len());
+
+        if count == 0 {
+            return Ok(0);
+        }
+
+        // SAFETY: src and dst are disjoint; count ≤ remaining and ≤ buf.len().
+        unsafe {
+            core::ptr::copy_nonoverlapping(src.add(self.pos), buf.as_mut_ptr(), count);
+        }
+        self.pos += count;
+        Ok(count)
+    }
+}
+
+/// Needed so we can be used in ActivePrompt
+impl AsFd for StringReader {
+    fn as_fd(&self) -> i32 {
+        42
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::string::ToString;
-
-    /// Wraps a `String` as a byte source, using `copy_nonoverlapping` to
-    /// transfer bytes into the read buffer.
-    /// Only used by unit tests so far
-    #[allow(unused)]
-    pub struct StringReader {
-        data: String,
-        pos: usize,
-    }
-
-    impl Read for StringReader {
-        fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize> {
-            let src = self.data.as_bytes().as_ptr();
-            let bytes_remaining = self.data.len() - self.pos;
-            let count = bytes_remaining.min(buf.len());
-
-            if count == 0 {
-                return Ok(0);
-            }
-
-            // SAFETY: src and dst are disjoint; count ≤ remaining and ≤ buf.len().
-            unsafe {
-                core::ptr::copy_nonoverlapping(src.add(self.pos), buf.as_mut_ptr(), count);
-            }
-            self.pos += count;
-            Ok(count)
-        }
-    }
 
     #[test]
     fn test_read_line_basic() {

@@ -116,6 +116,10 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // No tool calls in chat mode
             }
+            Response::Annotation(_) => {
+                // TODO. Should probably display these
+                // See Annotation struct in data.rs
+            }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
@@ -183,6 +187,9 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
             Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // TODO
             }
+            Response::Annotation(_) => {
+                // TODO
+            }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
@@ -248,6 +255,9 @@ impl super::OutputWriter for CollectedWriter {
             }
             Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // No ToolCalls when using CollectedWriter
+            }
+            Response::Annotation(_) => {
+                // TODO
             }
             Response::Stats(stats) => {
                 self.got_stats = Some(stats);

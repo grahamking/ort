@@ -147,6 +147,9 @@ impl OutputWriter for LastWriter {
                 }
                 self.w.write_char(']')?;
             }
+            Response::Annotation(_) => {
+                // Probably ignore in last writer
+            }
             Response::ToolDisplay(_) => {}
             Response::Stats(stats) => {
                 // Update cfg because we need to use the same provider next time

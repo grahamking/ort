@@ -174,12 +174,12 @@ pub(crate) fn print_hex(prefix: &CStr, v: &[u8]) {
 }
 
 #[allow(unused)]
-pub(crate) fn print_string(prefix: &CStr, s: &str) {
+pub fn print_string(prefix: &CStr, s: &str) {
     print_string_internal(1, prefix, s);
 }
 
 #[allow(unused)]
-pub(crate) fn eprint_string(prefix: &CStr, s: &str) {
+pub fn eprint_string(prefix: &CStr, s: &str) {
     print_string_internal(2, prefix, s);
 }
 

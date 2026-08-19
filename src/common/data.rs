@@ -322,6 +322,7 @@ impl FromStr for ReasoningEffort {
 pub struct Message {
     pub role: Role,
     pub content: Vec<Content>,
+    pub annotations: Vec<Annotation>,
     pub reasoning: Option<String>,
     /// For Role::Assistant requesting a tool call
     pub tool_calls: Vec<ToolCall>,
@@ -332,7 +333,7 @@ pub struct Message {
 impl Message {
     pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
         let content = content.map_or_else(Vec::new, |content| vec![Content::Text(content)]);
-        Self::with_content(role, content, reasoning, vec![], None)
+        Self::with_content(role, content, reasoning, vec![], None, vec![])
     }
 
     pub fn with_content(
@@ -341,6 +342,7 @@ impl Message {
         reasoning: Option<String>,
         tool_calls: Vec<ToolCall>,
         tool_call_id: Option<String>,
+        annotations: Vec<Annotation>,
     ) -> Self {
         Message {
             role,
@@ -348,18 +350,23 @@ impl Message {
             reasoning,
             tool_calls,
             tool_call_id,
+            annotations,
         }
     }
+
     pub fn system(content: String) -> Self {
         Self::new(Role::System, Some(content), None)
     }
+
     pub fn user(content: String) -> Self {
         Self::new(Role::User, Some(content), None)
     }
+
     pub fn assistant(content: String) -> Self {
         // TODO: also send reasoning back
         Self::new(Role::Assistant, Some(content), None)
     }
+
     pub fn assistant_with_tool_call(content: String, tool_calls: Vec<ToolCall>) -> Self {
         Self::with_content(
             Role::Assistant,
@@ -367,6 +374,7 @@ impl Message {
             None, // TODO: also send reasoning back
             tool_calls,
             None,
+            vec![],
         )
     }
     pub fn tool(id: String, content: String) -> Self {
@@ -376,6 +384,7 @@ impl Message {
             None,
             vec![],
             Some(id),
+            vec![],
         )
     }
 
@@ -419,6 +428,7 @@ impl Message {
             JsonField::new_raw("content"),
             JsonField::new_string("reasoning"),
             JsonField::new_vec_raw("tool_calls"),
+            JsonField::new_vec_raw("annotations"),
         ];
         autoparser(json, &mut fields)?;
 
@@ -435,6 +445,13 @@ impl Message {
         if let Some(tool_calls_str_vec) = fields[3].get_vec_raw() {
             for t in tool_calls_str_vec {
                 tool_calls.push(ToolCall::from_json(&t)?);
+            }
+        }
+
+        let mut annotations = vec![];
+        if let Some(v) = fields[4].get_vec_raw() {
+            for a in v {
+                annotations.push(Annotation::from_json(&a)?);
             }
         }
 
@@ -473,7 +490,25 @@ impl Message {
             reasoning,
             tool_calls,
             None,
+            annotations,
         ))
+    }
+}
+
+/// These are usually url_citation. Example:
+/// {"type":"url_citation","url_citation":{"url":"https://linkerd.io/docs/reference/load-balancing/","title":"Load Balancing | Linkerd","start_index":0,"end_index":0,"content":"Linkerd uses a sophisticated .."}}
+#[derive(Debug, Clone)]
+pub struct Annotation {
+    pub annotation_type: String,
+}
+
+impl Annotation {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
+        let mut fields = [JsonField::new_simple_string("type")];
+        autoparser(json, &mut fields)?;
+        Ok(Annotation {
+            annotation_type: fields[0].get_string().unwrap_or_default(),
+        })
     }
 }
 
@@ -649,7 +684,7 @@ impl FromStr for Role {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub enum Response {
     /// The first time we get anything at all on the SSE stream
     Start,
@@ -661,6 +696,8 @@ pub enum Response {
     ToolCalls(Vec<ToolCall>),
     /// A clean way to display a tool call
     ToolDisplay(ToolDisplay),
+    /// A url_citation from web_search tool, or maybe other things
+    Annotation(String),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
     /// Less good things. Often you mistyped the model name.
@@ -935,7 +972,7 @@ pub struct ToolParameter {
 }
 
 /// Info AgentWriter needs to display a tool call.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ToolDisplay {
     // Capitalized and with a space at the end please
     pub name: &'static str,

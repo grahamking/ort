@@ -74,6 +74,9 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(TOOL_CALL_END);
                 let _ = self.writer.flush();
             }
+            Response::Annotation(_) => {
+                // TODO
+            }
             Response::Stats(mut stats) => {
                 // Prevent timing display
                 stats.time_to_first_token = None;

@@ -495,9 +495,15 @@ impl ActivePrompt {
                     let content = choice.delta.text();
                     let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
                     let has_tool_calls = !choice.delta.tool_calls.is_empty();
+                    let has_annotations = !choice.delta.annotations.is_empty();
                     let is_finished = choice.finish_reason.is_some();
 
-                    if !(has_reasoning || has_content || has_tool_calls || is_finished) {
+                    if !(has_reasoning
+                        || has_content
+                        || has_tool_calls
+                        || has_annotations
+                        || is_finished)
+                    {
                         continue;
                     }
 
@@ -543,6 +549,11 @@ impl ActivePrompt {
                         queue.push(r_event);
                     }
 
+                    // Handle annotations
+                    for a in &choice.delta.annotations {
+                        queue.push(Response::Annotation(a.annotation_type.clone()));
+                    }
+
                     // Handle regular content
                     if let Some(content) = content
                         && !content.is_empty()
@@ -574,8 +585,14 @@ impl ActivePrompt {
                     }
                 }
                 Err(err) => {
-                    utils::print_string(c"Malformed: ", &err.as_string());
-                    utils::print_string(c"DATA: ", data);
+                    if let Some(l) = self.logger.as_mut() {
+                        l.log(&err.as_string());
+                    }
+                    #[cfg(debug_assertions)]
+                    {
+                        utils::print_string(c"Malformed: ", &err.as_string());
+                        utils::print_string(c"DATA: ", data);
+                    }
                 }
             }
 
@@ -616,5 +633,101 @@ impl ActivePrompt {
 impl AsFd for ActivePrompt {
     fn as_fd(&self) -> i32 {
         self.reader.as_ref().unwrap().as_fd()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use core::assert_matches;
+
+    extern crate alloc;
+    use alloc::boxed::Box;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    use crate::cli::Env;
+    use crate::common::buf_read::OrtBufReader;
+    use crate::common::{time, utils};
+    use crate::config::Cfg;
+    use crate::input::prompt::PromptReader;
+    use crate::{Response, ThinkEvent};
+
+    #[test]
+    fn test_annotation_realistic() {
+        let test_file = env!("CARGO_MANIFEST_DIR").to_string() + "/tests/fixtures/parse_test.jsonl";
+        let test_data = utils::filename_read_to_string(&test_file).unwrap();
+        let mut active_prompt = super::ActivePrompt::new(
+            "api_key".to_string(),
+            &Cfg {
+                models: vec!["test/test".to_string()],
+                is_private: true,
+                ..Default::default()
+            },
+            vec![], // messages
+            vec![], // tools
+            0,
+            &Env::default(),
+        )
+        .unwrap();
+        let string_reader = crate::common::buf_read::StringReader {
+            data: test_data,
+            pos: 0,
+        };
+        let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
+        active_prompt.reader = Some(buf_reader);
+        active_prompt.start = Some(time::Ticks::now());
+
+        // First the Start event
+        let Ok(Some(events)) = active_prompt.next() else {
+            panic!("Missing Start event");
+        };
+        assert_eq!(events.len(), 1);
+        assert_matches!(events.first(), Some(Response::Start));
+
+        // Then some Annotation from the web_search
+        let mut num_annotations = 0;
+        let mut has_seen_the_bug = false;
+        'events: while let Ok(Some(events)) = active_prompt.next() {
+            if events.is_empty() && !has_seen_the_bug {
+                // OpenRouter web_search seems to truncte citations sometimes
+                // JSON parser probably needs to handle it.
+                // Currently returns an error and we get empty event vec
+                has_seen_the_bug = true;
+                continue;
+            }
+            for event in events {
+                match event {
+                    Response::Annotation(_) => num_annotations += 1,
+                    Response::Think(ThinkEvent::Start) => {
+                        // Once we reach Think Start annotations are over
+                        break 'events;
+                    }
+                    other => {
+                        panic!("Unexpected event: {other:?}");
+                    }
+                }
+            }
+        }
+        assert_eq!(num_annotations, 48);
+        if has_seen_the_bug {
+            // TODO
+            crate::eprint_string(c"The citation truncation bug is not fixed", "");
+        }
+
+        // Then some Think(Content)
+        let mut num_think = 0;
+        while let Ok(Some(events)) = active_prompt.next() {
+            match events.first().unwrap() {
+                Response::Think(ThinkEvent::Content(_)) => num_think += 1,
+                other => {
+                    panic!("Unexpected event: {other:?}");
+                }
+            }
+            assert_eq!(events.len(), 1);
+        }
+        assert_eq!(num_think, 296);
+
+        // At the point I interrupted the stream because of the citation truncated
+        // bug, so no other events.
     }
 }

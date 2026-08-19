@@ -28,6 +28,10 @@ pub use common::{io::Read, io::Write};
 // Only for panic_handler.rs
 pub use common::utils::num_to_string;
 
+// Shorten the import path
+#[allow(unused)]
+pub(crate) use common::utils::{eprint_string, print_string};
+
 pub use input::args;
 pub use input::cli;
 pub use input::prompt::ActivePrompt;

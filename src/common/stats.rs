@@ -13,7 +13,7 @@ use alloc::string::ToString;
 
 use crate::common::utils;
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Stats {
     pub used_model: String,
     pub provider: String,
