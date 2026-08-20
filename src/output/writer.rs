@@ -19,6 +19,7 @@ pub struct ConsoleWriter<'a, W: Write + Send> {
     pub is_quiet: bool,
     pub is_running: bool,
     pub is_first_content: bool,
+    pub has_web_search: bool,
     pub spindx: usize,
     pub stats_out: Option<stats::Stats>,
 }
@@ -31,6 +32,7 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
             is_quiet,
             is_running: false,
             is_first_content: true,
+            has_web_search: false,
             spindx: 0,
             stats_out: None,
         }
@@ -80,6 +82,12 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                             let _ = self.writer.write(super::MSG_THINK_START);
                         }
                         ThinkEvent::Content(s) => {
+                            if self.has_web_search {
+                                // Blank line after web search, switch back to grey
+                                let _ = self.writer.write_char('\n');
+                                let _ = self.writer.write(super::MSG_THINK_START);
+                                self.has_web_search = false;
+                            }
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
@@ -105,6 +113,11 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 }
             }
             Response::Content(content) => {
+                if self.has_web_search {
+                    // Blank line after web search
+                    let _ = self.writer.write_char('\n');
+                    self.has_web_search = false;
+                }
                 if self.is_first_content {
                     // Erase the Processing or Thinking line
                     let _ = self.writer.write(super::MSG_CLEAR_LINE);
@@ -116,9 +129,15 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // No tool calls in chat mode
             }
-            Response::Annotation(_) => {
-                // TODO. Should probably display these
-                // See Annotation struct in data.rs
+            Response::Annotation(annotation) => {
+                // These are url_citation from remote web_search tool
+                if !self.has_web_search {
+                    let _ = self.writer.write(b"\n\n");
+                }
+                let _ = self.writer.write(super::MSG_WEB_FETCH);
+                let _ = self.writer.write(annotation.citation_url().as_bytes());
+                let _ = self.writer.write_char('\n');
+                self.has_web_search = true;
             }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);
@@ -147,6 +166,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
 pub struct FileWriter<'a, W: Write + Send> {
     pub writer: &'a mut W,
     pub show_reasoning: bool,
+    pub has_web_search: bool,
     pub is_quiet: bool,
     pub stats_out: Option<stats::Stats>,
 }
@@ -157,6 +177,7 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
             writer,
             show_reasoning,
             is_quiet,
+            has_web_search: false,
             stats_out: None,
         }
     }
@@ -173,6 +194,11 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                             let _ = self.writer.write("<think>".as_bytes());
                         }
                         ThinkEvent::Content(s) => {
+                            if self.has_web_search {
+                                // Blank line after web search
+                                let _ = self.writer.write_char('\n');
+                                self.has_web_search = false;
+                            }
                             let _ = self.writer.write_all(s.as_bytes());
                         }
                         ThinkEvent::Stop => {
@@ -182,13 +208,25 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                 }
             }
             Response::Content(content) => {
+                if self.has_web_search {
+                    // Blank line after web search
+                    let _ = self.writer.write_char('\n');
+                    self.has_web_search = false;
+                }
                 let _ = self.writer.write_all(content.as_bytes());
             }
             Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // TODO
             }
-            Response::Annotation(_) => {
-                // TODO
+            Response::Annotation(annotation) => {
+                // These are url_citation from remote web_search tool
+                if !self.has_web_search && self.show_reasoning {
+                    let _ = self.writer.write(b"\n\n");
+                }
+                let _ = self.writer.write(b"Web fetch: ");
+                let _ = self.writer.write(annotation.citation_url().as_bytes());
+                let _ = self.writer.write_char('\n');
+                self.has_web_search = true;
             }
             Response::Stats(stats) => {
                 self.stats_out = Some(stats);

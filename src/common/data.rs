@@ -9,6 +9,7 @@
 use core::str::FromStr;
 
 extern crate alloc;
+use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -495,19 +496,48 @@ impl Message {
     }
 }
 
-/// These are usually url_citation. Example:
+/// These are url_citation. Example:
 /// {"type":"url_citation","url_citation":{"url":"https://linkerd.io/docs/reference/load-balancing/","title":"Load Balancing | Linkerd","start_index":0,"end_index":0,"content":"Linkerd uses a sophisticated .."}}
 #[derive(Debug, Clone)]
-pub struct Annotation {
-    pub annotation_type: String,
+pub enum Annotation {
+    UrlCitation { url: String, content: String },
+}
+
+impl Annotation {
+    /// Convenience function given there's only one type
+    pub fn citation_url(&self) -> &str {
+        match self {
+            Annotation::UrlCitation { url, .. } => url.as_ref(),
+        }
+    }
 }
 
 impl Annotation {
     pub fn from_json(json: &str) -> OrtResult<Self> {
-        let mut fields = [JsonField::new_simple_string("type")];
+        let mut fields = [
+            JsonField::new_simple_string("type"),
+            JsonField::new_raw("url_citation"),
+        ];
         autoparser(json, &mut fields)?;
-        Ok(Annotation {
-            annotation_type: fields[0].get_string().unwrap_or_default(),
+
+        let annotation_type = fields[0].get_string().unwrap_or_default();
+        if annotation_type != "url_citation" {
+            return Err(ort_err(
+                ErrorKind::FormatError,
+                Cow::from("Unknown annotation type: ".to_string() + &annotation_type),
+            ));
+        }
+
+        let citation_body = fields[1].get_raw().unwrap_or_default();
+        let mut citation_fields = [
+            JsonField::new_simple_string("url"),
+            JsonField::new_string("content"),
+        ];
+        autoparser(&citation_body, &mut citation_fields)?;
+
+        Ok(Annotation::UrlCitation {
+            url: citation_fields[0].get_string().unwrap_or_default(),
+            content: citation_fields[1].get_string().unwrap_or_default(),
         })
     }
 }
@@ -697,7 +727,7 @@ pub enum Response {
     /// A clean way to display a tool call
     ToolDisplay(ToolDisplay),
     /// A url_citation from web_search tool, or maybe other things
-    Annotation(String),
+    Annotation(Annotation),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
     /// Less good things. Often you mistyped the model name.

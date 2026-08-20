@@ -551,7 +551,7 @@ impl ActivePrompt {
 
                     // Handle annotations
                     for a in &choice.delta.annotations {
-                        queue.push(Response::Annotation(a.annotation_type.clone()));
+                        queue.push(Response::Annotation(a.clone()));
                     }
 
                     // Handle regular content
@@ -697,7 +697,9 @@ mod test {
             }
             for event in events {
                 match event {
-                    Response::Annotation(_) => num_annotations += 1,
+                    Response::Annotation(_) => {
+                        num_annotations += 1;
+                    }
                     Response::Think(ThinkEvent::Start) => {
                         // Once we reach Think Start annotations are over
                         break 'events;

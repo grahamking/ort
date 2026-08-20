@@ -23,10 +23,11 @@ pub const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
 // \r{CLEAR_LINE}\n
 pub const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
 
-// These are both surrounded by BOLD_START and BOLD_END, but I can't find a way to
+// These are surrounded by BOLD_START and BOLD_END, but I can't find a way to
 // do string concatenation at build time with constants
 pub const MSG_PROCESSING: &[u8] = "\x1b[1mProcessing...\x1b[0m\r".as_bytes();
 pub const MSG_THINKING: &[u8] = "\x1b[1mThinking...\x1b[0m  ".as_bytes();
+pub const MSG_WEB_FETCH: &[u8] = "\x1b[0m\x1b[2mWeb search: \x1b[0m".as_bytes();
 
 pub const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
 pub const MSG_THINK_END: &[u8] = "\x1b[0m\n".as_bytes();
