@@ -59,6 +59,7 @@ pub struct ChatCompletionsResponse {
     pub model: Option<String>,
     pub choices: Vec<Choice>,
     pub usage: Option<Usage>,
+    pub error: Option<RemoteError>,
 }
 
 impl ChatCompletionsResponse {
@@ -68,6 +69,7 @@ impl ChatCompletionsResponse {
             JsonField::new_simple_string("model"),
             JsonField::new_vec_raw("choices"),
             JsonField::new_raw("usage"),
+            JsonField::new_raw("error"),
         ];
         autoparser(json, &mut fields).context("ChatCompletionsResponse autoparser")?;
 
@@ -84,11 +86,18 @@ impl ChatCompletionsResponse {
             .map(Usage::from_json)
             .transpose()?;
 
+        let error = fields[4]
+            .get_raw()
+            .as_deref()
+            .map(RemoteError::from_json)
+            .transpose()?;
+
         Ok(ChatCompletionsResponse {
             provider: fields[0].get_string(),
             model: fields[1].get_string(),
             choices,
             usage,
+            error,
         })
     }
 }
@@ -207,6 +216,34 @@ impl Usage {
             cost: fields[0].get_float().unwrap_or_default(),
             web_search_requests,
         })
+    }
+}
+
+// {
+//  "code":400,
+//  "message":"Server tool request failed",
+//  "metadata":{"error_type":"invalid_request"}
+// }
+pub struct RemoteError {
+    code: u32,
+    message: String,
+}
+
+impl RemoteError {
+    pub fn from_json(json: &str) -> OrtResult<Self> {
+        let mut fields = [
+            JsonField::new_int("code"),
+            JsonField::new_simple_string("message"),
+        ];
+        autoparser(json, &mut fields)?;
+        Ok(RemoteError {
+            code: fields[0].get_int().unwrap_or_default(),
+            message: fields[1].get_string().unwrap_or_default(),
+        })
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -1106,5 +1143,12 @@ mod tests {
         autoparser(&json, &mut fields).unwrap();
         let cmd = fields[0].get_string().expect("Missing 'command' field");
         assert!(cmd.contains("empathy"));
+    }
+
+    #[test]
+    fn test_parse_chat_error() {
+        let json = r#"{"id":"gen-1787255401-CBB2yYetBs5rQ1TxQ3zc","object":"chat.completion.chunk","created":1787255401,"model":"openai/gpt-5.6-terra","provider":"OpenAI","choices":[],"error":{"code":400,"message":"Server tool request failed","metadata":{"error_type":"invalid_request"}}}"#;
+        let ccr = ChatCompletionsResponse::from_json(json).unwrap();
+        assert_eq!(ccr.error.unwrap().message, "Server tool request failed");
     }
 }

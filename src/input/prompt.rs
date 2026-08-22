@@ -481,9 +481,17 @@ impl ActivePrompt {
                         }
                     }
 
+                    if let Some(error) = v.error {
+                        queue.push(Response::Error(error.message().to_string()));
+                    };
+
                     // Standard OpenAI stream delta shape
                     let Some(choice) = v.choices.pop() else {
-                        continue;
+                        if queue.is_empty() {
+                            continue;
+                        } else {
+                            return Ok(Some(queue));
+                        }
                     };
 
                     let has_reasoning = choice
