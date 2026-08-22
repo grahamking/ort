@@ -20,6 +20,7 @@ const AGENT_STATS_START: &[u8] = "\n\x1b[35m".as_bytes();
 const AGENT_STATS_END: &[u8] = "\x1b[0m\n".as_bytes();
 
 const PROMPT_START: &[u8] = "\n\x1b[3m".as_bytes();
+const MSG_WEB_FETCH: &[u8] = "\x1b[0m\x1b[2mWeb search: \x1b[0m".as_bytes();
 
 const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 const RESET: &[u8] = "\x1b[0m".as_bytes();
@@ -27,6 +28,7 @@ const RESET: &[u8] = "\x1b[0m".as_bytes();
 pub struct AgentWriter<'a, W: Write + Send> {
     pub writer: &'a mut W,
     pub show_reasoning: bool,
+    pub has_web_search: bool,
 }
 
 impl<'a, W: Write + Send> AgentWriter<'a, W> {
@@ -34,6 +36,7 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
         Self {
             writer,
             show_reasoning,
+            has_web_search: false,
         }
     }
 }
@@ -50,6 +53,12 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                             let _ = self.writer.flush();
                         }
                         ThinkEvent::Content(s) => {
+                            if self.has_web_search {
+                                // Blank line after web search, switch back to grey
+                                let _ = self.writer.write_char('\n');
+                                let _ = self.writer.write(MSG_THINK_START);
+                                self.has_web_search = false;
+                            }
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
@@ -61,6 +70,11 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 }
             }
             Response::Content(content) => {
+                if self.has_web_search {
+                    // Blank line after web search
+                    let _ = self.writer.write_char('\n');
+                    self.has_web_search = false;
+                }
                 let _ = self.writer.write_all(content.as_bytes());
             }
             Response::ToolCalls(_tool_calls) => {
@@ -74,8 +88,15 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(TOOL_CALL_END);
                 let _ = self.writer.flush();
             }
-            Response::Annotation(_) => {
-                // TODO
+            Response::Annotation(annotation) => {
+                // These are url_citation from remote web_search tool
+                if !self.has_web_search {
+                    let _ = self.writer.write(b"\n\n");
+                }
+                let _ = self.writer.write(MSG_WEB_FETCH);
+                let _ = self.writer.write(annotation.citation_url().as_bytes());
+                let _ = self.writer.write_char('\n');
+                self.has_web_search = true;
             }
             Response::Stats(mut stats) => {
                 // Prevent timing display
