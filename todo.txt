@@ -1,3 +1,24 @@
+Catch this error earlier and return an error to the model:
+
+thread 'main' (352127) panicked at src/bin/art/main.rs:54:70:
+called `Result::unwrap()` on an `Err` value: OrtError { kind: ToolDoesNotExist, context: "repo_browser.bash" }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/362211dc29abc4e8f8cfc384740237f144929b03/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/362211dc29abc4e8f8cfc384740237f144929b03/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/362211dc29abc4e8f8cfc384740237f144929b03/library/core/src/result.rs:1867:5
+   3: <core::result::Result<(), ort_openrouter_cli::common::error::OrtError>>::unwrap
+             at /home/graham/.rustup/toolchains/nightly-2026-03-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:1233:23
+   4: art::main
+             at ./src/bin/art/main.rs:54:70
+   5: <fn() -> std::process::ExitCode as core::ops::function::FnOnce<()>>::call_once
+             at /home/graham/.rustup/toolchains/nightly-2026-03-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---
+
 
 OpenRouter's web search tool sometimes truncates citations
 

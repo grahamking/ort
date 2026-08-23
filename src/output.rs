@@ -48,5 +48,7 @@ pub const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
 pub trait OutputWriter {
     fn write(&mut self, data: Response) -> OrtResult<()>;
-    fn stop(&mut self, include_stats: bool) -> OrtResult<()>;
+    fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
+        Ok(())
+    }
 }

@@ -231,7 +231,7 @@ fn run_single<W: Write + Send>(
     let stats = active_prompt.stop();
     *total_stats += stats;
 
-    output_writer.stop(true)?;
+    output_writer.stop(true)?; // Doesn't do anything
 
     Ok(has_tool_call)
 }

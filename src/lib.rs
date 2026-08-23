@@ -17,7 +17,7 @@ pub mod syscall;
 pub use common::alloc::ArenaAlloc;
 pub use common::config;
 pub use common::data::{
-    ChatCompletionsResponse, Choice, Content, Function, LastData, Message, Priority,
+    Annotation, ChatCompletionsResponse, Choice, Content, Function, LastData, Message, Priority,
     ReasoningEffort, Response, Role, ThinkEvent, Tool, ToolDisplay, ToolParameter, Usage,
 };
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_error};
