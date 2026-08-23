@@ -751,7 +751,7 @@ impl FromStr for Role {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub enum Response {
     /// The first time we get anything at all on the SSE stream
     Start,
@@ -771,9 +771,6 @@ pub enum Response {
     Error(String),
     /// For agent mode, user prompt
     Prompt(String),
-    /// For default
-    #[default]
-    None,
 }
 
 #[derive(Debug, Clone)]

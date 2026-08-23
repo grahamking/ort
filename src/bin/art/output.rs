@@ -138,10 +138,6 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
-            Response::None => {
-                // TODO: Can this still happen?
-                panic!("Response::None means we read the wrong Queue position");
-            }
         }
         Ok(())
     }

@@ -153,10 +153,6 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
-            Response::None => {
-                // TODO: Can this still happen?
-                panic!("Response::None means we read the wrong Queue position");
-            }
         }
 
         Ok(())
@@ -243,10 +239,6 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
-            Response::None => {
-                // TODO: Can this still happen?
-                panic!("Response::None means we read the wrong Queue position");
-            }
         }
         Ok(())
     }
@@ -303,10 +295,6 @@ impl super::OutputWriter for CollectedWriter {
             Response::Prompt(_) => {}
             Response::Error(err) => {
                 return Err(ort_err(ErrorKind::ResponseStreamError, err.into()));
-            }
-            Response::None => {
-                // TODO: Can this still happen?
-                panic!("Response::None means we read the wrong Queue position");
             }
         }
         Ok(())

@@ -162,10 +162,6 @@ impl OutputWriter for LastWriter {
                     "LastWriter run error",
                 ));
             }
-            Response::None => {
-                // TODO: Can this still happen?
-                panic!("Response::None means we read the wrong Queue position");
-            }
         }
         Ok(())
     }
