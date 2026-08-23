@@ -3,7 +3,7 @@ cargo-features = ["profile-rustflags"]
 
 [package]
 name = "ort-openrouter-cli"
-version = "0.6.5"
+version = "0.6.6"
 edition = "2024"
 description = "Open Router CLI"
 authors = ["Graham King <graham@gkgk.org>"]
@@ -41,6 +41,14 @@ rustflags = [
 	"-Clink-args=-nostartfiles",
 	"-Crelocation-model=static",
 	"-Clink-args=-Wl,--no-dynamic-linker,--build-id=none,--no-eh-frame-hdr",
+	"-Cforce-frame-pointers=yes",
+	"-Clink-arg=-fuse-ld=lld",
+]
+
+[profile.release-art]
+inherits = "release"
+rustflags = [
+	"-Ctarget-cpu=native",
 	"-Cforce-frame-pointers=yes",
 	"-Clink-arg=-fuse-ld=lld",
 ]
