@@ -52,18 +52,16 @@ pub fn build_body(
         w.write_char('}')?;
     }
 
-    w.write_str(", \"reasoning\": ")?;
+    w.write_str(", \"reasoning_effort\": ")?;
     match &cfg.effort {
         // No -r and nothing in config file
         // cli "-r off" or config file '"enabled": false'
         None | Some(ReasoningEffort::None) => {
-            w.write_str("{\"enabled\": false}")?;
+            write_json_str_simple(w, "none")?;
         }
         // Reasoning on
         Some(effort) => {
-            w.write_str("{\"exclude\": false, \"enabled\": true, \"effort\":")?;
             write_json_str_simple(w, effort.as_str())?;
-            w.write_char('}')?;
         }
     };
 
@@ -418,7 +416,7 @@ mod tests {
             }
         };
 
-        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning": {"enabled": false}, "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning_effort": "none", "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}]}"#;
 
         assert_eq!(got, expected);
     }
