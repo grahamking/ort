@@ -441,11 +441,11 @@ impl ActivePrompt {
             // utils::print_string(c"LINE: ", line);
 
             if self.is_start {
-                // Very first message from server, usually
+                // Very first message from server, often
                 // : OPENROUTER PROCESSING
                 queue.push(Response::Start);
                 self.is_start = false;
-                return Ok(Some(queue));
+                // It might be a real data line, so continue processing
             }
 
             // SSE heartbeats and blank lines
@@ -689,8 +689,9 @@ mod test {
         let Ok(Some(events)) = active_prompt.next() else {
             panic!("Missing Start event");
         };
-        assert_eq!(events.len(), 1);
         assert_matches!(events.first(), Some(Response::Start));
+        // The first annotation comes out here, not 100% sure why
+        assert_matches!(events[1], Response::Annotation(_));
 
         // Then some Annotation from the web_search
         let mut num_annotations = 0;
@@ -718,7 +719,7 @@ mod test {
                 }
             }
         }
-        assert_eq!(num_annotations, 48);
+        assert_eq!(num_annotations, 47);
         if has_seen_the_bug {
             // TODO
             crate::eprint_string(c"The citation truncation bug is not fixed", "");
