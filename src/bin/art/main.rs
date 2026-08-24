@@ -44,8 +44,14 @@ fn main() -> std::process::ExitCode {
         cfg.system_prompt = Some(system_prompt::DEFAULT.to_string());
     }
 
-    // Agent mode always includes server-side web tools
-    cfg.include_web_tools = true;
+    // Agent mode should always include server-side web tools,
+    // but not all inference platforms have them. Probably
+    // need more customization in config file.
+    if !cfg.include_web_tools {
+        eprintln!(
+            "Warn: Web search / web fetch are disabled. Add `include_web_tools: true` to your config to enable."
+        );
+    }
 
     // We display stats in a different way so silent the normal way
     cfg.quiet = true;
