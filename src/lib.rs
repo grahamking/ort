@@ -15,6 +15,7 @@ mod output;
 pub mod syscall;
 
 pub use common::alloc::ArenaAlloc;
+pub use common::buf_read::{OrtBufReader, StringReader};
 pub use common::config;
 pub use common::data::{
     Annotation, ChatCompletionsResponse, Choice, Content, Function, LastData, Message, Priority,
@@ -25,6 +26,7 @@ pub use common::file;
 pub use common::json_parser;
 pub use common::stats::Stats;
 pub use common::{io::Read, io::Write};
+pub use common::{time, utils};
 // Only for panic_handler.rs
 pub use common::utils::num_to_string;
 
@@ -34,7 +36,7 @@ pub(crate) use common::utils::{eprint_string, print_string};
 
 pub use input::args;
 pub use input::cli;
-pub use input::prompt::ActivePrompt;
+pub use input::prompt::{ActivePrompt, PromptReader};
 pub use input::to_json::{build_body, write_json_str};
 
 pub use net::socket::TcpSocket;

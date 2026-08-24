@@ -294,12 +294,14 @@ pub struct ActivePrompt {
     // When running multiple models, this thread should use this one
     model_idx: usize,
 
-    reader: Option<Box<dyn PromptReader>>,
+    // pub for agent unit tests
+    pub reader: Option<Box<dyn PromptReader>>,
 
     stats: stats::Stats,
     tsc_calibration: Option<time::TscCalibration>,
     token_stream_start: Option<time::Ticks>,
-    start: Option<time::Ticks>,
+    // pub for agent unit tests
+    pub start: Option<time::Ticks>,
     num_tokens: usize,
     is_start: bool,
     is_first_reasoning: bool,
@@ -438,7 +440,7 @@ impl ActivePrompt {
             }
             let line = self.line_buf.trim();
             // utils::print_string(c"LEN: ", &crate::utils::num_to_string(line.len()));
-            // utils::print_string(c"LINE: ", line);
+            // utils::print_string(c"\nLINE: ", line);
 
             if self.is_start {
                 // Very first message from server, often
@@ -525,10 +527,16 @@ impl ActivePrompt {
                     }
 
                     // Handle tool calls
+                    // TODO: Consider copying and ownership
+                    // TODO: If we have lots of tool calls (> 10) switch
+                    // to a different data structure for pending_tool_calls.
                     if has_tool_calls {
-                        // TODO: Think about ownership, reduce copying
                         for tool_call in &choice.delta.tool_calls {
-                            match self.pending_tool_calls.get_mut(tool_call.index as usize) {
+                            match self
+                                .pending_tool_calls
+                                .iter_mut()
+                                .find(|item| item.index == tool_call.index)
+                            {
                                 Some(pending) => {
                                     pending.update_from(tool_call);
                                 }
@@ -604,7 +612,7 @@ impl ActivePrompt {
                 }
             }
 
-            if queue.is_empty() && !self.pending_tool_calls.is_empty() {
+            if queue.is_empty() || !self.pending_tool_calls.is_empty() {
                 // Tool calls are sometimes spread over several messages
                 continue;
             }

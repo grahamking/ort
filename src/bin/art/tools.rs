@@ -124,7 +124,11 @@ pub fn parse_function(f: &Function) -> OrtResult<Box<dyn ActiveTool>> {
             let t = BashTool::from_json(&f.arguments).map_err(|err| {
                 ort_err(
                     ErrorKind::ParsingToolCallParams,
-                    ("Parsing bash tool params JSON - ".to_string() + &err.as_string()).into(),
+                    ("Parsing bash tool params JSON '".to_string()
+                        + &f.arguments
+                        + "' - "
+                        + &err.as_string())
+                        .into(),
                 )
             })?;
             Ok(Box::new(t))

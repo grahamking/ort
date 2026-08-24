@@ -265,7 +265,13 @@ mod tests {
     extern crate alloc;
     use alloc::string::ToString;
     use alloc::vec;
+    use ort_openrouter_cli::OrtBufReader;
+    use ort_openrouter_cli::PromptReader;
+    use ort_openrouter_cli::StringReader;
     use ort_openrouter_cli::build_body;
+    use ort_openrouter_cli::config::Cfg;
+    use ort_openrouter_cli::time;
+    use ort_openrouter_cli::utils;
 
     use crate::tools::ALL_TOOLS;
 
@@ -305,5 +311,49 @@ mod tests {
         let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning_effort": "none", "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"},{"type": "function", "function": {"name": "read", "description": "Read the contents of a text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},"offset": {"type": "number", "description": "Line number to start reading from (0-indexed)"},"limit": {"type": "number", "description": "Maximum number of lines to read"}}, "required": ["path"]}}}]}"#;
 
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn test_parse_function() {
+        let test_file =
+            env!("CARGO_MANIFEST_DIR").to_string() + "/tests/fixtures/parse_function.jsonl";
+        let test_data = utils::filename_read_to_string(&test_file).unwrap();
+
+        let mut active_prompt = super::ActivePrompt::new(
+            "api_key".to_string(),
+            &Cfg {
+                models: vec!["test/test".to_string()],
+                is_private: true,
+                ..Default::default()
+            },
+            vec![], // messages
+            vec![], // tools
+            0,
+            &Env::default(),
+        )
+        .unwrap();
+        let string_reader = StringReader {
+            data: test_data,
+            pos: 0,
+        };
+        let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
+        active_prompt.reader = Some(buf_reader);
+        active_prompt.start = Some(time::Ticks::now());
+
+        let mut num_tool_calls = 0;
+        while let Ok(Some(events)) = active_prompt.next() {
+            for event in events {
+                if let Response::ToolCalls(tool_calls) = event {
+                    for tool_call in tool_calls {
+                        num_tool_calls += 1;
+                        let active_tool = crate::tools::parse_function(&tool_call.function);
+                        // Assert: It parses
+                        assert!(active_tool.is_ok());
+                    }
+                }
+            }
+        }
+        // Assert: All of that JSONL produces a single tool call.
+        assert_eq!(num_tool_calls, 1);
     }
 }
