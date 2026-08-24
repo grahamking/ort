@@ -154,6 +154,8 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
 
 #[cfg(test)]
 mod test {
+    use crate::tools::{ActiveTool, ReadTool};
+
     use super::*;
     use core::time::Duration;
     use ort_openrouter_cli::{Annotation, Stats, StdoutWriter, ToolDisplay};
@@ -162,6 +164,11 @@ mod test {
     // Run with `-- --nocapture` and eyeball it.
     #[test]
     fn test_output() {
+        let read = ReadTool {
+            path: "LICENSE".to_string(),
+            offset: None,
+            limit: Some(2000),
+        };
         let events = [
             Response::Prompt("What is the license of this project?".to_string()),
             Response::Start,
@@ -192,10 +199,7 @@ mod test {
             Response::Think(ThinkEvent::Content(
                 "We need license file. Look at LICENSE.".to_string(),
             )),
-            Response::ToolDisplay(ToolDisplay {
-                name: "Read ",
-                arguments: "LICENSE".to_string(),
-            }),
+            Response::ToolDisplay(read.display()),
             Response::Think(ThinkEvent::Start),
             Response::Think(ThinkEvent::Content("The license is MIT.".to_string())),
             Response::Think(ThinkEvent::Stop),

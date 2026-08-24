@@ -16,7 +16,7 @@ use std::io::{BufRead as _, BufReader};
 
 use ort_openrouter_cli::{
     ErrorKind, Function, OrtResult, Tool, ToolDisplay, ToolParameter, Write, file, json_parser,
-    ort_err, syscall::system, write_json_str,
+    num_to_string, ort_err, syscall::system, write_json_str,
 };
 
 pub const ALL_TOOLS: &[&Tool] = &[&TOOL_READ, &TOOL_BASH, &TOOL_WRITE, &TOOL_EDIT];
@@ -249,9 +249,18 @@ impl ActiveTool for ReadTool {
     }
 
     fn display(&self) -> ToolDisplay {
+        let mut arguments = self.path.clone();
+        if let Some(offset) = self.offset {
+            arguments += " offset ";
+            arguments += &num_to_string(offset);
+        }
+        if let Some(limit) = self.limit {
+            arguments += " limit ";
+            arguments += &num_to_string(limit);
+        }
         ToolDisplay {
             name: "Read ",
-            arguments: self.path.clone(),
+            arguments,
         }
     }
 }
