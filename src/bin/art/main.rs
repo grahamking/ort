@@ -51,9 +51,13 @@ fn main() -> std::process::ExitCode {
     cfg.quiet = true;
 
     let messages = cfg.messages().unwrap();
-    agent::run(&api_key, &cfg, &env, messages, &mut StdoutWriter {}).unwrap();
-
-    0.into()
+    match agent::run(&api_key, &cfg, &env, messages, &mut StdoutWriter {}) {
+        Ok(()) => 0.into(),
+        Err(err) => {
+            eprintln!("\nFailed: {}. {}", err.kind.as_string(), err.context);
+            1.into()
+        }
+    }
 }
 
 fn build_env() -> cli::Env {

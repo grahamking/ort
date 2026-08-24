@@ -27,6 +27,7 @@ const MSG_WEB_FETCH: &[u8] = "\x1b[0m\x1b[2mWeb search: \x1b[0m".as_bytes();
 
 const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 const RESET: &[u8] = "\x1b[0m".as_bytes();
+const WARN_START: &[u8] = "\x1b[38;5;208m".as_bytes();
 
 #[derive(PartialEq, Eq)]
 enum Section {
@@ -36,6 +37,7 @@ enum Section {
     Tool,
     Content,
     Stats,
+    Warn,
 }
 
 pub struct AgentWriter<'a, W: Write + Send> {
@@ -132,6 +134,13 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(RESET);
                 let _ = self.writer.flush();
             }
+            Response::Warn(warning) => {
+                self.section(Section::Warn);
+                let _ = self.writer.write(WARN_START);
+                let _ = self.writer.write(warning.trim().as_bytes());
+                let _ = self.writer.write(RESET);
+                let _ = self.writer.flush();
+            }
             Response::Error(err_string) => {
                 if err_string.contains(ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
@@ -169,6 +178,7 @@ mod test {
             Response::Think(ThinkEvent::Content(
                 "We need to find license file. Use bash to list.".to_string(),
             )),
+            Response::Warn("Tool does not exist. No such tool: 'bosh'".to_string()),
             Response::ToolDisplay(ToolDisplay {
                 name: "Bash ",
                 arguments: "ls -R".to_string(),

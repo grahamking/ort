@@ -767,7 +767,9 @@ pub enum Response {
     Annotation(Annotation),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
-    /// Less good things. Often you mistyped the model name.
+    /// Survivable error. Model tried to use a tool that does not exist.
+    Warn(String),
+    /// Fatal error. Often you mistyped the model name. Or 429 rate limit.
     Error(String),
     /// For agent mode, user prompt
     Prompt(String),

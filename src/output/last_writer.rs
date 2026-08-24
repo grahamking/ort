@@ -156,6 +156,7 @@ impl OutputWriter for LastWriter {
                 self.cfg.provider = Some(utils::slug(stats.provider()));
             }
             Response::Prompt(_) => {}
+            Response::Warn(_) => {}
             Response::Error(_err) => {
                 return Err(ort_error(
                     ErrorKind::LastWriterError,

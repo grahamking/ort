@@ -176,7 +176,27 @@ fn run_single<W: Write + Send>(
                             assistant_tool_calls = Some(tool_calls.clone());
 
                             for tool_call in tool_calls {
-                                let active_tool = tools::parse_function(&tool_call.function)?;
+                                let active_tool = match tools::parse_function(&tool_call.function) {
+                                    Ok(t) => t,
+                                    Err(no_tool_error)
+                                        if matches!(
+                                            no_tool_error.kind,
+                                            ErrorKind::ToolDoesNotExist
+                                        ) =>
+                                    {
+                                        let msg = "Tool does not exist. No such tool: '"
+                                            .to_string()
+                                            + &tool_call.function.name
+                                            + "'";
+                                        tool_call_results
+                                            .push((tool_call.id.clone().unwrap(), error(&msg)));
+                                        output_writer.write(Response::Error(msg))?;
+                                        continue;
+                                    }
+                                    Err(error) => {
+                                        return Err(error);
+                                    }
+                                };
                                 output_writer
                                     .write(Response::ToolDisplay(active_tool.display()))?;
                                 let res = active_tool.run();

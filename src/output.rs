@@ -15,22 +15,25 @@ pub mod last_writer;
 pub mod logger;
 pub mod writer;
 
-pub const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
+const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
 
 //const CURSOR_OFF: &str = "\x1b[?25l";
-pub const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
+const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
 
 // \r{CLEAR_LINE}\n
-pub const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
+const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
+const RESET: &[u8] = "\x1b[0m".as_bytes();
 
 // These are surrounded by BOLD_START and BOLD_END, but I can't find a way to
 // do string concatenation at build time with constants
-pub const MSG_PROCESSING: &[u8] = "\x1b[1mProcessing...\x1b[0m\r".as_bytes();
-pub const MSG_THINKING: &[u8] = "\x1b[1mThinking...\x1b[0m  ".as_bytes();
-pub const MSG_WEB_FETCH: &[u8] = "\x1b[0m\x1b[2mWeb search: \x1b[0m".as_bytes();
+const MSG_PROCESSING: &[u8] = "\x1b[1mProcessing...\x1b[0m\r".as_bytes();
+const MSG_THINKING: &[u8] = "\x1b[1mThinking...\x1b[0m  ".as_bytes();
+const MSG_WEB_FETCH: &[u8] = "\x1b[0m\x1b[2mWeb search: \x1b[0m".as_bytes();
 
-pub const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
-pub const MSG_THINK_END: &[u8] = "\x1b[0m\n".as_bytes();
+const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
+const MSG_THINK_END: &[u8] = "\x1b[0m\n".as_bytes();
+
+const WARN_START: &[u8] = "\x1b[38;5;208m".as_bytes();
 
 // The spinner displays a sequence of these characters: | / - \ , which when
 // animated look like they are spinning.
