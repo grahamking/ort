@@ -10,10 +10,8 @@ mod shared;
 
 #[test]
 fn test_multi() {
-    // Pick cheap or reliably free ones
-    // google/gemma-3-4b-it
-    // mistralai/mistral  # hitting rate limit
-    const MODEL1: &str = "nvidia/nemotron-nano-9b-v2:free";
+    // Pick cheap, reliable ones
+    const MODEL1: &str = "qwen/qwen3.8-27b";
     const MODEL2: &str = "meta-llama/llama-3.1-8b-instruct";
     const MODELS: [&str; 2] = [MODEL1, MODEL2];
 

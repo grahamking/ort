@@ -68,8 +68,11 @@ pub fn build_body(
     w.write_str(", \"messages\":")?;
     Message::write_json_array(messages, w)?;
 
-    w.write_str(", \"tools\":")?;
-    Tool::write_json_array(client_tools, cfg.include_web_tools, w)?;
+    // Some inference platforms reject empty tools
+    if cfg.include_web_tools || !client_tools.is_empty() {
+        w.write_str(", \"tools\":")?;
+        Tool::write_json_array(client_tools, cfg.include_web_tools, w)?;
+    }
 
     // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
     // This disables that parsing. Experimental, does not help.
