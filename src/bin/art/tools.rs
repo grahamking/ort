@@ -457,9 +457,12 @@ impl ActiveTool for EditTool {
     }
 
     fn display(&self) -> ToolDisplay {
+        let mut arguments = self.path.clone();
+        arguments += " lines ";
+        arguments += &num_to_string(self.old_text.lines().count());
         ToolDisplay {
             name: "Edit ",
-            arguments: self.path.clone(),
+            arguments,
         }
     }
 }
