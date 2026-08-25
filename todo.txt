@@ -1,7 +1,3 @@
-Parse `reasoning_details` - same level as `reasoning`. See tests/fixtures/parse_test.jsonl for real example.
-
-That's encrypted reasoning. Issue it as a Reasoning event with no content. It should make the spinner move.
-
 ---
 
 OpenRouter's web search tool sometimes truncates citations
@@ -16,7 +12,6 @@ On error the parser should close all the things and pretend everything ended cle
 
 1. Harden bash
 	- Add a timeout.
-	- Add stdout/stderr byte caps with truncation metadata.
 	- Consider optional cwd.
 	- Current implementation can hang forever and capture unlimited output: src/syscall.rs:792.
 

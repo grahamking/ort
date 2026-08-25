@@ -465,6 +465,7 @@ impl Message {
             JsonField::new_simple_string("role"),
             JsonField::new_raw("content"),
             JsonField::new_string("reasoning"),
+            JsonField::new_string("reasoning_content"),
             JsonField::new_vec_raw("tool_calls"),
             JsonField::new_vec_raw("annotations"),
         ];
@@ -477,17 +478,17 @@ impl Message {
                 Role::from_str(role).map_err(|err| ort_err(ErrorKind::FormatError, err.into()))
             })
             .transpose()?;
-        let reasoning = fields[2].get_string();
+        let reasoning = fields[2].get_string().or_else(|| fields[3].get_string());
 
         let mut tool_calls = vec![];
-        if let Some(tool_calls_str_vec) = fields[3].get_vec_raw() {
+        if let Some(tool_calls_str_vec) = fields[4].get_vec_raw() {
             for t in tool_calls_str_vec {
                 tool_calls.push(ToolCall::from_json(&t)?);
             }
         }
 
         let mut annotations = vec![];
-        if let Some(v) = fields[4].get_vec_raw() {
+        if let Some(v) = fields[5].get_vec_raw() {
             for a in v {
                 annotations.push(Annotation::from_json(&a)?);
             }
@@ -1127,6 +1128,19 @@ mod tests {
         assert_eq!(msg.content.len(), 2);
         assert_eq!(msg.content[0].text(), Some("Hello"));
         assert_eq!(msg.content[1].text(), Some(" there"));
+    }
+
+    #[test]
+    fn message_reasoning_field_aliases() {
+        let msg =
+            Message::from_json(r#"{"role":"assistant","reasoning_content":"from alias"}"#).unwrap();
+        assert_eq!(msg.reasoning.as_deref(), Some("from alias"));
+
+        let msg = Message::from_json(
+            r#"{"role":"assistant","reasoning":"preferred","reasoning_content":"alias"}"#,
+        )
+        .unwrap();
+        assert_eq!(msg.reasoning.as_deref(), Some("preferred"));
     }
 
     #[test]
