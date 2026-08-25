@@ -15,8 +15,6 @@ On error the parser should close all the things and pretend everything ended cle
 --- agent tools
 
 1. Harden bash
-	- Add a `limit` like read tool. `ls -R` is often the first command,
-	which is huge.
 	- Add a timeout.
 	- Add stdout/stderr byte caps with truncation metadata.
 	- Consider optional cwd.

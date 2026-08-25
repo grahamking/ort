@@ -50,11 +50,18 @@ const TOOL_READ: Tool = Tool {
 const TOOL_BASH: Tool = Tool {
     name: "bash",
     description: "Execute a bash command in the current working directory. Returns stdout and stderr.",
-    parameters: &[ToolParameter {
-        name: "command",
-        param_type: "string",
-        description: "Bash command to execute",
-    }],
+    parameters: &[
+        ToolParameter {
+            name: "command",
+            param_type: "string",
+            description: "Bash command to execute",
+        },
+        ToolParameter {
+            name: "limit",
+            param_type: "number",
+            description: "Maximum number of lines to return",
+        },
+    ],
     required_parameters: &["command"],
 };
 
@@ -271,14 +278,19 @@ impl ActiveTool for ReadTool {
 
 pub struct BashTool {
     pub command: String,
+    pub limit: Option<u32>,
 }
 
 impl BashTool {
     pub fn from_json(json: &str) -> OrtResult<Self> {
-        let mut fields = [json_parser::JsonField::new_string("command")];
+        let mut fields = [
+            json_parser::JsonField::new_string("command"),
+            json_parser::JsonField::new_int("limit"),
+        ];
         json_parser::autoparser(json, &mut fields)?;
         Ok(BashTool {
             command: fields[0].get_string().expect("Missing BashTool command"),
+            limit: fields[1].get_int(),
         })
     }
 }
@@ -286,16 +298,23 @@ impl BashTool {
 impl ActiveTool for BashTool {
     fn run(&self) -> OrtResult<String> {
         let output = system(&self.command)?;
+        let stdout = limit_lines(&output.stdout, self.limit);
+        let stderr = limit_lines(&output.stderr, self.limit);
         Ok(success(
             &[("exit_code", output.exit_code as usize)],
-            &[("stdout", &output.stdout), ("stderr", &output.stderr)],
+            &[("stdout", &stdout), ("stderr", &stderr)],
         ))
     }
 
     fn display(&self) -> ToolDisplay {
+        let mut arguments = self.command.clone();
+        if let Some(limit) = self.limit {
+            arguments += " limit ";
+            arguments += &num_to_string(limit);
+        }
         ToolDisplay {
             name: "Bash ",
-            arguments: self.command.clone(),
+            arguments,
         }
     }
 }
@@ -483,6 +502,17 @@ impl EditTool {
         }
 
         Ok(())
+    }
+}
+
+fn limit_lines(content: &str, limit: Option<u32>) -> String {
+    match limit {
+        Some(limit) => content
+            .lines()
+            .take(limit as usize)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        None => content.to_string(),
     }
 }
 
