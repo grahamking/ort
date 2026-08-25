@@ -70,12 +70,6 @@ pub fn run<W: Write + Send>(
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: &mut W,
 ) -> OrtResult<()> {
-    let mut output_writer: Box<dyn OutputWriter> = if is_pipe_output {
-        Box::new(FileWriter::new(w_core, cfg.show_reasoning, cfg.quiet))
-    } else {
-        Box::new(ConsoleWriter::new(w_core, cfg.show_reasoning, cfg.quiet))
-    };
-
     let mut last_writer = if !cfg.is_private {
         // Save the config so we use the same next time
         Some(LastWriter::new(messages.clone(), env, cfg)?)
@@ -84,6 +78,17 @@ pub fn run<W: Write + Send>(
     };
 
     let mut active_prompt = ActivePrompt::new(api_key.to_string(), cfg, messages, vec![], 0, env)?;
+
+    let mut output_writer: Box<dyn OutputWriter> = if is_pipe_output {
+        Box::new(FileWriter::new(w_core, cfg.show_reasoning, cfg.quiet))
+    } else {
+        Box::new(ConsoleWriter::new(
+            w_core,
+            cfg.show_reasoning,
+            cfg.quiet,
+            active_prompt.tsc_calibration(),
+        ))
+    };
     active_prompt.start()?;
 
     loop {
@@ -619,6 +624,10 @@ impl ActivePrompt {
 
             return Ok(Some(queue));
         }
+    }
+
+    pub fn tsc_calibration(&self) -> Option<time::TscCalibration> {
+        self.tsc_calibration
     }
 
     pub fn stop(&mut self) -> Stats {

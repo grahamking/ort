@@ -8,10 +8,14 @@ extern crate alloc;
 use core::ffi::c_void;
 
 use alloc::string::String;
+use core::time::Duration;
 
 use crate::common::error::{ort_err, ort_error};
+use crate::common::time::{Ticks, TscCalibration, elapsed_duration};
 use crate::syscall;
 use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats};
+
+const SPINNER_UPDATE_MS: Duration = Duration::from_millis(40);
 
 pub struct ConsoleWriter<'a, W: Write + Send> {
     pub writer: &'a mut W, // Must handle ANSI control chars
@@ -22,10 +26,17 @@ pub struct ConsoleWriter<'a, W: Write + Send> {
     pub has_web_search: bool,
     pub spindx: usize,
     pub stats_out: Option<stats::Stats>,
+    tsc_calibration: Option<TscCalibration>,
+    last_spinner_update: Ticks,
 }
 
 impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
-    pub fn new(writer: &'a mut W, show_reasoning: bool, is_quiet: bool) -> ConsoleWriter<'a, W> {
+    pub fn new(
+        writer: &'a mut W,
+        show_reasoning: bool,
+        is_quiet: bool,
+        tsc_calibration: Option<TscCalibration>,
+    ) -> ConsoleWriter<'a, W> {
         ConsoleWriter {
             writer,
             show_reasoning,
@@ -35,6 +46,8 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
             has_web_search: false,
             spindx: 0,
             stats_out: None,
+            tsc_calibration,
+            last_spinner_update: Ticks::now(),
         }
     }
 }
@@ -102,11 +115,19 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                             let _ = self.writer.flush();
                         }
                         ThinkEvent::Content(_) => {
-                            let _ = self
-                                .writer
-                                .write(super::SPINNER[self.spindx % super::SPINNER.len()]);
-                            let _ = self.writer.flush();
-                            self.spindx += 1;
+                            let now = Ticks::now();
+                            let should_update = self.tsc_calibration.is_none_or(|tc| {
+                                elapsed_duration(self.last_spinner_update, now, tc)
+                                    >= SPINNER_UPDATE_MS
+                            });
+                            if should_update {
+                                let _ = self
+                                    .writer
+                                    .write(super::SPINNER[self.spindx % super::SPINNER.len()]);
+                                let _ = self.writer.flush();
+                                self.spindx += 1;
+                                self.last_spinner_update = now;
+                            }
                         }
                         ThinkEvent::Stop => {}
                     }

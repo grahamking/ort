@@ -74,12 +74,6 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - `mmap` plus borrowed slices is smaller and faster than repeated buffered reads plus string copying for tiny config files.
 - The same trick can be used for the `last-*.json` file on `-c`.
 
-20. Batch stdout writes and throttle the spinner.
-- `ConsoleWriter` writes and flushes on almost every reasoning chunk and every content chunk.
-- `flush()` is cheap here, but the underlying `write` syscalls and terminal rendering are not.
-- Buffer content for a very short interval, for example 8-32 ms or 512-2048 bytes, and rate-limit spinner updates to roughly 10-20 Hz.
-- This keeps streaming behavior but cuts a lot of tiny writes.
-
 21. Keep request construction simple; it is already pretty good.
 - The JSON builder is not where the big wins are.
 - The remaining improvement is to build directly into the final request buffer and avoid one more copy before encryption.
