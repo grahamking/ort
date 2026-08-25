@@ -1044,6 +1044,7 @@ pub struct ToolDisplay {
     // Capitalized and with a space at the end please
     pub name: &'static str,
     pub arguments: String,
+    pub extra: Option<String>,
 }
 
 #[cfg(test)]

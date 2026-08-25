@@ -108,6 +108,9 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(TOOL_CALL_ARGUMENT_START);
                 let _ = self.writer.write(tool.arguments.trim().as_bytes());
                 let _ = self.writer.write(TOOL_CALL_END);
+                if let Some(extra) = tool.extra {
+                    let _ = self.writer.write(extra.as_bytes());
+                }
                 let _ = self.writer.flush();
             }
             Response::Annotation(annotation) => {
@@ -166,8 +169,8 @@ mod test {
     fn test_output() {
         let read = ReadTool {
             path: "LICENSE".to_string(),
-            offset: None,
-            limit: Some(2000),
+            offset: Some(100),
+            limit: Some(200),
         };
         let events = [
             Response::Prompt("What is the license of this project?".to_string()),
@@ -189,10 +192,12 @@ mod test {
             Response::ToolDisplay(ToolDisplay {
                 name: "Bash ",
                 arguments: "ls -R".to_string(),
+                extra: None,
             }),
             Response::ToolDisplay(ToolDisplay {
                 name: "Bash ",
                 arguments: r#"find . -name "*LICENS*""#.to_string(),
+                extra: Some(" limit 10000".to_string()),
             }),
             Response::Start,
             Response::Think(ThinkEvent::Start),

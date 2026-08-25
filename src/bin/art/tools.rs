@@ -260,18 +260,16 @@ impl ActiveTool for ReadTool {
     }
 
     fn display(&self) -> ToolDisplay {
-        let mut arguments = self.path.clone();
-        if let Some(offset) = self.offset {
-            arguments += " offset ";
-            arguments += &num_to_string(offset);
-        }
-        if let Some(limit) = self.limit {
-            arguments += " limit ";
-            arguments += &num_to_string(limit);
-        }
+        let offset = self.offset.unwrap_or(0);
+        let limit = self.limit.unwrap_or(DEFAULT_READ_LIMIT as u32);
+        let extra = " lines ".to_string()
+            + &num_to_string(offset)
+            + "-"
+            + &num_to_string(offset.saturating_add(limit));
         ToolDisplay {
             name: "Read ",
-            arguments,
+            arguments: self.path.clone(),
+            extra: Some(extra),
         }
     }
 }
@@ -307,14 +305,12 @@ impl ActiveTool for BashTool {
     }
 
     fn display(&self) -> ToolDisplay {
-        let mut arguments = self.command.clone();
-        if let Some(limit) = self.limit {
-            arguments += " limit ";
-            arguments += &num_to_string(limit);
-        }
         ToolDisplay {
             name: "Bash ",
-            arguments,
+            arguments: self.command.clone(),
+            extra: self
+                .limit
+                .map(|limit| " limit ".to_string() + &num_to_string(limit)),
         }
     }
 }
@@ -383,6 +379,7 @@ impl ActiveTool for WriteTool {
         ToolDisplay {
             name: "Write ",
             arguments: self.path.clone(),
+            extra: None,
         }
     }
 }
@@ -457,12 +454,10 @@ impl ActiveTool for EditTool {
     }
 
     fn display(&self) -> ToolDisplay {
-        let mut arguments = self.path.clone();
-        arguments += " lines ";
-        arguments += &num_to_string(self.old_text.lines().count());
         ToolDisplay {
             name: "Edit ",
-            arguments,
+            arguments: self.path.clone(),
+            extra: Some(" lines ".to_string() + &num_to_string(self.old_text.lines().count())),
         }
     }
 }
