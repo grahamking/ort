@@ -32,6 +32,10 @@ impl File {
         }
         Ok(File { fd })
     }
+
+    pub fn close(self) {
+        let _ = syscall::close(self.fd);
+    }
 }
 
 impl Read for File {

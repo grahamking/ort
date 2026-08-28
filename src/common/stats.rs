@@ -54,8 +54,10 @@ impl Stats {
         // "{used_model} at {provider}. {cost_in_cents:.4} cents. {elapsed_time} ({time_to_first_token} TTFT, {inter_token_latency_ms}ms ITL)",
         let mut s = String::with_capacity(256);
         s.push_str(&self.used_model);
-        s.push_str(" at ");
-        s.push_str(&self.provider);
+        if !self.provider.is_empty() {
+            s.push_str(" at ");
+            s.push_str(&self.provider);
+        }
         s.push_str(". ");
         if let Some(cost_in_cents) = self.cost_in_cents {
             s.push_str(&utils::float_to_string(cost_in_cents, 4));

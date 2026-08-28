@@ -207,8 +207,6 @@ fn run_single<W: Write + Send>(
                                     }
                                     Err(ort_err) => {
                                         let msg = ort_err.as_string();
-                                        // TODO: Send to output writer instead of printing here
-                                        println!("Tool call failed: {msg}");
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), error(&msg)));
                                     }

@@ -368,6 +368,7 @@ impl ActiveTool for WriteTool {
         c_path[..end].copy_from_slice(self.path.as_bytes());
         let mut target = unsafe { file::File::create(&c_path[..end + 1])? }; // + 1 for null byte
         let num_bytes = target.write(self.content.as_bytes())?;
+        target.close();
 
         Ok(success(
             &[("bytes_written", num_bytes)],
@@ -423,6 +424,8 @@ impl ActiveTool for EditTool {
             ));
         }
 
+        // Load
+
         let mut content = fs::read_to_string(&self.path).map_err(|err| {
             let msg =
                 "filename_read_to_string ".to_string() + &self.path + " - " + &err.to_string();
@@ -430,6 +433,8 @@ impl ActiveTool for EditTool {
         })?;
         let occurrences = content.matches(&self.old_text).count();
         self.validate_occurrences(occurrences)?;
+
+        // Replace
 
         if self.expected_occurrences.is_some() {
             content = content.replace(&self.old_text, &self.new_text);
@@ -443,12 +448,15 @@ impl ActiveTool for EditTool {
             content.replace_range(idx..idx + self.old_text.len(), &self.new_text);
         }
 
+        // Write out the whole file
+
         let c_path = CString::new(self.path.as_str()).map_err(|_err| {
             let msg = self.path.to_string() + ". Edit path contains nul byte";
             ort_err(ErrorKind::ToolRun, msg.into())
         })?;
         let mut target = unsafe { file::File::create(c_path.as_bytes_with_nul())? };
         target.write(content.as_bytes())?;
+        target.close();
 
         Ok(success(&[], &[("path", &self.path)]))
     }

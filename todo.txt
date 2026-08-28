@@ -1,3 +1,16 @@
+
+. Handle truncated messages.
+
+Which part should handle and validate that?
+Also need to handle if the truncation happens reading tool call arguments. The tool cal needs an error.
+
+```
+Failed: ParsingToolCallParams. Parsing edit tool params JSON - FormatError: Parsing field: unterminated string in parse_string
+
+{"id":"chatcmpl-6bbe5dc7-d505-4edb-ae07-db933f4471e8","created":1787835268,"model"
+FormatError: expected character in ChatCompletionsResponse autoparser
+```
+
 ---
 
 OpenRouter's web search tool sometimes truncates citations
