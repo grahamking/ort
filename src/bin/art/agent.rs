@@ -260,11 +260,14 @@ fn error(msg: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use core::assert_matches;
+
     extern crate alloc;
     use alloc::string::ToString;
     use alloc::vec;
     use ort_openrouter_cli::OrtBufReader;
     use ort_openrouter_cli::PromptReader;
+    use ort_openrouter_cli::Response;
     use ort_openrouter_cli::StringReader;
     use ort_openrouter_cli::build_body;
     use ort_openrouter_cli::config::Cfg;
@@ -353,5 +356,40 @@ mod tests {
         }
         // Assert: All of that JSONL produces a single tool call.
         assert_eq!(num_tool_calls, 1);
+    }
+
+    #[test]
+    fn test_parse_function_with_error() {
+        let test_file = env!("CARGO_MANIFEST_DIR").to_string()
+            + "/tests/fixtures/parse_function_with_error.jsonl";
+        let test_data = utils::filename_read_to_string(&test_file).unwrap();
+
+        let mut active_prompt = super::ActivePrompt::new(
+            "api_key".to_string(),
+            &Cfg {
+                models: vec!["test/test".to_string()],
+                is_private: true,
+                ..Default::default()
+            },
+            vec![], // messages
+            vec![], // tools
+            0,
+            &Env::default(),
+        )
+        .unwrap();
+        let string_reader = StringReader {
+            data: test_data,
+            pos: 0,
+        };
+        let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
+        active_prompt.reader = Some(buf_reader);
+        active_prompt.start = Some(time::Ticks::now());
+
+        let Ok(Some(events)) = active_prompt.next() else {
+            panic!("No events, expected one set.");
+        };
+        assert_eq!(events.len(), 2);
+        assert_matches!(events[0], Response::Start);
+        assert_matches!(events[1], Response::Warn(_));
     }
 }

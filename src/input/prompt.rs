@@ -546,7 +546,12 @@ impl ActivePrompt {
                                     pending.update_from(tool_call);
                                 }
                                 None => {
-                                    self.pending_tool_calls.push(tool_call.clone());
+                                    // We don't have a pending one either because this is a new one,
+                                    // or we hit an error and have to skip the call.
+                                    // A new one has an id.
+                                    if tool_call.id.is_some() {
+                                        self.pending_tool_calls.push(tool_call.clone());
+                                    }
                                 }
                             }
                         }
@@ -599,7 +604,9 @@ impl ActivePrompt {
                         queue.push(r_event);
                     }
 
-                    if choice.is_tool_call_finish() {
+                    if choice.is_tool_call_finish() && !self.pending_tool_calls.is_empty() {
+                        // We can have a tool call finish and no tool calls if a previous error
+                        // forced us to disgard the tool call.
                         let event =
                             Response::ToolCalls(core::mem::take(&mut self.pending_tool_calls));
                         queue.push(event);
