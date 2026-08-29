@@ -614,6 +614,11 @@ impl ActivePrompt {
                         utils::print_string(c"Malformed: ", &err.as_string());
                         utils::print_string(c"DATA: ", data);
                     }
+                    // Disgard any partial tool calls because we lost a part of it
+                    self.pending_tool_calls.clear();
+                    queue.push(Response::Warn(
+                        "Malformed remote data. Skipping an event.".to_string(),
+                    ));
                 }
             }
 
@@ -662,7 +667,7 @@ impl AsFd for ActivePrompt {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use core::assert_matches;
 
     extern crate alloc;
@@ -714,13 +719,6 @@ mod test {
         let mut num_annotations = 0;
         let mut has_seen_the_bug = false;
         'events: while let Ok(Some(events)) = active_prompt.next() {
-            if events.is_empty() && !has_seen_the_bug {
-                // OpenRouter web_search seems to truncte citations sometimes
-                // JSON parser probably needs to handle it.
-                // Currently returns an error and we get empty event vec
-                has_seen_the_bug = true;
-                continue;
-            }
             for event in events {
                 match event {
                     Response::Annotation(_) => {
@@ -729,6 +727,12 @@ mod test {
                     Response::Think(ThinkEvent::Start) => {
                         // Once we reach Think Start annotations are over
                         break 'events;
+                    }
+                    Response::Warn(_) => {
+                        // OpenRouter web_search seems to truncte citations sometimes
+                        // JSON parser probably needs to handle it.
+                        // We emit a warning
+                        has_seen_the_bug = true;
                     }
                     other => {
                         panic!("Unexpected event: {other:?}");
@@ -757,5 +761,42 @@ mod test {
 
         // At the point I interrupted the stream because of the citation truncated
         // bug, so no other events.
+    }
+
+    /// JSON event that stops mid stream. Should be an error, but not fatal.
+    #[test]
+    fn test_parse_truncated() {
+        const TEST_DATA: &str = r#"data: {"id":"chatcmpl-8b665bbe-5e89-45e7-ac1f-d657ef92e40b","created":1787595230,"model":"openai/openai/gpt-5.6-terra","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"id":"call_1LpbmiwfChCcIDENjtwDlmHy","function":{"argu"#;
+
+        let mut active_prompt = super::ActivePrompt::new(
+            "api_key".to_string(),
+            &Cfg {
+                models: vec!["test/test".to_string()],
+                is_private: true,
+                ..Default::default()
+            },
+            vec![], // messages
+            vec![], // tools
+            0,
+            &Env::default(),
+        )
+        .unwrap();
+        let string_reader = crate::common::buf_read::StringReader {
+            data: TEST_DATA.to_string(),
+            pos: 0,
+        };
+        let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
+        active_prompt.reader = Some(buf_reader);
+        active_prompt.start = Some(time::Ticks::now());
+
+        // First the Start event
+        let Ok(Some(events)) = active_prompt.next() else {
+            panic!("Missing Start event");
+        };
+        let mut evt_iter = events.into_iter();
+        assert_matches!(evt_iter.next(), Some(Response::Start));
+        // We're expecting a single Response::Warn, non-fatal
+        assert_matches!(evt_iter.next(), Some(Response::Warn(_)));
+        assert_matches!(evt_iter.next(), None);
     }
 }
