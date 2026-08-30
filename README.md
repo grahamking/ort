@@ -8,7 +8,10 @@
 cargo +nightly-2026-03-25 install --locked ort-openrouter-cli
 ```
 
-The binary is called `ort`.
+4. or build from source with `./build.sh` - note the agent builds into `target/release-art/`
+
+
+The binary is called `ort`. The agent is `art`.
 
 Linux / x86_64 only. Uses Linux specific syscalls and x86_64 specific instrinsics.
 
@@ -44,6 +47,27 @@ In short, `ort` is an honest CLI for openrouter, like it says on the box.
 
 For experimental [build.nvidia.com](https://build.nvidia.com/) support see at the very end of this README.
 
+# art: A simple agent
+
+`art` (compiled by `./build` into `target/release-art/` is a simple, agent inspired by a Pi talk. It provides the model with four basic tools: read, write, edit and bash. It uses your editor and your window manager.
+
+And it works. Much of `ort` and `art` itself in the past few weeks have been reviewed or built with `art`.
+
+`art` uses config file `.config/art.cfg`. Format is the same as `ort.cfg`, copy it over and tweak. Remove the system prompt.
+
+Usage:
+```
+./build.sh
+echo "What is the license of this project? Look only in the current directory." > /home/graham/prompt
+./target/release-art/art -r medium -m openai/gpt-5.6-terra @/home/graham/prompt
+```
+
+The `prompt` file is the initial prompt (the `@` is required here). We then watch (with `inotify`) that file for a change, which is the next prompt. So instead of a CLI, the interface is that `prompt` file that you edit with your own editor, and on save the new prompt is sent to the agent. Stdout shows the agent output. The prompt file MUST CONTAIN AN INITIAL PROMPT before you start `art`. Use tmux to show `art` and your editor (`nvim` for me) on the screen together, split vertically 80/20.
+
+`art` includes a default system prompt explaining the tools. That is nearly always what you want, but you can `-s <here>` to replace it, or in config file just like `ort. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
+
+WARNING: Always run agents in a sandbox (I like `firejail`). `art` never asks you for confirmation and does not sandbox for you.
+
 # Give it to me straight
 
 Usage:
@@ -51,9 +75,9 @@ Usage:
 ort [-m <model>] [-s "<system prompt>"] [-p <price|throughput|latency>] [-pr provider-slug] [-r off|none|low|medium|high|<toks>] [-rr] [-q] [-c] [-ws] <prompt>
 ```
 
-Use Kimi K2, select the provider with lowest price, and set a system prompt:
+Use Kimi K3, select the provider with lowest price, and set a system prompt:
 ```
-ort -p price -m moonshotai/kimi-k2 -s "Respond like a pirate" "Write a limerick about AI"
+ort -p price -m moonshotai/kimi-k3 -s "Respond like a pirate" "Write a limerick about AI"
 ```
 
 ## Flags
@@ -158,28 +182,6 @@ Make sure to set the `dns` entry in config file. This saves a DNS query to at le
 
 Non-reasoning models are much faster (and cheaper!) than reasoning models.
 
-# Agent mode (experimental) - art
-
-`ort` has an experimental agent mode called `art`. This provides the model with some basic tools: read, write, edit and bash.
-
-This uses config file `art.cfg`. Copy your `ort.cfg` over but remove the system prompt.
-
-Usage:
-```
-cargo build --release --bin=art # A regular 'cargo build' also builds it
-art -r medium -m openai/gpt-5.4-mini @/home/graham/prompt
-```
-
-So far I have only tested it with `openai/gpt-5.4-mini`, `openai/gpt-oss-120b:exacto` and `qwen/qwen3.6-27b`.
-
-`art` includes a default system prompt explaining the tools. That is nearly always what you want, but you can `-s <here>` to replace it, or in config file just like `ort. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
-
-The `prompt` file is the initial prompt (the `@` is required here). We then watch (with `inotify`) that file for a change, which is the next prompt. So instead of a CLI, the interface is that `prompt` file that you edit with your own editor, and on save the new prompt is sent to the agent. Stdout shows the agent output.
-
-The philosophy is that I already have a very good editor (`nvim`) and window manager (`tmux`) so I don't need the agent CLI to provide these. Run `ort agent` in tmux, split the window vertically about 80 / 20, and run `vim /home/graham/prompt` in the bottom 20%.
-
-WARNING: Always run agents in a sandbox (I like `firejail`). The ort agent never asks you for confirmation and does not sandbox for you.
-
 # Misc
 
 ## My shortcuts (Jun 2026)
@@ -258,7 +260,7 @@ The most recent call is logged in `~/.cache/ort/log.jsonl`. Request JSON on the 
 
 MIT Licence.
 
-# build.nvidia.com support
+# build.nvidia.com support, and any other chat completions API
 
 NVIDIA runs a model hub at [build.nvidia.com](https://build.nvidia.com) with some free quota.
 

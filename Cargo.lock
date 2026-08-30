@@ -4,4 +4,4 @@ version = 4
 
 [[package]]
 name = "ort-openrouter-cli"
-version = "0.6.6"
+version = "0.6.7"
