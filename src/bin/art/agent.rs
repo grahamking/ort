@@ -176,6 +176,13 @@ fn run_single<W: Write + Send>(
                             assistant_tool_calls = Some(tool_calls.clone());
 
                             for tool_call in tool_calls {
+                                if tool_call.has_error {
+                                    tool_call_results.push((
+                                        tool_call.id.clone().unwrap(),
+                                        error("Network error. Please retry."),
+                                    ));
+                                    continue;
+                                }
                                 let active_tool = match tools::parse_function(&tool_call.function) {
                                     Ok(t) => t,
                                     Err(no_tool_error)
@@ -385,11 +392,42 @@ mod tests {
         active_prompt.reader = Some(buf_reader);
         active_prompt.start = Some(time::Ticks::now());
 
-        let Ok(Some(events)) = active_prompt.next() else {
+        // Two events, first is Start
+
+        let Ok(Some(mut events)) = active_prompt.next() else {
             panic!("No events, expected one set.");
         };
-        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events.len(),
+            2,
+            "Expected too message, the Start and a ToolCalls"
+        );
         assert_matches!(events[0], Response::Start);
-        assert_matches!(events[1], Response::Warn(_));
+
+        // Then a single ToolCall with error
+
+        let Response::ToolCalls(tool_calls) = events.remove(1) else {
+            panic!("Second event should be ToolCalls with the single malformed tool call");
+        };
+        assert_eq!(tool_calls.len(), 1);
+        let tc = tool_calls.first().unwrap();
+        assert!(
+            tc.has_error,
+            "The ToolCall should have has_error set to indicate the parse failure"
+        );
+        // Matches the ID in fixture file
+        assert_eq!(tc.id.as_deref().unwrap(), "call_1LpbmiwfChCcIDENjtwDlmHy",);
+
+        // The tool call should be:
+        // Bash: pwd && rg --files -g 'LICENSE*' -g 'COPYING*' -g 'NOTICE*' -g 'Cargo.toml' -g 'README*' .
+        //
+        // But because of the error it becomes this, which is valid but wrong:
+        // Bash: pwd && rg --files -g '*' -g 'COPYING*' -g 'NOTICE*' -g 'Cargo.toml' -g 'README*' .
+        //
+        // Which is why we never try to parse a has_error tool call.
+        assert!(
+            crate::tools::parse_function(&tc.function).is_ok(),
+            "The tool call didn't parse. By our current rules it should."
+        );
     }
 }

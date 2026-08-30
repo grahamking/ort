@@ -29,6 +29,8 @@ const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 const RESET: &[u8] = "\x1b[0m".as_bytes();
 const WARN_START: &[u8] = "\x1b[38;5;208m".as_bytes();
 
+const MISSING_CHAR: char = '□';
+
 #[derive(PartialEq, Eq)]
 enum Section {
     Prompt,
@@ -136,6 +138,9 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(prompt.trim().as_bytes());
                 let _ = self.writer.write(RESET);
                 let _ = self.writer.flush();
+            }
+            Response::Missing => {
+                let _ = self.writer.write_char(MISSING_CHAR);
             }
             Response::Warn(warning) => {
                 self.section(Section::Warn);

@@ -132,6 +132,9 @@ pub struct ToolCall {
     pub index: u32,
     pub id: Option<String>,
     pub function: Function,
+    // If we failed to parse the whole call (it arrives over multiple messages)
+    // we must not attempt to run it, and notify the model of failure .
+    pub has_error: bool,
 }
 
 impl ToolCall {
@@ -162,6 +165,7 @@ impl ToolCall {
             index: fields[0].get_int().unwrap_or_default(),
             id: fields[1].get_string(),
             function: Function::from_json(&function_json)?,
+            has_error: false,
         })
     }
 
@@ -774,6 +778,9 @@ pub enum Response {
     Error(String),
     /// For agent mode, user prompt
     Prompt(String),
+    /// We couldn't parse this, could be thinking or content. Writer should display
+    /// a character to indicate the gap.
+    Missing,
 }
 
 #[derive(Debug, Clone)]

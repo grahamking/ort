@@ -49,6 +49,9 @@ pub const SPINNER: [&[u8]; 4] = [
 
 pub const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 
+/// What to display if we couldn't parse something, so we're missing a token.
+pub const MISSING_CHAR: char = '□';
+
 pub trait OutputWriter {
     fn write(&mut self, data: Response) -> OrtResult<()>;
     fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {

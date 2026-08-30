@@ -605,8 +605,6 @@ impl ActivePrompt {
                     }
 
                     if choice.is_tool_call_finish() && !self.pending_tool_calls.is_empty() {
-                        // We can have a tool call finish and no tool calls if a previous error
-                        // forced us to disgard the tool call.
                         let event =
                             Response::ToolCalls(core::mem::take(&mut self.pending_tool_calls));
                         queue.push(event);
@@ -621,11 +619,17 @@ impl ActivePrompt {
                         utils::print_string(c"Malformed: ", &err.as_string());
                         utils::print_string(c"DATA: ", data);
                     }
-                    // Disgard any partial tool calls because we lost a part of it
-                    self.pending_tool_calls.clear();
-                    queue.push(Response::Warn(
-                        "Malformed remote data. Skipping an event.".to_string(),
-                    ));
+                    // Any pending tool calls might be missing arguments and so cannot be executed
+                    self.pending_tool_calls
+                        .iter_mut()
+                        .for_each(|tc| tc.has_error = true);
+
+                    // If it wasn't a tool call, the malformed message was likely
+                    // annotation, thinking or text content.
+                    // Notify something was missing without messing up the display.
+                    if self.pending_tool_calls.is_empty() {
+                        queue.push(Response::Missing);
+                    }
                 }
             }
 
@@ -735,10 +739,9 @@ mod tests {
                         // Once we reach Think Start annotations are over
                         break 'events;
                     }
-                    Response::Warn(_) => {
+                    Response::Missing => {
                         // OpenRouter web_search seems to truncte citations sometimes
                         // JSON parser probably needs to handle it.
-                        // We emit a warning
                         has_seen_the_bug = true;
                     }
                     other => {
@@ -802,8 +805,8 @@ mod tests {
         };
         let mut evt_iter = events.into_iter();
         assert_matches!(evt_iter.next(), Some(Response::Start));
-        // We're expecting a single Response::Warn, non-fatal
-        assert_matches!(evt_iter.next(), Some(Response::Warn(_)));
+        // We're expecting a single Response::Missing, non-fatal
+        assert_matches!(evt_iter.next(), Some(Response::Missing));
         assert_matches!(evt_iter.next(), None);
     }
 }

@@ -147,6 +147,9 @@ impl OutputWriter for LastWriter {
                 }
                 self.w.write_char(']')?;
             }
+            Response::Missing => {
+                let _ = self.w.write_char(super::MISSING_CHAR);
+            }
             Response::Annotation(_) => {
                 // Probably ignore in last writer
             }

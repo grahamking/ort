@@ -166,6 +166,9 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             Response::Prompt(_prompt) => {
                 // Prompt not displayed in chat mode
             }
+            Response::Missing => {
+                let _ = self.writer.write_char(super::MISSING_CHAR);
+            }
             Response::Warn(warning) => {
                 let _ = self.writer.write(super::WARN_START);
                 let _ = self.writer.write(warning.trim().as_bytes());
@@ -264,6 +267,9 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                 let _ = self.writer.write(warning.trim().as_bytes());
                 let _ = self.writer.write_char('\n');
             }
+            Response::Missing => {
+                let _ = self.writer.write_char(super::MISSING_CHAR);
+            }
             Response::Error(err_string) => {
                 if err_string.contains(super::ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
@@ -324,6 +330,9 @@ impl super::OutputWriter for CollectedWriter {
                 self.got_stats = Some(stats);
             }
             Response::Prompt(_) => {}
+            Response::Missing => {
+                self.contents.push(super::MISSING_CHAR);
+            }
             Response::Warn(_warning) => {
                 // TODO
             }
