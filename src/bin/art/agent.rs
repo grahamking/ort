@@ -76,17 +76,21 @@ pub fn run<W: Write + Send>(
 
     let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning);
 
-    // First prompt is already in `messages`, added in `input/cli.rs::main`.
-    let inital_prompt = cfg.prompt.clone().unwrap(); // Safety: Always have initial prompt
-    output_writer.write(Response::Prompt(inital_prompt))?;
+    // If provided, first prompt is already in `messages`,
+    // added in `common/config.rs::messages`.
+    let mut has_more_turns = if let Some(inital_prompt) = cfg.prompt.clone() {
+        output_writer.write(Response::Prompt(inital_prompt))?;
+        true
+    } else {
+        output_writer.write(Response::Prompt("-- Waiting for prompt --\r".to_string()))?;
+        false
+    };
 
     let mut total_stats = Stats::default();
-
     loop {
         // Send a prompt, run all the requested tools
-        let mut has_tool_call = true;
-        while has_tool_call {
-            has_tool_call = run_single(
+        while has_more_turns {
+            has_more_turns = run_single(
                 api_key,
                 cfg,
                 env,
@@ -95,8 +99,11 @@ pub fn run<W: Write + Send>(
                 &mut output_writer,
                 &mut total_stats,
             )?;
+            // After last turn show stats
+            if !has_more_turns {
+                output_writer.write(Response::Stats(total_stats.clone()))?;
+            }
         }
-        output_writer.write(Response::Stats(total_stats.clone()))?;
 
         // Wait for the next user prompt
         let Some(prompt) = next_prompt(ifd, &filename)? else {
@@ -104,6 +111,7 @@ pub fn run<W: Write + Send>(
         };
         messages.push(Message::user(prompt.clone()));
         output_writer.write(Response::Prompt(prompt))?;
+        has_more_turns = true;
     }
 
     Ok(())

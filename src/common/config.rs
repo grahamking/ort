@@ -151,23 +151,28 @@ impl Cfg {
     }
 
     /// Initial chat completions messages to send.
-    /// Includes the system prompt, regular prompt, and any attache files.
+    /// Includes the system prompt, regular prompt, and any attached files.
     pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
         // A Message is quite small, an enum and two Option<String>.
-        // Capacity 3 for:
-        // - System message (optional)
-        // - User message (required)
+        // Capacity 3 for (all optional):
+        // - System message
+        // - User message
         // - and the assistant message that LastWriter appends, to save a realloc.
         let mut messages = Vec::with_capacity(3);
+
         if let Some(sys) = self.system_prompt.clone() {
             messages.push(crate::Message::system(sys));
         };
-        let user_message = if self.files.is_empty() {
-            crate::Message::user(self.prompt.clone().unwrap())
-        } else {
-            crate::Message::with_files(self.prompt.take().unwrap(), &self.files)?
-        };
-        messages.push(user_message);
+
+        if let Some(prompt) = self.prompt.take() {
+            let user_message = if self.files.is_empty() {
+                crate::Message::user(prompt)
+            } else {
+                crate::Message::with_files(prompt, &self.files)?
+            };
+            messages.push(user_message);
+        }
+
         Ok(messages)
     }
 
@@ -326,6 +331,8 @@ impl Cfg {
                     })?;
                     let file = unsafe { file::File::create(c_filename.as_bytes())? };
                     file.close();
+                    // Clear the filename out of the prompt
+                    self.prompt = None;
                 }
             }
         }

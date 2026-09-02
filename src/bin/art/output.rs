@@ -135,7 +135,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             Response::Prompt(prompt) => {
                 self.section(Section::Prompt);
                 let _ = self.writer.write(PROMPT_START);
-                let _ = self.writer.write(prompt.trim().as_bytes());
+                let _ = self.writer.write(prompt.trim_matches('\n').as_bytes());
                 let _ = self.writer.write(RESET);
                 let _ = self.writer.flush();
             }
