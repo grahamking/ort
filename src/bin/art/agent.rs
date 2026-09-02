@@ -430,4 +430,57 @@ mod tests {
             "The tool call didn't parse. By our current rules it should."
         );
     }
+
+    #[test]
+    fn test_parse_grok_toolcall() {
+        let test_file =
+            env!("CARGO_MANIFEST_DIR").to_string() + "/tests/fixtures/parse_function_grok4.6.jsonl";
+        let test_data = utils::filename_read_to_string(&test_file).unwrap();
+
+        let mut active_prompt = super::ActivePrompt::new(
+            "api_key".to_string(),
+            &Cfg {
+                models: vec!["xai/xai/grok-4.6".to_string()],
+                is_private: true,
+                ..Default::default()
+            },
+            vec![], // messages
+            vec![], // tools
+            0,
+            &Env::default(),
+        )
+        .unwrap();
+        let string_reader = StringReader {
+            data: test_data,
+            pos: 0,
+        };
+        let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
+        active_prompt.reader = Some(buf_reader);
+        active_prompt.start = Some(time::Ticks::now());
+
+        // First the Start event
+        let Ok(Some(events)) = active_prompt.next() else {
+            panic!("Missing Start event");
+        };
+
+        let mut evt_iter = events.into_iter();
+        assert_matches!(evt_iter.next(), Some(Response::Start));
+
+        let mut num_tool_calls = 0;
+        for event in evt_iter {
+            if let Response::ToolCalls(tool_calls) = event {
+                for tool_call in tool_calls {
+                    num_tool_calls += 1;
+                    let parse_result = crate::tools::parse_function(&tool_call.function);
+                    if let Err(err) = parse_result {
+                        panic!("{err:?}");
+                    }
+                    // Assert: It parses
+                    assert!(parse_result.is_ok());
+                }
+            }
+        }
+        // Assert: All of that JSONL produces a single tool call.
+        assert_eq!(num_tool_calls, 2);
+    }
 }

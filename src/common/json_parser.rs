@@ -379,6 +379,16 @@ impl<'a> Parser<'a> {
         let out = crate::common::utils::parse_u32(&self.b[self.i..])
             .map_err(|err| ort_err(ErrorKind::FormatError, err.into()))?;
         self.i += if out == 0 { 1 } else { out.ilog10() + 1 } as usize;
+
+        // Skip any float part in case it wasn't really an int
+        // This can happy dring tool calls
+        if self.b[self.i] == b'.' {
+            self.i += 1;
+            while self.b[self.i].is_ascii_digit() {
+                self.i += 1;
+            }
+        }
+
         Ok(out)
     }
 
@@ -534,7 +544,11 @@ impl<'a> Parser<'a> {
     pub fn parse_simple_str(&mut self) -> OrtResult<&'a str> {
         self.skip_ws();
         if self.peek() != Some(b'"') {
-            return Err(ort_err(ErrorKind::FormatError, "expected string".into()));
+            let mut msg = "expected opening double quote '\"' got '".to_string();
+            // X is better than panic during error message
+            msg.push(self.peek().unwrap_or(b'X') as char);
+            msg.push('\'');
+            return Err(ort_err(ErrorKind::FormatError, msg.into()));
         }
         self.i += 1;
         let start = self.i;
