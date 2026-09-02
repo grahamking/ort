@@ -285,6 +285,7 @@ pub(crate) fn filename_read_to_bytes(filename: &str) -> Result<Vec<u8>, &'static
         let bytes_read = bytes_read as usize; // we checked, it's positive
         content.extend_from_slice(&buffer[..bytes_read]);
     }
+    let _ = syscall::close(fd);
 
     Ok(content)
 }

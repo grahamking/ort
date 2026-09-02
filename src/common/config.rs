@@ -7,6 +7,7 @@
 use core::{fmt, str::FromStr};
 
 extern crate alloc;
+use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -305,16 +306,28 @@ impl Cfg {
     }
 
     /// If the prompt or system prompt start with `@` read them from that file.
+    /// A missing prompt file is created empty, so that `art` (agent) can start.
+    /// A missing system prompt file is an error.
     fn load_prompts(&mut self) -> OrtResult<()> {
         if let Some(p) = self.prompt.as_ref()
             && p.bytes().next() == Some(FILE_INDICATOR)
         {
             let filename = &p[1..];
             self.prompt_filename = Some(filename.to_string());
-            self.prompt = Some(utils::filename_read_to_string(filename).map_err(|err| {
-                let msg = "Invalid prompt filename ".to_string() + filename + " - " + err;
-                ort_err(ErrorKind::ConfigParseFailed, msg.into())
-            })?);
+            match utils::filename_read_to_string(filename) {
+                Ok(p) => self.prompt = Some(p),
+                Err(_err) => {
+                    // File does not exist, create it empty. art needs this.
+                    let c_filename = CString::new(filename).map_err(|_| {
+                        ort_err(
+                            ErrorKind::ConfigParseFailed,
+                            "prompt filename has null byte".into(),
+                        )
+                    })?;
+                    let file = unsafe { file::File::create(c_filename.as_bytes())? };
+                    file.close();
+                }
+            }
         }
 
         if let Some(system_prompt) = self.system_prompt.as_ref()

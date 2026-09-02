@@ -35,6 +35,7 @@ fn main() -> std::process::ExitCode {
     let mut cfg = config::Cfg::load(&env, config_file.unwrap_or("art.cfg")).unwrap();
 
     cli::override_config_from_cli(&mut cfg, cli_opts.clone());
+    // This will create the prompt filename if missing, so that we are sure it exists
     cfg.setup(&env).unwrap();
 
     let api_key = get_api_key(&env, &cfg).unwrap();
