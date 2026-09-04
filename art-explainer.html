@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>art — agent architecture</title>
+<style>
+  :root { --ink:#182230; --muted:#637083; --paper:#f7f8fb; --card:#fff; --line:#dbe2ec; --blue:#3267e3; --blue-pale:#eaf0ff; --teal:#008c83; --teal-pale:#e5f7f4; --orange:#ce6a14; --orange-pale:#fff0df; --purple:#7855c7; --purple-pale:#f0ebff; --shadow:0 12px 30px #18223012; }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  .wrap { max-width:1180px; margin:auto; padding:42px 26px 60px; }
+  header { display:flex; justify-content:space-between; gap:30px; align-items:end; margin-bottom:30px; }
+  .eyebrow { color:var(--blue); font:700 12px/1.2 ui-monospace,SFMono-Regular,monospace; letter-spacing:.13em; text-transform:uppercase; }
+  h1 { font-size:clamp(34px,5vw,58px); letter-spacing:-.055em; line-height:1; margin:9px 0 14px; }
+  .lede { color:var(--muted); font-size:17px; max-width:670px; margin:0; }
+  .badge { border:1px solid var(--line); background:#fff; border-radius:99px; padding:8px 13px; color:var(--muted); white-space:nowrap; font:12px ui-monospace,monospace; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow); padding:25px; margin-top:22px; }
+  .panel h2 { font-size:20px; margin:0 0 4px; letter-spacing:-.02em; }
+  .sub { color:var(--muted); margin:0 0 21px; }
+  .flow { display:grid; grid-template-columns:1fr 42px 1.18fr 42px 1fr; align-items:stretch; gap:0; }
+  .arrow { display:grid; place-items:center; color:#9ba8b9; font-size:26px; font-weight:300; }
+  .node { border:1px solid var(--line); border-radius:16px; padding:17px; position:relative; min-height:188px; }
+  .node.blue { background:var(--blue-pale); border-color:#cbd8ff; }.node.teal { background:var(--teal-pale); border-color:#bce9e3; }.node.orange { background:var(--orange-pale); border-color:#f2d3ad; }.node.purple { background:var(--purple-pale); border-color:#d8cdf7; }
+  .node h3 { margin:0 0 9px; font-size:17px; }.node p { margin:0 0 10px; color:#465366; font-size:13px; }
+  code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; }
+  .file { color:var(--muted); font:12px ui-monospace,monospace; border-top:1px solid #ffffffb0; padding-top:10px; margin-top:12px; }
+  .label { display:inline-block; border-radius:6px; padding:3px 7px; background:#ffffffb8; color:var(--ink); font:700 11px ui-monospace,monospace; margin:0 4px 5px 0; }
+  .loop { border:2px solid #b7c6f9; border-radius:18px; padding:19px; background:linear-gradient(135deg,#fbfcff,#f3f6ff); }
+  .loop-title { display:flex; justify-content:space-between; align-items:center; gap:15px; margin-bottom:15px; }.loop-title strong { font-size:15px; }.loop-title span { color:var(--blue); font:11px ui-monospace,monospace; }
+  .steps { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; }.step { background:#fff; border:1px solid #dce4fa; border-radius:11px; padding:12px; min-height:108px; }.step b { display:block; color:var(--blue); font:700 11px ui-monospace,monospace; margin-bottom:7px; }.step p { margin:0; color:#536174; font-size:12px; }
+  .loop-note { margin:13px 0 0; color:#536174; font-size:12px; }.loop-note b { color:var(--ink); }
+  .grid { display:grid; grid-template-columns:1.15fr .85fr; gap:22px; }.cards { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }.mini { border:1px solid var(--line); border-radius:14px; padding:15px; background:#fff; }.mini h3 { margin:0 0 5px; font-size:15px; }.mini p { color:var(--muted); font-size:13px; margin:0; }.mini .icon { float:right; color:var(--blue); font-size:20px; }
+  .contract { display:grid; gap:10px; }.contract div { padding:12px 14px; border-radius:11px; background:#f6f8fb; border-left:3px solid var(--teal); font-size:13px; }.contract b { display:block; font-size:12px; margin-bottom:2px; }
+  .legend { display:flex; flex-wrap:wrap; gap:15px; margin-top:18px; color:var(--muted); font-size:12px; }.legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; }.i-blue{background:var(--blue)}.i-teal{background:var(--teal)}.i-orange{background:var(--orange)}.i-purple{background:var(--purple)}
+  footer { text-align:center; color:#8995a5; margin-top:28px; font:12px ui-monospace,monospace; }
+  @media(max-width:850px){ header{display:block}.badge{display:inline-block}.flow{grid-template-columns:1fr; gap:10px}.arrow{transform:rotate(90deg); height:20px}.steps,.grid{grid-template-columns:1fr 1fr}.grid{gap:14px}.cards{grid-template-columns:1fr} }
+  @media(max-width:500px){.wrap{padding:28px 15px}.panel{padding:17px}.steps,.grid{grid-template-columns:1fr}.lede{font-size:15px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header>
+  <div><div class="eyebrow">ort / src/bin/art</div><h1>The agent, in one page.</h1><p class="lede"><strong>art</strong> turns a user prompt into a streaming, tool-using coding loop. It keeps the conversation in memory, sends each turn to OpenRouter, executes approved local tools, then feeds their results back to the model.</p></div>
+  <div class="badge">no_std-ish · direct syscalls · Linux</div>
+</header>
+
+<section class="panel">
+  <h2>At a glance</h2><p class="sub">The runtime path from process startup to an answer.</p>
+  <div class="flow">
+    <article class="node blue"><h3>① Bootstrap</h3><p><code>main.rs</code> parses the prompt, loads <code>art.cfg</code>, applies CLI overrides, resolves the API key, and supplies the default system prompt.</p><span class="label">cfg</span><span class="label">AGENTS.md</span><span class="label">messages</span><div class="file">main.rs · system_prompt.rs</div></article>
+    <div class="arrow">→</div>
+    <article class="node teal"><h3>② Agent controller</h3><p><code>agent::run</code> owns the conversation and output. It watches the prompt file, enriches the system message with <code>AGENTS.md</code>, and starts the turn loop.</p><span class="label">messages Vec</span><span class="label">inotify</span><div class="file">agent.rs · inotify.rs</div></article>
+    <div class="arrow">→</div>
+    <article class="node orange"><h3>③ Model gateway</h3><p><code>ActivePrompt</code> serializes the current messages and tool schemas, opens a streamed HTTP request, and converts JSONL/SSE chunks into <code>Response</code> events.</p><span class="label">OpenRouter</span><span class="label">stream</span><div class="file">input/prompt.rs · to_json.rs · net/</div></article>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="loop-title"><div><h2>The inner loop: think → act → continue</h2><p class="sub">A tool call is not the end of a turn. Its result becomes the next model input.</p></div><span>run_single()</span></div>
+  <div class="loop">
+    <div class="steps">
+      <div class="step"><b>01 / SEND</b><p>Clone the conversation and tool catalog into <code>ActivePrompt</code>. Build a streaming chat-completions request.</p></div>
+      <div class="step"><b>02 / RECEIVE</b><p>Consume events: reasoning, text, annotations, and streamed tool-call fragments. Assemble calls by index.</p></div>
+      <div class="step"><b>03 / EXECUTE</b><p>Parse each function name and JSON arguments. Display it, run the local tool, and capture success or error JSON.</p></div>
+      <div class="step"><b>04 / FEED BACK</b><p>Append one assistant message containing the calls, then one <code>tool</code> message per result. Repeat if calls existed.</p></div>
+    </div>
+    <p class="loop-note"><b>Exit condition:</b> when the assistant emits content without tool calls, <code>run_single</code> returns false; aggregate stats are printed and the outer loop waits for another prompt.</p>
+  </div>
+</section>
+
+<section class="panel grid">
+  <div><h2>Local capabilities</h2><p class="sub">The model sees these function schemas in the request; <code>tools.rs</code> dispatches them locally.</p>
+    <div class="cards">
+      <article class="mini"><span class="icon">⌕</span><h3>read</h3><p>Read a text file with optional line offset and limit. Returns content, size, and truncation state.</p></article>
+      <article class="mini"><span class="icon">$</span><h3>bash</h3><p>Execute a command in the current working directory and return stdout/stderr.</p></article>
+      <article class="mini"><span class="icon">＋</span><h3>write</h3><p>Create a file or perform a complete rewrite when explicitly allowed.</p></article>
+      <article class="mini"><span class="icon">✎</span><h3>edit</h3><p>Replace an exact text span, optionally enforcing an occurrence count.</p></article>
+    </div>
+  </div>
+  <div><h2>Message contract</h2><p class="sub">The state that makes the loop work.</p>
+    <div class="contract">
+      <div><b>System</b> default prompt + optional <code>AGENTS.md</code> instructions</div>
+      <div><b>User</b> initial CLI prompt, then prompts read from the watched file</div>
+      <div><b>Assistant</b> streamed answer plus reasoning and complete tool calls</div>
+      <div><b>Tool</b> results keyed to each tool-call ID, including errors for the model to recover from</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Output and the outer loop</h2><p class="sub">Events have two destinations: the terminal and the next request.</p>
+  <div class="flow">
+    <article class="node purple"><h3>AgentWriter</h3><p>Maps <code>Response</code> events to terminal sections: prompt, optional reasoning, answer content, tool display, web citations, warnings, and stats.</p><div class="file">output.rs · stdout</div></article>
+    <div class="arrow">→</div>
+    <article class="node blue"><h3>Prompt file</h3><p>After a completed answer, <code>inotify</code> blocks until the configured prompt file is closed or moved into place. Its contents become a new user message.</p><div class="file">inotify.rs · cfg.prompt_filename</div></article>
+    <div class="arrow">↺</div>
+    <article class="node orange"><h3>Server-side web tools</h3><p>When enabled, web search/fetch are sent as OpenRouter tools. Their URL citations arrive as annotations; unlike the four local tools, art does not execute them.</p><div class="file">to_json.rs · Response::Annotation</div></article>
+  </div>
+  <div class="legend"><span><i class="i-blue"></i>setup / state</span><span><i class="i-teal"></i>controller</span><span><i class="i-orange"></i>network / model</span><span><i class="i-purple"></i>presentation</span></div>
+</section>
+<footer>Source map: src/bin/art/{main,agent,tools,output,inotify,system_prompt}.rs · shared input/net modules</footer>
+</main>
+<style>/* deliberately self-contained: no fonts, scripts, or network assets */</style>
+</body>
+</html>
