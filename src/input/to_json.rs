@@ -8,12 +8,11 @@ extern crate alloc;
 use alloc::string::String;
 
 use crate::{
-    ErrorKind, Message, OrtResult, ReasoningEffort, Write,
+    Message, OrtResult, ReasoningEffort, Write,
     common::{
         config::Cfg,
         data::{Content, Tool, ToolCall, ToolParameter},
     },
-    ort_error,
 };
 
 /// Build the POST body
@@ -229,39 +228,30 @@ pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> 
         w.write_str(",\"tool_call_id\":")?;
         write_json_str_simple(w, tool_call_id)?;
     }
-    match (&data.content, &data.reasoning) {
-        (content, Some(_)) if !content.is_empty() => {
-            return Err(ort_error(
-                ErrorKind::InvalidMessageSchema,
-                "Message must have exactly one of 'content' or 'reasoning'.",
-            ));
-        }
-        (content, None) if content.is_empty() => {
-            return Err(ort_error(
-                ErrorKind::InvalidMessageSchema,
-                "Message must have exactly one of 'content' or 'reasoning'.",
-            ));
-        }
-        (_, Some(reasoning)) => {
-            w.write_str(",\"reasoning\":")?;
-            write_json_str(w, reasoning)?;
-        }
-        (content, _) => {
-            w.write_str(",\"content\":")?;
-            match content.as_slice() {
-                [Content::Text(text)] => write_json_str(w, text)?,
-                _ => {
-                    w.write_char('[')?;
-                    for (i, item) in content.iter().enumerate() {
-                        if i != 0 {
-                            w.write_char(',')?;
-                        }
-                        item.to_json(w)?;
+    if !data.content.is_empty() {
+        w.write_str(",\"content\":")?;
+        match data.content.as_slice() {
+            [Content::Text(text)] => write_json_str(w, text)?,
+            _ => {
+                w.write_char('[')?;
+                for (i, item) in data.content.iter().enumerate() {
+                    if i != 0 {
+                        w.write_char(',')?;
                     }
-                    w.write_char(']')?;
+                    item.to_json(w)?;
                 }
+                w.write_char(']')?;
             }
         }
+    }
+    if let Some(reasoning) = &data.reasoning {
+        w.write_str(",\"reasoning\":")?;
+        write_json_str(w, reasoning)?;
+    }
+    if let Some(reasoning_details) = &data.reasoning_details {
+        w.write_str(",\"reasoning_details\":")?;
+        // reasoning_details is unparsed JSON
+        write_encoded_bytes(w, reasoning_details.as_bytes())?;
     }
     if !data.tool_calls.is_empty() {
         w.write_str(",\"tool_calls\": [")?;

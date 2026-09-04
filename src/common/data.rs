@@ -366,6 +366,7 @@ pub struct Message {
     pub content: Vec<Content>,
     pub annotations: Vec<Annotation>,
     pub reasoning: Option<String>,
+    pub reasoning_details: Option<String>,
     /// For Role::Assistant requesting a tool call
     pub tool_calls: Vec<ToolCall>,
     /// For Role::Tool returning a result
@@ -375,13 +376,14 @@ pub struct Message {
 impl Message {
     pub fn new(role: Role, content: Option<String>, reasoning: Option<String>) -> Self {
         let content = content.map_or_else(Vec::new, |content| vec![Content::Text(content)]);
-        Self::with_content(role, content, reasoning, vec![], None, vec![])
+        Self::with_content(role, content, reasoning, None, vec![], None, vec![])
     }
 
     pub fn with_content(
         role: Role,
         content: Vec<Content>,
         reasoning: Option<String>,
+        reasoning_details: Option<String>,
         tool_calls: Vec<ToolCall>,
         tool_call_id: Option<String>,
         annotations: Vec<Annotation>,
@@ -390,6 +392,7 @@ impl Message {
             role,
             content,
             reasoning,
+            reasoning_details,
             tool_calls,
             tool_call_id,
             annotations,
@@ -409,11 +412,17 @@ impl Message {
         Self::new(Role::Assistant, Some(content), None)
     }
 
-    pub fn assistant_with_tool_call(content: String, tool_calls: Vec<ToolCall>) -> Self {
+    pub fn assistant_with_tool_call(
+        content: String,
+        tool_calls: Vec<ToolCall>,
+        reasoning: Option<String>,
+        reasoning_details: Option<String>,
+    ) -> Self {
         Self::with_content(
             Role::Assistant,
             vec![Content::Text(content)],
-            None, // TODO: also send reasoning back
+            reasoning,
+            reasoning_details,
             tool_calls,
             None,
             vec![],
@@ -423,6 +432,7 @@ impl Message {
         Self::with_content(
             Role::Tool,
             vec![Content::Text(content)],
+            None,
             None,
             vec![],
             Some(id),
@@ -472,6 +482,7 @@ impl Message {
             JsonField::new_string("reasoning_content"),
             JsonField::new_vec_raw("tool_calls"),
             JsonField::new_vec_raw("annotations"),
+            JsonField::new_raw("reasoning_details"),
         ];
         autoparser(json, &mut fields)?;
 
@@ -497,6 +508,9 @@ impl Message {
                 annotations.push(Annotation::from_json(&a)?);
             }
         }
+
+        // Must send whole block back unchanged, so save the unparsed JSON
+        let reasoning_details = fields[6].get_raw();
 
         // Content can be a string or an array, so do extra parsing
         let mut content = vec![];
@@ -531,6 +545,7 @@ impl Message {
             role.unwrap_or(Role::Assistant),
             content,
             reasoning,
+            reasoning_details,
             tool_calls,
             None,
             annotations,
@@ -787,6 +802,9 @@ pub enum Response {
 pub enum ThinkEvent {
     Start,
     Content(String),
+    // reasoning_details, which is encrypted, summary, or text. Only encrypted matters, the rest
+    // repeats Content.
+    Details(String),
     Stop,
 }
 
@@ -1171,5 +1189,15 @@ mod tests {
         let json = r#"{"id":"gen-1787255401-CBB2yYetBs5rQ1TxQ3zc","object":"chat.completion.chunk","created":1787255401,"model":"openai/gpt-5.6-terra","provider":"OpenAI","choices":[],"error":{"code":400,"message":"Server tool request failed","metadata":{"error_type":"invalid_request"}}}"#;
         let ccr = ChatCompletionsResponse::from_json(json).unwrap();
         assert_eq!(ccr.error.unwrap().message, "Server tool request failed");
+    }
+
+    #[test]
+    fn test_preserves_reasoning_details() {
+        let json = r#"{"id":"gen-1788467537-QS8BVdZN4vsO5mtNhoN1","object":"chat.completion.chunk","created":1788467537,"model":"openai/gpt-5.6-sol","provider":"OpenAI","choices":[{"index":0,"delta":{"content":"","role":"assistant","reasoning":null,"reasoning_details":[{"type":"reasoning.encrypted","data":"gAAAAABqJ9","format":"openai-responses-v1","id":"rs_05a6389df207c51e016a99d959ecd887d1b672d700b322a752","index":0}]},"finish_reason":null,"native_finish_reason":null}]}"#;
+        let ccr = ChatCompletionsResponse::from_json(json).unwrap();
+        let Some(ref rd) = ccr.choices.first().unwrap().delta.reasoning_details else {
+            panic!("Missing reasoning_details");
+        };
+        assert!(rd.contains("reasoning.encrypted"));
     }
 }

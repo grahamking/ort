@@ -11,6 +11,7 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
+use ort_openrouter_cli::ThinkEvent;
 use ort_openrouter_cli::{ort_err, syscall};
 
 use core::{ffi::c_void, mem::MaybeUninit};
@@ -164,6 +165,8 @@ fn run_single<W: Write + Send>(
     let mut assistant_message = String::new();
     let mut assistant_tool_calls = None;
     let mut tool_call_results = vec![];
+    let mut reasoning = None;
+    let mut reasoning_details = None;
 
     loop {
         match active_prompt.next() {
@@ -175,6 +178,14 @@ fn run_single<W: Write + Send>(
                     match &event {
                         Response::Content(content) => {
                             assistant_message.push_str(content);
+                        }
+                        Response::Think(ThinkEvent::Content(r)) => {
+                            // Save this and send it back
+                            reasoning = Some(r.to_string());
+                        }
+                        Response::Think(ThinkEvent::Details(rd)) => {
+                            // Save this and send it back
+                            reasoning_details = Some(rd.to_string());
                         }
                         Response::ToolCalls(tool_calls) => {
                             if tool_calls.is_empty() {
@@ -251,6 +262,8 @@ fn run_single<W: Write + Send>(
             messages.push(Message::assistant_with_tool_call(
                 assistant_message,
                 all_tool_calls,
+                reasoning,
+                reasoning_details,
             ));
             // Then multiple messages with "role: tool" and the results one by one.
             // The calls and results are not co-located.

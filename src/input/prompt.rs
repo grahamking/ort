@@ -507,12 +507,14 @@ impl ActivePrompt {
                         .as_ref()
                         .map(|x| !x.is_empty())
                         .unwrap_or(false);
+                    let has_reasoning_details = choice.delta.reasoning_details.is_some();
                     let content = choice.delta.text();
                     let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
                     let has_tool_calls = !choice.delta.tool_calls.is_empty();
                     let has_annotations = !choice.delta.annotations.is_empty();
                     let is_finished = choice.finish_reason.is_some();
                     if !(has_reasoning
+                        || has_reasoning_details
                         || has_content
                         || has_tool_calls
                         || has_annotations
@@ -571,6 +573,11 @@ impl ActivePrompt {
                         }
                         let r_event =
                             Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
+                        queue.push(r_event);
+                    }
+                    if let Some(reasoning_details) = choice.delta.reasoning_details.as_ref() {
+                        let r_event =
+                            Response::Think(ThinkEvent::Details(reasoning_details.to_string()));
                         queue.push(r_event);
                     }
 
@@ -714,8 +721,8 @@ mod tests {
             panic!("Missing Start event");
         };
         assert_matches!(events.first(), Some(Response::Start));
-        // The first annotation comes out here, not 100% sure why
-        assert_matches!(events[1], Response::Annotation(_));
+        // The encrypted reasoning
+        assert_matches!(events[1], Response::Think(ThinkEvent::Details(_)));
 
         // Then some Annotation from the web_search
         let mut num_annotations = 0;
@@ -730,6 +737,9 @@ mod tests {
                         // Once we reach Think Start annotations are over
                         break 'events;
                     }
+                    Response::Think(ThinkEvent::Details(_)) => {
+                        // These are scattered around, ignore them for test
+                    }
                     Response::Missing => {
                         // OpenRouter web_search seems to truncte citations sometimes
                         // JSON parser probably needs to handle it.
@@ -741,22 +751,22 @@ mod tests {
                 }
             }
         }
-        assert_eq!(num_annotations, 47);
+        assert_eq!(num_annotations, 48);
         if has_seen_the_bug {
             // TODO
             crate::eprint_string(c"The citation truncation bug is not fixed", "");
         }
 
-        // Then some Think(Content)
+        // Then a Think(Content) and a Think(Details)
         let mut num_think = 0;
         while let Ok(Some(events)) = active_prompt.next() {
             match events.first().unwrap() {
                 Response::Think(ThinkEvent::Content(_)) => num_think += 1,
+                Response::Think(ThinkEvent::Details(_)) => {}
                 other => {
                     panic!("Unexpected event: {other:?}");
                 }
             }
-            assert_eq!(events.len(), 1);
         }
         assert_eq!(num_think, 296);
 

@@ -90,6 +90,11 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
+                        ThinkEvent::Details(_) => {
+                            // OpenRouter puts anything interesting from here into
+                            // ThinkEvent::Content.
+                            // In agent.rs we send it back, model needs it.
+                        }
                         ThinkEvent::Stop => {
                             let _ = self.writer.write(MSG_THINK_END);
                         }

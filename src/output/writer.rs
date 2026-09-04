@@ -104,6 +104,10 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
+                        ThinkEvent::Details(_) => {
+                            // OpenRouter puts anything interesting from here into
+                            // ThinkEvent::Content
+                        }
                         ThinkEvent::Stop => {
                             let _ = self.writer.write(super::MSG_THINK_END);
                         }
@@ -129,6 +133,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                                 self.last_spinner_update = now;
                             }
                         }
+                        ThinkEvent::Details(_) => {}
                         ThinkEvent::Stop => {}
                     }
                 }
@@ -227,6 +232,7 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                             }
                             let _ = self.writer.write_all(s.as_bytes());
                         }
+                        ThinkEvent::Details(_) => {}
                         ThinkEvent::Stop => {
                             let _ = self.writer.write("</think>\n\n".as_bytes());
                         }
