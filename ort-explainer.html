@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ort — speed, stripped to the wire</title>
+<style>
+:root{--bg:#070b16;--panel:#0d1425;--panel2:#101a2f;--ink:#f4f7ff;--muted:#9aa9c5;--line:#223253;--cyan:#63e6ff;--yellow:#ffd43b;--orange:#ff922b;--pink:#ff6b9d;--green:#72f1b8;--shadow:0 24px 70px #0008}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.16;background-image:linear-gradient(#172542 1px,transparent 1px),linear-gradient(90deg,#172542 1px,transparent 1px);background-size:44px 44px;mask-image:linear-gradient(to bottom,#000,transparent 82%)}
+body:after{content:"";position:fixed;z-index:-1;top:-280px;right:-180px;width:760px;height:760px;background:radial-gradient(circle,#174e75aa 0,#10244755 35%,transparent 68%);filter:blur(12px)}
+.wrap{max-width:1160px;margin:auto;padding:42px 24px 62px}.top{display:flex;justify-content:space-between;gap:28px;align-items:flex-end;margin-bottom:48px}.eyebrow,.kicker,.file{font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.15em;text-transform:uppercase}.eyebrow{color:var(--cyan)}h1{font-size:clamp(47px,8vw,92px);line-height:.88;letter-spacing:-.075em;margin:12px 0 24px;max-width:700px}h1 em{font-style:normal;color:var(--yellow);text-shadow:0 0 28px #ffd43b66}.lede{font-size:18px;color:var(--muted);max-width:650px;margin:0}.stamp{border:1px solid #40537a;background:#0c1426cc;color:var(--cyan);padding:12px 15px;white-space:nowrap;font:12px ui-monospace,monospace;transform:skew(-7deg);box-shadow:0 0 25px #63e6ff18}
+.panel{position:relative;background:linear-gradient(135deg,#101a2ee8,#0a1120ee);border:1px solid var(--line);border-radius:18px;padding:27px;margin:20px 0;box-shadow:var(--shadow);overflow:hidden}.panel:before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),var(--yellow),transparent)}h2{font-size:23px;letter-spacing:-.03em;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 22px}.kicker{color:var(--yellow);margin-bottom:10px}.mono,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cyan);font-size:.9em}
+.flow{display:grid;grid-template-columns:1fr 42px 1.1fr 42px 1fr;align-items:stretch}.arrow{display:grid;place-items:center;color:var(--yellow);font-size:30px;text-shadow:0 0 15px #ffd43b}.node{padding:19px;border:1px solid #2c4168;border-radius:13px;background:#101b32;min-height:198px;position:relative}.node:nth-of-type(3){background:#102432;border-color:#22566a}.node:nth-of-type(5){background:#211b2b;border-color:#62405c}.node h3{margin:0 0 9px;font-size:18px}.node p{color:var(--muted);font-size:13px;margin:0 0 15px}.file{color:#6f83a9;border-top:1px solid #294064;padding-top:11px;letter-spacing:0;text-transform:none;font-weight:400}.bolt{color:var(--yellow);font-size:23px;vertical-align:-2px;margin-right:6px}.tag{display:inline-block;padding:3px 7px;border-radius:4px;background:#ffffff0d;border:1px solid #ffffff18;color:#b9c7df;font:11px ui-monospace,monospace;margin:0 4px 5px 0}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}.metric{padding:17px 15px;border-left:2px solid var(--cyan);background:#0a1222}.metric:nth-child(2){border-color:var(--yellow)}.metric:nth-child(3){border-color:var(--green)}.metric:nth-child(4){border-color:var(--pink)}.metric strong{display:block;font-size:25px;letter-spacing:-.05em}.metric span{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}.card{padding:16px;border:1px solid #213354;background:#0b1427;border-radius:10px}.card h3{margin:0 0 5px;font-size:15px}.card p{margin:0;color:var(--muted);font-size:13px}.icon{float:right;color:var(--yellow);font-size:19px}.stack{display:grid;gap:9px}.row{display:grid;grid-template-columns:112px 1fr;gap:12px;padding:12px 13px;background:#0a1222;border-radius:8px;border-left:2px solid var(--orange);font-size:13px}.row b{color:var(--ink)}.row span{color:var(--muted)}
+.callout{display:grid;grid-template-columns:75px 1fr;gap:18px;align-items:center;background:linear-gradient(100deg,#17233d,#101a2d);border:1px solid #334b76}.bigbolt{font-size:62px;line-height:1;text-align:center;color:var(--yellow);filter:drop-shadow(0 0 14px #ffd43b88)}.callout p{margin:0;color:var(--muted)}.callout strong{color:var(--ink)}footer{text-align:center;color:#627495;margin-top:28px;font:12px ui-monospace,monospace}a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}
+@media(max-width:820px){.top{display:block}.stamp{display:inline-block;margin-top:25px}.flow{grid-template-columns:1fr;gap:10px}.arrow{height:18px;transform:rotate(90deg)}.grid{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}}@media(max-width:500px){.wrap{padding:28px 15px 45px}.panel{padding:19px}.cards,.metrics{grid-template-columns:1fr}.row{grid-template-columns:1fr;gap:2px}.callout{grid-template-columns:1fr}.bigbolt{font-size:46px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="top">
+  <div><div class="eyebrow">ort / one-shot CLI / Linux x86_64</div><h1>Speed, stripped<br>to the <em>wire.</em></h1><p class="lede"><strong>ort</strong> is a tiny OpenRouter client built around one idea: keep the local path short, predictable, and close to the kernel—then stream the answer as soon as the network gives it up.</p></div>
+  <div class="stamp">NO AGENT · NO STD · NO BLOAT</div>
+</header>
+
+<section class="panel">
+  <div class="kicker">01 / the hot path</div><h2>From command line to first token</h2><p class="sub">The release binary does only the work the one-shot request needs.</p>
+  <div class="flow">
+    <article class="node"><h3><span class="bolt">ϟ</span>Boot</h3><p><code>_start</code> reads <code>argc</code>, <code>argv</code>, and <code>envp</code> directly from the initial stack. No runtime or libc startup ceremony.</p><span class="tag">assembly entry</span><span class="tag">no_main</span><div class="file">src/start.s · src/main.rs</div></article><div class="arrow">→</div>
+    <article class="node"><h3><span class="bolt">ϟ</span>Assemble</h3><p>Arguments and config become one pre-sized JSON request. Headers and body are laid out to fit a single write where possible.</p><span class="tag">stream: true</span><span class="tag">capacity planned</span><div class="file">src/input/to_json.rs · src/net/http.rs</div></article><div class="arrow">→</div>
+    <article class="node"><h3><span class="bolt">ϟ</span>Deliver</h3><p>A small, purpose-built TLS 1.3 client opens a TCP socket, negotiates AES-128-GCM/X25519, and consumes HTTP chunked SSE data.</p><span class="tag">TCP Fast Open</span><span class="tag">TLS 1.3</span><div class="file">src/net/socket.rs · src/net/tls.rs</div></article>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="kicker">02 / the numbers that matter locally</div><div class="metrics"><div class="metric"><strong>~220 KiB</strong><span>compact ELF target, per project README</span></div><div class="metric"><strong>&lt;64 KiB</strong><span>normal prompt peak active memory</span></div><div class="metric"><strong>0</strong><span>external Rust crates / libc dependencies</span></div><div class="metric"><strong>1</strong><span>arena mapping per typical short run</span></div></div>
+</section>
+
+<section class="grid">
+<section class="panel"><div class="kicker">03 / fewer moving parts</div><h2>Lean by construction</h2><p class="sub">The binary carries its own narrow platform layer.</p><div class="cards">
+  <article class="card"><span class="icon">⌁</span><h3><code>no_std</code> release</h3><p>Uses <code>alloc</code> without the standard library. Direct Linux syscalls in inline assembly keep the dependency graph flat.</p></article>
+  <article class="card"><span class="icon">▰</span><h3>Static, stripped ELF</h3><p>Release flags use LTO, one codegen unit, symbol stripping, static relocation, and a minimal linker setup.</p></article>
+  <article class="card"><span class="icon">▱</span><h3>Hand-rolled primitives</h3><p>Assembly supplies <code>memcpy</code>, <code>memset</code>, <code>strlen</code>, <code>memcmp</code>, and friends normally provided by libc.</p></article>
+  <article class="card"><span class="icon">↯</span><h3>Native machine code</h3><p><code>-Ctarget-cpu=native</code> lets LLVM tune the release for the x86_64 CPU it runs on.</p></article>
+</div></section>
+
+<section class="panel"><div class="kicker">04 / memory without drama</div><h2>Arena, not churn</h2><p class="sub">Short-lived CLI processes do not need a general-purpose lifetime strategy.</p><div class="stack">
+  <div class="row"><b>Reserve</b><span>Anonymous memory arrives in 1 MiB chunks via <code>mmap</code>.</span></div>
+  <div class="row"><b>Bump</b><span>Allocations advance an offset, aligned to 16 bytes—no per-object syscall.</span></div>
+  <div class="row"><b>Reuse</b><span>Old sections stay alive until exit; deallocation is intentionally a no-op.</span></div>
+  <div class="row"><b>Predict</b><span>Buffers use <code>with_capacity</code>; a debug feature can catch accidental reallocations.</span></div>
+</div></section>
+</section>
+
+<section class="panel"><div class="kicker">05 / get output moving</div><h2>Streaming is the UX optimization</h2><p class="sub">The fastest answer is the one you can start reading now.</p><div class="flow" style="grid-template-columns:1fr 42px 1fr 42px 1fr"><article class="node"><h3>Request</h3><p>JSON is written directly into a planned buffer. OpenRouter is asked for a streamed response, not a giant blob to wait for.</p><div class="file">pre-sized serialization</div></article><div class="arrow">→</div><article class="node"><h3>Parse</h3><p>Buffered reads walk chunked transfer encoding and SSE lines incrementally. JSON fields are parsed as events arrive.</p><div class="file">lending chunk iterator</div></article><div class="arrow">→</div><article class="node"><h3>Print</h3><p>Terminal output flushes content as it lands; piped output stays clean ASCII. TTFT and inter-token latency are measured.</p><div class="file">ANSI-aware writer</div></article></div></section>
+
+<section class="panel grid"><div><div class="kicker">06 / remove avoidable waiting</div><h2>Network details count</h2><p class="sub">The model and provider still dominate end-to-end latency. ort trims the local overhead around them.</p></div><div class="stack"><div class="row"><b>DNS</b><span>Set <code>dns</code> in config to skip resolver work; otherwise ort has a tiny A-record resolver.</span></div><div class="row"><b>Connect</b><span>Non-blocking connect plus <code>poll</code> timeout avoids an unbounded SYN wait.</span></div><div class="row"><b>Socket</b><span>TCP Fast Open is enabled before connecting, where the network supports it.</span></div></div></section>
+
+<section class="panel callout"><div class="bigbolt">ϟ</div><p><strong>Fast is a whole-stack property.</strong> A minimal executable, fewer allocations, direct syscalls, a focused TLS client, and immediate streaming cannot make a remote model think faster—but they make sure <em>ort</em> is ready when the first byte arrives.</p></section>
+
+<footer><a href="https://github.com/grahamking/ort">github.com/grahamking/ort</a> · focused on <code>src/main.rs</code> and the one-shot CLI · excludes <code>src/bin/art</code></footer>
+</main>
+</body>
+</html>

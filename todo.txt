@@ -1,7 +1,7 @@
 
-. Send reasoning (inc encrypted) back to model
-  I think this is making the agent much less good.
-  The "reasoning" block should go back entire, with id and encrypted content
+. art: If prompt is present in file, run it. Don't wait. This is a regression.
+
+. art: Ensure the log has everything. Looks like it's only last turn.
 
 . Do the Section thing in ort too, copy from src/bin/art/output.rs . Is the right abstraction.
 
