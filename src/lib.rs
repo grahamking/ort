@@ -44,4 +44,5 @@ pub use net::tls::TlsStream;
 pub use net::{chunked, http};
 
 pub use output::OutputWriter;
+pub use output::logger::Logger;
 pub use output::writer::StdoutWriter;

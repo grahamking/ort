@@ -77,7 +77,14 @@ pub fn run<W: Write + Send>(
         None
     };
 
-    let mut active_prompt = ActivePrompt::new(api_key.to_string(), cfg, messages, vec![], 0, env)?;
+    let mut active_prompt = ActivePrompt::new(
+        api_key.to_string(),
+        cfg,
+        messages,
+        vec![],
+        0,
+        logger(cfg, env)?,
+    );
 
     let mut output_writer: Box<dyn OutputWriter> = if is_pipe_output {
         Box::new(FileWriter::new(w_core, cfg.show_reasoning, cfg.quiet))
@@ -192,8 +199,21 @@ pub fn run_multi<W: Write + Send>(
         let model_id = opts.models.get(idx).unwrap().clone();
         names.push(model_id);
 
-        let mut active_prompt =
-            ActivePrompt::new(api_key.to_string(), cfg, messages.clone(), vec![], idx, env)?;
+        let logger = if cfg.is_private {
+            None
+        } else {
+            let model_id = cfg.models.get(idx).expect("Missing model name");
+            Some(Logger::new(env, &utils::slug(model_id.as_str()))?)
+        };
+
+        let mut active_prompt = ActivePrompt::new(
+            api_key.to_string(),
+            cfg,
+            messages.clone(),
+            vec![],
+            idx,
+            logger,
+        );
         active_prompt.start()?;
         let socket_fd = active_prompt.as_fd();
 
@@ -287,6 +307,15 @@ pub fn run_multi<W: Write + Send>(
     Ok(())
 }
 
+fn logger(cfg: &Cfg, env: &Env) -> OrtResult<Option<Logger>> {
+    if cfg.is_private {
+        Ok(None)
+    } else {
+        let model_id = cfg.models.first().unwrap();
+        Ok(Some(Logger::new(env, &utils::slug(model_id.as_str()))?))
+    }
+}
+
 pub trait PromptReader: ReadLine + AsFd {}
 
 pub struct ActivePrompt {
@@ -325,20 +354,15 @@ impl ActivePrompt {
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
         model_idx: usize,
-        env: &Env,
-    ) -> OrtResult<Self> {
+        logger: Option<Logger>,
+    ) -> Self {
         let session_id = if model_idx == 0 {
             cfg.session_id.clone()
         } else {
             alloc::format!("{}-{model_idx}", cfg.session_id)
         };
         let model_id = cfg.models.get(model_idx).expect("Missing model name");
-        let logger = if cfg.is_private {
-            None
-        } else {
-            Some(Logger::new(env, &utils::slug(model_id.as_str()))?)
-        };
-        Ok(ActivePrompt {
+        ActivePrompt {
             api_key,
             cfg: cfg.clone(),
             messages,
@@ -365,7 +389,7 @@ impl ActivePrompt {
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
             logger,
-        })
+        }
     }
 
     /// Start the HTTP request
@@ -659,6 +683,11 @@ impl ActivePrompt {
         self.stats.clone()
     }
 
+    /// Extract the Logger so we can use it again
+    pub fn take_logger(&mut self) -> Option<Logger> {
+        self.logger.take()
+    }
+
     /*
     fn has_pending_data(&self) -> bool {
         self.reader
@@ -684,7 +713,6 @@ mod tests {
     use alloc::string::ToString;
     use alloc::vec;
 
-    use crate::cli::Env;
     use crate::common::buf_read::OrtBufReader;
     use crate::common::{time, utils};
     use crate::config::Cfg;
@@ -705,9 +733,8 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
-            &Env::default(),
-        )
-        .unwrap();
+            None,
+        );
         let string_reader = crate::common::buf_read::StringReader {
             data: test_data,
             pos: 0,
@@ -789,9 +816,8 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
-            &Env::default(),
-        )
-        .unwrap();
+            None,
+        );
         let string_reader = crate::common::buf_read::StringReader {
             data: TEST_DATA.to_string(),
             pos: 0,

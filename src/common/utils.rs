@@ -201,7 +201,7 @@ pub(crate) fn zclean(s: &mut str) -> &str {
     s
 }
 
-pub(crate) fn slug(s: &str) -> String {
+pub fn slug(s: &str) -> String {
     let mut out = String::with_capacity(16);
     out.extend(s.chars().map(|c| {
         if c.is_alphanumeric() {

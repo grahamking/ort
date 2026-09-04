@@ -11,7 +11,9 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
+use ort_openrouter_cli::Logger;
 use ort_openrouter_cli::ThinkEvent;
+use ort_openrouter_cli::utils;
 use ort_openrouter_cli::{ort_err, syscall};
 
 use core::{ffi::c_void, mem::MaybeUninit};
@@ -87,18 +89,25 @@ pub fn run<W: Write + Send>(
         false
     };
 
+    let mut logger = if cfg.is_private {
+        None
+    } else {
+        let model_id = cfg.models.first().unwrap();
+        Some(Logger::new(env, &utils::slug(model_id.as_str()))?)
+    };
+
     let mut total_stats = Stats::default();
     loop {
         // Send a prompt, run all the requested tools
         while has_more_turns {
-            has_more_turns = run_single(
+            (has_more_turns, logger) = run_single(
                 api_key,
                 cfg,
-                env,
                 &mut messages,
                 tools::ALL_TOOLS,
                 &mut output_writer,
                 &mut total_stats,
+                logger,
             )?;
             // After last turn show stats
             if !has_more_turns {
@@ -146,22 +155,20 @@ fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
 fn run_single<W: Write + Send>(
     api_key: &str,
     cfg: &config::Cfg,
-    env: &Env,
     messages: &mut Vec<Message>,
     tools: &[&'static Tool],
     output_writer: &mut AgentWriter<W>,
     total_stats: &mut Stats,
-) -> OrtResult<bool> {
-    // TODO: This truncates the log file, should preserve it for whole session
-    // Maybe pass in the Logger?
+    logger: Option<Logger>,
+) -> OrtResult<(bool, Option<Logger>)> {
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
         messages.clone(),
         tools.to_vec(),
         0,
-        env,
-    )?;
+        logger,
+    );
     active_prompt.start()?;
 
     let mut assistant_message = String::new();
@@ -281,7 +288,8 @@ fn run_single<W: Write + Send>(
 
     output_writer.stop(true)?; // Doesn't do anything
 
-    Ok(has_tool_call)
+    let logger = active_prompt.take_logger();
+    Ok((has_tool_call, logger))
 }
 
 fn error(msg: &str) -> String {
@@ -360,9 +368,8 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
-            &Env::default(),
-        )
-        .unwrap();
+            None,
+        );
         let string_reader = StringReader {
             data: test_data,
             pos: 0,
@@ -404,9 +411,8 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
-            &Env::default(),
-        )
-        .unwrap();
+            None,
+        );
         let string_reader = StringReader {
             data: test_data,
             pos: 0,
@@ -470,9 +476,8 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
-            &Env::default(),
-        )
-        .unwrap();
+            None,
+        );
         let string_reader = StringReader {
             data: test_data,
             pos: 0,
