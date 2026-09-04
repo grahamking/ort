@@ -152,6 +152,8 @@ fn run_single<W: Write + Send>(
     output_writer: &mut AgentWriter<W>,
     total_stats: &mut Stats,
 ) -> OrtResult<bool> {
+    // TODO: This truncates the log file, should preserve it for whole session
+    // Maybe pass in the Logger?
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,

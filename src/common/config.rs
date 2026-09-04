@@ -164,7 +164,7 @@ impl Cfg {
             messages.push(crate::Message::system(sys));
         };
 
-        if let Some(prompt) = self.prompt.take() {
+        if let Some(prompt) = self.prompt.clone() {
             let user_message = if self.files.is_empty() {
                 crate::Message::user(prompt)
             } else {
