@@ -1,4 +1,10 @@
 
+. Send reasoning (inc encrypted) back to model
+  I think this is making the agent much less good.
+  The "reasoning" block should go back entire, with id and encrypted content
+
+. Do the Section thing in ort too, copy from src/bin/art/output.rs . Is the right abstraction.
+
 . Handle truncated messages.
 
 Which part should handle and validate that?

@@ -512,7 +512,6 @@ impl ActivePrompt {
                     let has_tool_calls = !choice.delta.tool_calls.is_empty();
                     let has_annotations = !choice.delta.annotations.is_empty();
                     let is_finished = choice.finish_reason.is_some();
-
                     if !(has_reasoning
                         || has_content
                         || has_tool_calls
@@ -584,22 +583,14 @@ impl ActivePrompt {
                     if let Some(content) = content
                         && !content.is_empty()
                     {
-                        self.num_tokens += 1;
-                        if self.is_first_content && content.trim().is_empty() {
-                            // Don't allow starting with carriage return or blank space, that messes up the display
-                            if queue.is_empty() {
-                                continue;
-                            } else {
-                                return Ok(Some(queue));
-                            }
-                        }
                         // If we signaled the open (!is_first_reasoning)
                         // and we haven't signaled the close yet (is_first_reasoning),
                         // signal the close.
                         if !self.is_first_reasoning && self.is_first_content {
                             queue.push(Response::Think(ThinkEvent::Stop));
-                            self.is_first_content = false;
                         }
+                        self.is_first_content = false;
+                        self.num_tokens += 1;
                         let r_event = Response::Content(content.to_string());
                         queue.push(r_event);
                     }
