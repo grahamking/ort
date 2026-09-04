@@ -251,7 +251,7 @@ pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> 
     if let Some(reasoning_details) = &data.reasoning_details {
         w.write_str(",\"reasoning_details\":")?;
         // reasoning_details is unparsed JSON
-        write_encoded_bytes(w, reasoning_details.as_bytes())?;
+        w.write(reasoning_details.as_bytes())?;
     }
     if !data.tool_calls.is_empty() {
         w.write_str(",\"tool_calls\": [")?;
