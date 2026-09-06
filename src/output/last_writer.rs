@@ -93,6 +93,7 @@ impl OutputWriter for LastWriter {
     /// Received messages and stream response to disk.
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
+            Response::Connecting => {}
             Response::Start => {
                 self.w.write_char('{')?;
                 self.w.write_str(r#""messages":"#)?;

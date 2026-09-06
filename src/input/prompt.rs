@@ -96,6 +96,7 @@ pub fn run<W: Write + Send>(
             active_prompt.tsc_calibration(),
         ))
     };
+    output_writer.write(Response::Connecting)?;
     active_prompt.start()?;
 
     loop {

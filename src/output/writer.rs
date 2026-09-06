@@ -12,22 +12,20 @@ use core::time::Duration;
 
 use crate::common::error::{ort_err, ort_error};
 use crate::common::time::{Ticks, TscCalibration, elapsed_duration};
-use crate::syscall;
 use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats};
+use crate::{Section, syscall};
 
 const SPINNER_UPDATE_MS: Duration = Duration::from_millis(40);
 
 pub struct ConsoleWriter<'a, W: Write + Send> {
-    pub writer: &'a mut W, // Must handle ANSI control chars
-    pub show_reasoning: bool,
-    pub is_quiet: bool,
-    pub is_running: bool,
-    pub is_first_content: bool,
-    pub has_web_search: bool,
-    pub spindx: usize,
-    pub stats_out: Option<stats::Stats>,
+    writer: &'a mut W, // Must handle ANSI control chars
+    show_reasoning: bool,
+    is_quiet: bool,
+    spindx: usize,
+    stats_out: Option<stats::Stats>,
     tsc_calibration: Option<TscCalibration>,
     last_spinner_update: Ticks,
+    section: Section,
 }
 
 impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
@@ -41,13 +39,50 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
             writer,
             show_reasoning,
             is_quiet,
-            is_running: false,
-            is_first_content: true,
-            has_web_search: false,
             spindx: 0,
             stats_out: None,
             tsc_calibration,
             last_spinner_update: Ticks::now(),
+            section: Section::None,
+        }
+    }
+
+    fn section(&mut self, to_section: Section) {
+        if self.section != to_section {
+            self.new_section(to_section);
+        } else {
+            self.same_section();
+        }
+    }
+
+    fn new_section(&mut self, to_section: Section) {
+        // Blank line between each section
+        if self.section != Section::None {
+            let _ = self.writer.write(b"\n\n");
+        }
+
+        // To
+        match to_section {
+            Section::Think => {
+                let _ = self.writer.write(super::THINK_START);
+            }
+            Section::Content => {
+                let _ = self.writer.write(super::CONTENT_START);
+            }
+            _ => {}
+        }
+
+        // Update
+        self.section = to_section;
+    }
+
+    fn same_section(&mut self) {
+        match self.section {
+            Section::WebSearch | Section::Tool => {
+                // These must go one per line
+                let _ = self.writer.write_char('\n');
+            }
+            _ => {}
         }
     }
 }
@@ -55,8 +90,6 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
 impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
     fn stop(&mut self, include_stats: bool) -> OrtResult<()> {
         let _ = self.writer.write(super::CURSOR_ON);
-        let _ = self.writer.write(b"\n");
-        let _ = self.writer.flush();
         if !include_stats || self.is_quiet {
             return Ok(());
         }
@@ -64,7 +97,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
         let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        let _ = self.writer.write("\nStats: ".as_bytes());
+        let _ = self.writer.write("Stats: ".as_bytes());
         let _ = self.writer.write(stats.as_string().as_bytes());
         let _ = self.writer.write_char('\n');
 
@@ -72,35 +105,26 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
     }
 
     fn write(&mut self, data: Response) -> OrtResult<()> {
-        if !self.is_running {
-            let _ = self.writer.write(super::MSG_CONNECTING);
-            let _ = self.writer.flush();
-            self.is_running = true;
-        }
-
         match data {
+            Response::Connecting => {
+                let _ = self.writer.write(super::MSG_CONNECTING);
+                let _ = self.writer.flush();
+            }
             Response::Start => {
                 let _ = self.writer.write(super::MSG_PROCESSING);
                 let _ = self.writer.flush();
             }
             Response::Think(think) => {
-                if !self.is_first_content {
+                if self.section == Section::Content {
                     // If content has started, don't show thinking.
                     // Sometimes Gemini Pro sends it out of order.
                     return Ok(());
                 }
                 if self.show_reasoning {
+                    self.section(Section::Think);
                     match think {
-                        ThinkEvent::Start => {
-                            let _ = self.writer.write(super::MSG_THINK_START);
-                        }
+                        ThinkEvent::Start => {}
                         ThinkEvent::Content(s) => {
-                            if self.has_web_search {
-                                // Blank line after web search, switch back to grey
-                                let _ = self.writer.write_char('\n');
-                                let _ = self.writer.write(super::MSG_THINK_START);
-                                self.has_web_search = false;
-                            }
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
@@ -108,9 +132,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                             // OpenRouter puts anything interesting from here into
                             // ThinkEvent::Content
                         }
-                        ThinkEvent::Stop => {
-                            let _ = self.writer.write(super::MSG_THINK_END);
-                        }
+                        ThinkEvent::Stop => {}
                     }
                 } else {
                     match think {
@@ -139,16 +161,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 }
             }
             Response::Content(content) => {
-                if self.has_web_search {
-                    // Blank line after web search
-                    let _ = self.writer.write_char('\n');
-                    self.has_web_search = false;
-                }
-                if self.is_first_content {
-                    // Erase the Processing or Thinking line
-                    let _ = self.writer.write(super::MSG_CLEAR_LINE);
-                    self.is_first_content = false;
-                }
+                self.section(Section::Content);
                 let _ = self.writer.write_all(content.as_bytes());
                 let _ = self.writer.flush();
             }
@@ -157,15 +170,12 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             }
             Response::Annotation(annotation) => {
                 // These are url_citation from remote web_search tool
-                if !self.has_web_search {
-                    let _ = self.writer.write(b"\n\n");
-                }
+                self.section(Section::WebSearch);
                 let _ = self.writer.write(super::MSG_WEB_FETCH);
                 let _ = self.writer.write(annotation.citation_url().as_bytes());
-                let _ = self.writer.write_char('\n');
-                self.has_web_search = true;
             }
             Response::Stats(stats) => {
+                self.section(Section::Stats);
                 self.stats_out = Some(stats);
             }
             Response::Prompt(_prompt) => {
@@ -175,6 +185,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self.writer.write_char(super::MISSING_CHAR);
             }
             Response::Warn(warning) => {
+                self.section(Section::Warn);
                 let _ = self.writer.write(super::WARN_START);
                 let _ = self.writer.write(warning.trim().as_bytes());
                 let _ = self.writer.write(super::RESET);
@@ -195,11 +206,11 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
 }
 
 pub struct FileWriter<'a, W: Write + Send> {
-    pub writer: &'a mut W,
-    pub show_reasoning: bool,
-    pub has_web_search: bool,
-    pub is_quiet: bool,
-    pub stats_out: Option<stats::Stats>,
+    writer: &'a mut W,
+    show_reasoning: bool,
+    is_quiet: bool,
+    stats_out: Option<stats::Stats>,
+    section: Section,
 }
 
 impl<'a, W: Write + Send> FileWriter<'a, W> {
@@ -208,8 +219,52 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
             writer,
             show_reasoning,
             is_quiet,
-            has_web_search: false,
             stats_out: None,
+            section: Section::None,
+        }
+    }
+
+    fn section(&mut self, to_section: Section) {
+        if self.section != to_section {
+            self.new_section(to_section);
+        } else {
+            self.same_section();
+        }
+    }
+
+    fn new_section(&mut self, to_section: Section) {
+        // From
+        if self.section == Section::Think {
+            let _ = self.writer.write("</think>".as_bytes());
+        }
+
+        // Blank line between each section
+        if self.section != Section::None {
+            let _ = self.writer.write(b"\n\n");
+        }
+
+        // To
+        match to_section {
+            Section::Think => {
+                let _ = self.writer.write("<think>".as_bytes());
+            }
+            Section::Content => {
+                let _ = self.writer.write(super::CONTENT_START);
+            }
+            _ => {}
+        }
+
+        // Update
+        self.section = to_section;
+    }
+
+    fn same_section(&mut self) {
+        match self.section {
+            Section::WebSearch | Section::Tool => {
+                // These must go one per line
+                let _ = self.writer.write_char('\n');
+            }
+            _ => {}
         }
     }
 }
@@ -217,61 +272,44 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
 impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
-            Response::Start => {}
+            Response::Connecting | Response::Start => {}
             Response::Think(think) => {
                 if self.show_reasoning {
+                    self.section(Section::Think);
                     match think {
-                        ThinkEvent::Start => {
-                            let _ = self.writer.write("<think>".as_bytes());
-                        }
+                        ThinkEvent::Start => {}
                         ThinkEvent::Content(s) => {
-                            if self.has_web_search {
-                                // Blank line after web search
-                                let _ = self.writer.write_char('\n');
-                                self.has_web_search = false;
-                            }
                             let _ = self.writer.write_all(s.as_bytes());
                         }
                         ThinkEvent::Details(_) => {}
-                        ThinkEvent::Stop => {
-                            let _ = self.writer.write("</think>\n\n".as_bytes());
-                        }
+                        ThinkEvent::Stop => {}
                     }
                 }
             }
             Response::Content(content) => {
-                if self.has_web_search {
-                    // Blank line after web search
-                    let _ = self.writer.write_char('\n');
-                    self.has_web_search = false;
-                }
+                self.section(Section::Content);
                 let _ = self.writer.write_all(content.as_bytes());
             }
             Response::ToolCalls(_) | Response::ToolDisplay(_) => {
                 // TODO
             }
             Response::Annotation(annotation) => {
-                // These are url_citation from remote web_search tool
-                if !self.has_web_search && self.show_reasoning {
-                    let _ = self.writer.write(b"\n\n");
-                }
-                let _ = self.writer.write(b"Web fetch: ");
+                self.section(Section::WebSearch);
                 let _ = self.writer.write(annotation.citation_url().as_bytes());
-                let _ = self.writer.write_char('\n');
-                self.has_web_search = true;
             }
             Response::Stats(stats) => {
+                self.section(Section::Stats);
                 self.stats_out = Some(stats);
             }
             Response::Prompt(prompt) => {
+                self.section(Section::Prompt);
                 let _ = self.writer.write("> ".as_bytes());
                 let _ = self.writer.write(prompt.as_bytes());
-                let _ = self.writer.write(b"\n");
                 let _ = self.writer.flush();
             }
             Response::Warn(warning) => {
+                self.section(Section::Warn);
                 let _ = self.writer.write(warning.trim().as_bytes());
-                let _ = self.writer.write_char('\n');
             }
             Response::Missing => {
                 let _ = self.writer.write_char(super::MISSING_CHAR);
@@ -287,7 +325,6 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
     }
 
     fn stop(&mut self, include_stats: bool) -> OrtResult<()> {
-        let _ = self.writer.write(b"\n");
         if !include_stats || self.is_quiet {
             return Ok(());
         }
@@ -295,7 +332,7 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
         let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        let _ = self.writer.write("\nStats: ".as_bytes());
+        let _ = self.writer.write("Stats: ".as_bytes());
         let _ = self.writer.write(stats.as_string().as_bytes());
         let _ = self.writer.write_char('\n');
         Ok(())
@@ -321,7 +358,7 @@ impl CollectedWriter {
 impl super::OutputWriter for CollectedWriter {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
-            Response::Start => {}
+            Response::Connecting | Response::Start => {}
             Response::Think(_) => {}
             Response::Content(content) => {
                 self.contents.push_str(&content);

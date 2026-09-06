@@ -773,6 +773,8 @@ impl FromStr for Role {
 
 #[derive(Clone, Debug)]
 pub enum Response {
+    /// Initiating network call: DNS, TLS negoatiation, etc.
+    Connecting,
     /// The first time we get anything at all on the SSE stream
     Start,
     /// Reasoning events - start, some thoughts, stop

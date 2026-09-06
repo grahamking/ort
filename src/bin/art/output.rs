@@ -6,14 +6,14 @@
 //! Copyright (c) 2025 Graham King
 
 use ort_openrouter_cli::{
-    ErrorKind, OrtResult, OutputWriter, Response, ThinkEvent, Write, ort_err, ort_error,
+    ErrorKind, OrtResult, OutputWriter, Response, Section, ThinkEvent, Write, ort_err, ort_error,
 };
 
 // No \n in these constants!
 // That all goes in`section`
 
-const MSG_THINK_START: &[u8] = "\x1b[2m".as_bytes();
-const MSG_THINK_END: &[u8] = "\x1b[0m".as_bytes();
+const THINK_START: &[u8] = "\x1b[0m\x1b[2m".as_bytes();
+const CONTENT_START: &[u8] = "\x1b[0m".as_bytes();
 
 const TOOL_CALL_START: &[u8] = "\x1b[0m".as_bytes();
 const TOOL_CALL_ARGUMENT_START: &[u8] = "\x1b[96m".as_bytes();
@@ -31,17 +31,6 @@ const WARN_START: &[u8] = "\x1b[38;5;208m".as_bytes();
 
 const MISSING_CHAR: char = '□';
 
-#[derive(PartialEq, Eq)]
-enum Section {
-    Prompt,
-    Think,
-    WebSearch,
-    Tool,
-    Content,
-    Stats,
-    Warn,
-}
-
 pub struct AgentWriter<'a, W: Write + Send> {
     writer: &'a mut W,
     show_reasoning: bool,
@@ -58,7 +47,21 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
     }
 
     fn section(&mut self, to_section: Section) {
-        if self.section == to_section {
+        if self.section != to_section {
+            // New section
+
+            match to_section {
+                Section::Think => {
+                    let _ = self.writer.write(THINK_START);
+                }
+                Section::Content => {
+                    let _ = self.writer.write(CONTENT_START);
+                }
+                _ => {}
+            }
+        } else {
+            // Existing section
+
             match to_section {
                 Section::WebSearch | Section::Tool => {
                     // These must go one per line
@@ -68,6 +71,7 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
             }
             return;
         }
+
         // Blank line between each section
         let _ = self.writer.write(b"\n\n");
         self.section = to_section;
@@ -77,15 +81,13 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
 impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
     fn write(&mut self, data: Response) -> OrtResult<()> {
         match data {
-            Response::Start => {}
+            // TODO: Should we show activity?
+            Response::Connecting | Response::Start => {}
             Response::Think(think) => {
                 if self.show_reasoning {
                     self.section(Section::Think);
                     match think {
-                        ThinkEvent::Start => {
-                            let _ = self.writer.write(MSG_THINK_START);
-                            let _ = self.writer.flush();
-                        }
+                        ThinkEvent::Start => {}
                         ThinkEvent::Content(s) => {
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
@@ -95,9 +97,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                             // ThinkEvent::Content.
                             // In agent.rs we send it back, model needs it.
                         }
-                        ThinkEvent::Stop => {
-                            let _ = self.writer.write(MSG_THINK_END);
-                        }
+                        ThinkEvent::Stop => {}
                     }
                 }
             }

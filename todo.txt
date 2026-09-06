@@ -1,6 +1,4 @@
 
-. art: Ensure the log has everything. Looks like it's only last turn.
-
 . Do the Section thing in ort too, copy from src/bin/art/output.rs . Is the right abstraction.
 
 . Handle truncated messages.
