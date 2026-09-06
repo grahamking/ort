@@ -8,12 +8,20 @@
 //! so deserializing openrouter.ai's response, and writing out
 //! to the screen/file/history.
 
-use crate::OrtResult;
+extern crate alloc;
+use core::ffi::c_void;
+
+use crate::common::error::ort_error;
+use crate::syscall;
+use crate::{ErrorKind, OrtResult, Write};
+
 use crate::common::data::Response;
 
+pub mod collected_writer;
+pub mod console_writer;
+pub mod file_writer;
 pub mod last_writer;
 pub mod logger;
-pub mod writer;
 
 // No \n in these constants!
 // That all goes in`section`
@@ -22,7 +30,6 @@ const CURSOR_ON: &[u8] = "\x1b[?25h".as_bytes();
 //const CURSOR_OFF: &str = "\x1b[?25l";
 const MSG_CONNECTING: &[u8] = "\x1b[?25lConnecting...\r".as_bytes();
 
-// \r{CLEAR_LINE}\n
 //const MSG_CLEAR_LINE: &[u8] = "\r\x1b[2K\n".as_bytes();
 const RESET: &[u8] = "\x1b[0m".as_bytes();
 
@@ -41,7 +48,6 @@ const WARN_START: &[u8] = "\x1b[38;5;208m".as_bytes();
 // animated look like they are spinning.
 // The array includes the ANSI escape to move back one character after each one
 // is printed, so they overwrite each other.
-//const BACK_ONE: &[u8] = "\x1b[1D".as_bytes();
 pub const SPINNER: [&[u8]; 4] = [
     "|\x1b[1D".as_bytes(),
     "/\x1b[1D".as_bytes(),
@@ -57,6 +63,23 @@ pub const MISSING_CHAR: char = '□';
 pub trait OutputWriter {
     fn write(&mut self, data: Response) -> OrtResult<()>;
     fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
+        Ok(())
+    }
+}
+
+pub struct StdoutWriter {}
+
+impl Write for StdoutWriter {
+    fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
+        let bytes_written = syscall::write(1, buf.as_ptr() as *const c_void, buf.len());
+        if bytes_written >= 0 {
+            Ok(bytes_written as usize)
+        } else {
+            Err(ort_error(ErrorKind::StdoutWriteFailed, ""))
+        }
+    }
+
+    fn flush(&mut self) -> OrtResult<()> {
         Ok(())
     }
 }

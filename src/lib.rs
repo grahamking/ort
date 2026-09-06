@@ -45,5 +45,5 @@ pub use net::{chunked, http};
 
 pub use output::OutputWriter;
 pub use output::Section;
+pub use output::StdoutWriter;
 pub use output::logger::Logger;
-pub use output::writer::StdoutWriter;
