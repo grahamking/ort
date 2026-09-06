@@ -1,11 +1,11 @@
 # Install
 
 1. Install rust from [rust-lang.org](https://rust-lang.org/) or your package manager, any version should work.
-2. Install the Rust version and component we need: `rustup toolchain install --profile minimal nightly-2026-03-25`
+2. Install the Rust version and component we need: `rustup toolchain install --profile minimal nightly-2026-09-01`
 3. Install `ort`:
 
 ```
-cargo +nightly-2026-03-25 install --locked ort-openrouter-cli
+cargo +nightly-2026-09-01 install --locked ort-openrouter-cli
 ```
 
 4. or build from source with `./build.sh` - note the agent builds into `target/release-art/`
