@@ -559,7 +559,7 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
 
 #[cfg(test)]
 mod test {
-    use super::{ActiveTool, EditTool, ReadTool, success};
+    use super::{ActiveTool, EditTool, success};
 
     fn temp_path(name: &str) -> String {
         let mut path = std::env::temp_dir();

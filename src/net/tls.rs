@@ -1146,7 +1146,7 @@ pub mod tests {
         }
         assert_eq!(bytes.len() % 2, 0, "hex string must have even length");
         let mut out = Vec::with_capacity(bytes.len() / 2);
-        for chunk in bytes.chunks_exact(2) {
+        for chunk in bytes.as_chunks::<2>().0 {
             let hi = hex_val(chunk[0]);
             let lo = hex_val(chunk[1]);
             out.push((hi << 4) | lo);
