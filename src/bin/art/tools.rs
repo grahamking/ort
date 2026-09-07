@@ -36,7 +36,7 @@ const TOOL_READ: Tool = Tool {
         ToolParameter {
             name: "offset",
             param_type: "number",
-            description: "Line number to start reading from (0-indexed)",
+            description: "Line number to start reading from (1-indexed)",
         },
         ToolParameter {
             name: "limit",
@@ -225,7 +225,10 @@ impl ActiveTool for ReadTool {
             .metadata()
             .map_err(|err| ort_err(ErrorKind::ToolRun, err.to_string().into()))?;
 
-        let offset = self.offset.map_or(0, |offset| offset as usize);
+        // saturating_sub because offset is 1-based.
+        let offset = self
+            .offset
+            .map_or(0, |offset| offset.saturating_sub(1) as usize);
         let limit = self
             .limit
             .map_or(DEFAULT_READ_LIMIT, |limit| limit as usize);
@@ -260,7 +263,7 @@ impl ActiveTool for ReadTool {
     }
 
     fn display(&self) -> ToolDisplay {
-        let offset = self.offset.unwrap_or(0);
+        let offset = self.offset.unwrap_or(1);
         let limit = self.limit.unwrap_or(DEFAULT_READ_LIMIT as u32);
         let extra = " lines ".to_string()
             + &num_to_string(offset)
@@ -556,7 +559,7 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
 
 #[cfg(test)]
 mod test {
-    use super::{ActiveTool, EditTool, success};
+    use super::{ActiveTool, EditTool, ReadTool, success};
 
     fn temp_path(name: &str) -> String {
         let mut path = std::env::temp_dir();
