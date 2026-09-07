@@ -48,33 +48,41 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
 
     fn section(&mut self, to_section: Section) {
         if self.section != to_section {
-            // New section
-
-            match to_section {
-                Section::Think => {
-                    let _ = self.writer.write(THINK_START);
-                }
-                Section::Content => {
-                    let _ = self.writer.write(CONTENT_START);
-                }
-                _ => {}
-            }
+            self.new_section(to_section);
         } else {
-            // Existing section
+            self.same_section();
+        }
+    }
 
-            match to_section {
-                Section::WebSearch | Section::Tool => {
-                    // These must go one per line
-                    let _ = self.writer.write_char('\n');
-                }
-                _ => {}
-            }
-            return;
+    fn new_section(&mut self, to_section: Section) {
+        // Blank line between each section
+        if self.section != Section::None {
+            let _ = self.writer.write(b"\n\n");
         }
 
-        // Blank line between each section
-        let _ = self.writer.write(b"\n\n");
+        // To
+        match to_section {
+            Section::Think => {
+                let _ = self.writer.write(THINK_START);
+            }
+            Section::Content => {
+                let _ = self.writer.write(CONTENT_START);
+            }
+            _ => {}
+        }
+
+        // Update
         self.section = to_section;
+    }
+
+    fn same_section(&mut self) {
+        match self.section {
+            Section::WebSearch | Section::Tool => {
+                // These must go one per line
+                let _ = self.writer.write_char('\n');
+            }
+            _ => {}
+        }
     }
 }
 

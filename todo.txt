@@ -1,3 +1,6 @@
+
+. Unify src/output/console_writer.rs `fn section` with src/bin/art/output.rs
+
 . Handle truncated messages.
 
 Which part should handle and validate that?
