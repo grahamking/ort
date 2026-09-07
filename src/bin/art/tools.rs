@@ -14,6 +14,8 @@ use alloc::vec::Vec;
 use std::fs;
 use std::io::{BufRead as _, BufReader};
 
+const TEXT_DETECTION_BYTES: usize = 8 * 1024;
+
 use ort_openrouter_cli::{
     ErrorKind, Function, OrtResult, Tool, ToolDisplay, ToolParameter, Write, file, json_parser,
     num_to_string, ort_err, syscall::system, write_json_str,
@@ -42,6 +44,11 @@ const TOOL_READ: Tool = Tool {
             name: "limit",
             param_type: "number",
             description: "Maximum number of lines to read",
+        },
+        ToolParameter {
+            name: "line_numbers",
+            param_type: "boolean",
+            description: "Add 1-based line numbers to text file output. Defaults to true.",
         },
     ],
     required_parameters: &["path"],
@@ -184,6 +191,8 @@ pub struct ReadTool {
     /// Maximum number of lines to read
     #[allow(unused)]
     pub limit: Option<u32>,
+    /// Add 1-based line numbers to text file output
+    pub line_numbers: bool,
 }
 
 impl ReadTool {
@@ -193,12 +202,14 @@ impl ReadTool {
             json_parser::JsonField::new_simple_string("path"),
             json_parser::JsonField::new_int("offset"),
             json_parser::JsonField::new_int("limit"),
+            json_parser::JsonField::new_bool("line_numbers"),
         ];
         json_parser::autoparser(json, &mut fields)?;
         Ok(ReadTool {
             path: fields[0].get_string().expect("Missing ReadTool path"),
             offset: fields[1].get_int(),
             limit: fields[2].get_int(),
+            line_numbers: fields[3].get_bool().unwrap_or(true),
         })
     }
 }
@@ -233,13 +244,28 @@ impl ActiveTool for ReadTool {
             .limit
             .map_or(DEFAULT_READ_LIMIT, |limit| limit as usize);
 
-        let reader = BufReader::new(f);
+        // Keep this buffer for the line reader after scanning its first 8 KiB.
+        // `contains` uses the standard library's optimized byte search.
+        let mut reader = BufReader::with_capacity(TEXT_DETECTION_BYTES, f);
+        let is_text = !reader
+            .fill_buf()
+            .map_err(|err| ort_err(ErrorKind::ToolRun, err.to_string().into()))?
+            .contains(&0); // NUL bytes don't appear in text files
         let content_lines: Vec<String> = reader
             .lines()
             .skip(offset)
             // We read one past the end to check if there is more
             .take(limit + 1)
-            .filter_map(|l| l.ok())
+            .enumerate()
+            .filter_map(|(index, line)| {
+                line.ok().map(|line| {
+                    if is_text && self.line_numbers {
+                        num_to_string(offset.saturating_add(index).saturating_add(1)) + ": " + &line
+                    } else {
+                        line
+                    }
+                })
+            })
             .collect();
         let num_lines = content_lines.len();
         let is_truncated = if num_lines > limit { "true" } else { "false" };
@@ -559,7 +585,7 @@ fn success(nums: &[(&'static str, usize)], strs: &[(&'static str, &str)]) -> Str
 
 #[cfg(test)]
 mod test {
-    use super::{ActiveTool, EditTool, success};
+    use super::{ActiveTool, EditTool, ReadTool, success};
 
     fn temp_path(name: &str) -> String {
         let mut path = std::env::temp_dir();
@@ -578,6 +604,24 @@ mod test {
         );
         let expected = r#"{"success": true, "bytes_written": 42, "path": "/home/graham/Temp/xyz.txt", "message": "Write completed."}"#;
         assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn read_adds_one_based_line_numbers_to_text_files() {
+        let path = temp_path("read_line_numbers");
+        std::fs::write(&path, "alpha\nbeta\n").unwrap();
+
+        let output = ReadTool {
+            path: path.clone(),
+            offset: Some(2),
+            limit: Some(1),
+            line_numbers: true,
+        }
+        .run()
+        .unwrap();
+
+        assert!(output.contains(r#""output": "2: beta""#));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

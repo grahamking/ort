@@ -119,18 +119,13 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                     return Ok(());
                 }
                 if self.show_reasoning {
-                    self.section(Section::Think);
                     match think {
-                        ThinkEvent::Start => {}
+                        ThinkEvent::Start | ThinkEvent::Stop | ThinkEvent::Details(_) => {}
                         ThinkEvent::Content(s) => {
+                            self.section(Section::Think);
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
-                        ThinkEvent::Details(_) => {
-                            // OpenRouter puts anything interesting from here into
-                            // ThinkEvent::Content
-                        }
-                        ThinkEvent::Stop => {}
                     }
                 } else {
                     match think {

@@ -93,19 +93,13 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             Response::Connecting | Response::Start => {}
             Response::Think(think) => {
                 if self.show_reasoning {
-                    self.section(Section::Think);
                     match think {
-                        ThinkEvent::Start => {}
+                        ThinkEvent::Start | ThinkEvent::Stop | ThinkEvent::Details(_) => {}
                         ThinkEvent::Content(s) => {
+                            self.section(Section::Think);
                             let _ = self.writer.write_all(s.as_bytes());
                             let _ = self.writer.flush();
                         }
-                        ThinkEvent::Details(_) => {
-                            // OpenRouter puts anything interesting from here into
-                            // ThinkEvent::Content.
-                            // In agent.rs we send it back, model needs it.
-                        }
-                        ThinkEvent::Stop => {}
                     }
                 }
             }
@@ -189,6 +183,7 @@ mod test {
             path: "LICENSE".to_string(),
             offset: Some(100),
             limit: Some(200),
+            line_numbers: true,
         };
         let events = [
             Response::Prompt("What is the license of this project?".to_string()),
