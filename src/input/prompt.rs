@@ -99,7 +99,7 @@ pub fn run<W: Write + Send>(
         ))
     };
     output_writer.write(Response::Connecting)?;
-    active_prompt.start()?;
+    active_prompt.send_request()?;
 
     loop {
         match active_prompt.next() {
@@ -217,7 +217,7 @@ pub fn run_multi<W: Write + Send>(
             idx,
             logger,
         );
-        active_prompt.start()?;
+        active_prompt.send_request()?;
         let socket_fd = active_prompt.as_fd();
 
         active_prompts.push(active_prompt);
@@ -396,7 +396,7 @@ impl ActivePrompt {
     }
 
     /// Start the HTTP request
-    pub fn start(&mut self) -> OrtResult<()> {
+    pub fn send_request(&mut self) -> OrtResult<()> {
         let body = build_body(self.model_idx, &self.cfg, &self.messages, &self.tools)
             .context("build_body")?;
         if let Some(l) = self.logger.as_mut() {
@@ -419,7 +419,7 @@ impl ActivePrompt {
                 })
                 .collect()
         };
-        let mut buf_reader = http::chat_completions(
+        let mut buf_reader = http::post_chat_completions(
             &self.api_key,
             host,
             base_path,

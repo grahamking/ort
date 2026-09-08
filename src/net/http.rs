@@ -167,7 +167,7 @@ const CHAT_REQ_MIDDLE: &[u8] = concat!(
 )
 .as_bytes();
 
-pub fn chat_completions(
+pub fn post_chat_completions(
     api_key: &str,
     host: &str,
     base_path: &str,

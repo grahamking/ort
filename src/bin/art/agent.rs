@@ -169,7 +169,7 @@ fn run_single<W: Write + Send>(
         0,
         logger,
     );
-    active_prompt.start()?;
+    active_prompt.send_request()?;
 
     let mut assistant_message = String::new();
     let mut assistant_tool_calls = None;
