@@ -1,5 +1,4 @@
-
-. Handle truncated messages.
+--- Handle truncated messages.
 
 Which part should handle and validate that?
 Also need to handle if the truncation happens reading tool call arguments. The tool cal needs an error.
@@ -11,8 +10,6 @@ Failed: ParsingToolCallParams. Parsing edit tool params JSON - FormatError: Pars
 FormatError: expected character in ChatCompletionsResponse autoparser
 ```
 
----
-
 OpenRouter's web search tool sometimes truncates citations
 
 "annotations":[{"type":"url_citation","url_citation":{"url":"https://discourse.haproxy.org/t/leastconn-for-websockets/5860","title":"Leastconn for Websockets","start_index":0,"end_index":0,"content":"It’s for new co
@@ -21,14 +18,52 @@ The above lines ends like that with a carriage return making it a full SSE event
 
 On error the parser should close all the things and pretend everything ended cleanly.
 
---- agent tools
-
-1. Harden bash
-	- Add a timeout.
-	- Consider optional cwd.
-	- Current implementation can hang forever and capture unlimited output: src/syscall.rs:792.
-
 --- TLS
+GPT 5.6 Terra list of unnecessary allocations or copies:
+
+1. **ServerHello is copied twice**                                                                                                                                               13:52 [24/54]
+   - `read_server_hello()` receives `payload` into `sh_buf`, parses slices into it, then returns:
+     - `sh_body.to_vec()`
+     - `sh_full.to_vec()`
+   - **Location:** `src/net/tls.rs:284–310`
+   - The source even notes this at line 308. `sh_full` is copied only to append it to the transcript; `sh_body` is copied only to parse the key share later. The parsing/transcript update could be arranged while retaining/borrowing the original record body, avoiding at least one intermediate copy.
+
+3. **The extensions buffer is copied into the ClientHello body**
+   - **Location:** `src/net/tls.rs:162, 260–261`
+   - `exts` is a separately allocated vector and its complete contents are copied into `ch_body`.
+   - Building extensions directly in `ch_body` (with an extensions-length placeholder) would avoid this allocation and full copy.
+
+4. **The ClientHello body is copied into a separate handshake-message buffer**
+   - **Location:** `src/net/tls.rs:272–280`
+   - `client_hello_body()` creates `ch_body`; `client_hello_msg()` then allocates `ch_msg` and copies `ch_body` into it.
+   - The handshake header can be reserved/written in the original buffer, or the body can be built after a four-byte prefix, avoiding `ch_body`’s separate allocation and its copy.
+
+5. **Every encrypted outgoing record uses two heap buffers and copies plaintext**
+   - **Location:** `src/net/tls.rs:862–894`
+   - `plain` is allocated and populated by copying `inner` plus one content-type byte (`872–874`).
+   - `aes_128_gcm_encrypt(...)` then returns another allocated `out` (`886`).
+   - Since TLS writes are chunked to at most 16 KiB, this is a significant per-record cost. An in-place encryption API or one reusable scratch buffer would remove one allocation and copy; accepting/appending directly into an output buffer could remove both transient buffers.
+
+6. **Decrypted plaintext is copied into `TlsStream::rbuf`, then copied again to the caller**
+   - **Location:** `src/net/tls.rs:740–810`, especially `800–805`
+   - `read_record_cipher()` produces an owned `plaintext` vector. It is copied into `self.rbuf`, then the requested prefix is copied to `out`.
+   - When the caller’s output buffer can hold the record plaintext, it could be copied directly from `plaintext` to `out`; only an unread remainder needs retaining. More broadly, reusing `rbuf` as the decryption destination would eliminate the intermediate decrypted-record allocation/copy.
+
+7. **Alert reporting allocates unnecessarily**
+   - **Location:** `src/net/tls.rs:779`
+   - `level.to_string() + " alert: "` allocates a Rust `String`, and `CString::new(...)` allocates again.
+   - The values are fixed literals (`"warning"`, `"fatal"`, `"unknown"`), so static NUL-terminated strings or direct writes would avoid both allocations. This is only on the alert/error path, so it is not a hot-path concern.
+
+8. **`hkdf_expand_label()` allocates an `info` vector for every label expansion**
+   - **Location:** `src/net/tls.rs:85–95`
+   - It uses a correctly sized `Vec`, so it should not reallocate, but each call still heap-allocates a small temporary buffer. The TLS handshake makes many such calls.
+   - Given the bounded TLS 1.3 label/context sizes used here, a fixed stack buffer or an HKDF expansion interface that streams the label fields would avoid these allocations. This is not a copy of an already-built buffer, but it is repeated unnecessary heap allocation.
+
+9. **Redundant array conversions after fixed-size HKDF expansion**
+   - **Locations:** `src/net/tls.rs:574–593` and `643–657`
+   - Calls such as `hkdf_expand_label::<16>(...).as_slice()[..16].try_into().unwrap()` create/copy another `[u8; 16]`, even though `hkdf_expand_label::<16>` already returns `[u8; 16]`. Likewise for 12-byte IVs. These are stack copies, not heap allocations, and are very small, but they are unnecessary.
+
+
 GPT 5.5. suggestions for consideration.
 
 - Support handshake fragmentation across records at src/net/tls.rs:416. Large certificate chains or split server flights can currently produce TlsHandshakeBodyTooShort. `receive_server_encrypted_flight` expects complete handshake messages inside one decrypted record at src/net/tls.rs:416. Large certificate chains or servers that split records can trigger TlsHandshakeBodyTooShort. Keep a handshake buffer and parse only when the full 4 + len bytes have arrived.
@@ -46,11 +81,6 @@ GPT 5.5. suggestions for consideration.
 --- Perf
 
 Performance ideas for the prompt path of ort, ordered by expected gain.
-
-6. Remove per-record TLS heap allocation and extra copies.
-- `src/net/tls.rs` allocates a fresh `Vec` for ciphertext, another for plaintext, then copies plaintext into `rbuf`.
-- Replace this with fixed scratch buffers inside `TlsStream`, decrypt directly into a reusable plaintext buffer.
-- This should cut allocator pressure, copies, and branchy small-object work.
 
 10. Parse SSE and JSON directly from bytes instead of building `String`s and mini ASTs.
 - The prompt path only really needs `delta.content`, `delta.reasoning`, and the final `usage.cost/provider/model`.
@@ -73,26 +103,10 @@ Performance ideas for the prompt path of ort, ordered by expected gain.
 - Cache the last-good IP and RTT, sort cached addresses by that RTT, or race a small number of nonblocking connects and use the first to finish.
 - This is especially helpful once DNS is cached because the next bottleneck becomes "which IP did we choose".
 
-18. If you do not want a sidecar cache, at least `mmap` and parse in place.
-- `filename_read_to_string` currently reads into a `Vec`, then runs `String::from_utf8_lossy`, then makes another owned copy.
-- `mmap` plus borrowed slices is smaller and faster than repeated buffered reads plus string copying for tiny config files.
-- The same trick can be used for the `last-*.json` file on `-c`.
-
-21. Keep request construction simple; it is already pretty good.
-- The JSON builder is not where the big wins are.
-- The remaining improvement is to build directly into the final request buffer and avoid one more copy before encryption.
-- Do not spend much time micro-tuning `build_body` until the network, TLS, parser, and thread issues above are fixed.
-
 22. Shrink handshake allocations with stack buffers where practical.
 - `client_hello_body`, `client_hello_msg`, `hkdf_expand_label`, `send_client_finished`, and some handshake parsing still allocate several short-lived `Vec`s.
 - These are cold-path allocations, so they rank below the app-data path, but they are still worth cleaning up because you care about both speed and binary size.
 - Stack or scratch-buffer versions should be straightforward because the message sizes are known and small.
-
-Summary of where I would spend time first:
-1. TLS resumption + 0-RTT.
-2. Real client-side TFO and one-record request send.
-3. remove per-record TLS allocations/copies.
-5. Direct byte-oriented SSE/JSON parsing.
 
 --- Agent
 

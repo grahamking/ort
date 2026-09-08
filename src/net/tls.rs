@@ -162,91 +162,63 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     let mut exts = Vec::with_capacity(512);
 
     // server_name
-    {
-        let host_bytes = sni_host.as_bytes();
-        let mut snl = Vec::with_capacity(3 + host_bytes.len());
-        snl.push(0); // host_name
-        put_u16(&mut snl, host_bytes.len() as u16);
-        snl.extend_from_slice(host_bytes);
-
-        let mut sni = Vec::with_capacity(2 + snl.len());
-        put_u16(&mut sni, snl.len() as u16);
-        sni.extend_from_slice(&snl);
-
-        put_u16(&mut exts, EXT_SERVER_NAME);
-        put_u16(&mut exts, sni.len() as u16);
-        exts.extend_from_slice(&sni);
-    }
+    let host_bytes = sni_host.as_bytes();
+    put_u16(&mut exts, EXT_SERVER_NAME);
+    let ext_len = 5 + host_bytes.len();
+    put_u16(&mut exts, ext_len as u16);
+    put_u16(&mut exts, 3 + host_bytes.len() as u16);
+    exts.push(0); // host_name
+    put_u16(&mut exts, host_bytes.len() as u16);
+    exts.extend_from_slice(host_bytes);
 
     // application_layer_protocol_negotiation: http/1.1
-    {
-        put_u16(&mut exts, EXT_ALPN);
-        put_u16(&mut exts, 11);
-        // protocol_name_list len u16 = 0x0009, protocol_name len u8 = 8, "http/1.1"
-        exts.extend_from_slice(&[0, 9, 8, b'h', b't', b't', b'p', b'/', b'1', b'.', b'1']);
-    }
+    put_u16(&mut exts, EXT_ALPN);
+    put_u16(&mut exts, 11);
+    // protocol_name_list len u16 = 0x0009
+    put_u16(&mut exts, 9u16);
+    // protocol_name len u8 = 8, "http/1.1"
+    exts.push(8);
+    exts.extend_from_slice(b"http/1.1");
 
     // supported_versions: TLS 1.3
-    {
-        let mut sv = Vec::with_capacity(3);
-        sv.push(2); // length in bytes
-        sv.extend_from_slice(&TLS13.to_be_bytes());
-        put_u16(&mut exts, EXT_SUPPORTED_VERSIONS);
-        put_u16(&mut exts, sv.len() as u16);
-        exts.extend_from_slice(&sv);
-    }
+    put_u16(&mut exts, EXT_SUPPORTED_VERSIONS);
+    put_u16(&mut exts, 3);
+    exts.push(2); // length in bytes
+    put_u16(&mut exts, TLS13);
 
     // supported_groups: x25519
-    {
-        let mut sg = Vec::with_capacity(2 + 2);
-        put_u16(&mut sg, 2);
-        put_u16(&mut sg, GROUP_X25519);
-        put_u16(&mut exts, EXT_SUPPORTED_GROUPS);
-        put_u16(&mut exts, sg.len() as u16);
-        exts.extend_from_slice(&sg);
-    }
+    put_u16(&mut exts, EXT_SUPPORTED_GROUPS);
+    put_u16(&mut exts, 4);
+    put_u16(&mut exts, 2);
+    put_u16(&mut exts, GROUP_X25519);
 
     // cert signature_algorithms
     // we don't validate signatures so support can be broad
-    {
-        const RSA_PKCS1_SHA256: u16 = 0x0401;
-        const ECDSA_SECP256R1_SHA256: u16 = 0x0403;
-        const RSA_PKCS1_SHA384: u16 = 0x0501;
-        const ECDSA_SECP384R1_SHA384: u16 = 0x0503;
-        const RSA_PSS_RSAE_SHA256: u16 = 0x0804;
-        const RSA_PSS_RSAE_SHA384: u16 = 0x0805;
-        const ED25519: u16 = 0x0807;
-
-        let mut sa = Vec::with_capacity(2 + 14);
-        put_u16(&mut sa, 14);
-        put_u16(&mut sa, ECDSA_SECP256R1_SHA256);
-        put_u16(&mut sa, RSA_PSS_RSAE_SHA256);
-        put_u16(&mut sa, RSA_PKCS1_SHA256);
-        put_u16(&mut sa, ED25519);
-        put_u16(&mut sa, ECDSA_SECP384R1_SHA384);
-        put_u16(&mut sa, RSA_PSS_RSAE_SHA384);
-        put_u16(&mut sa, RSA_PKCS1_SHA384);
-
-        put_u16(&mut exts, EXT_SIGNATURE_ALGS);
-        put_u16(&mut exts, sa.len() as u16);
-        exts.extend_from_slice(&sa);
-    }
+    const RSA_PKCS1_SHA256: u16 = 0x0401;
+    const ECDSA_SECP256R1_SHA256: u16 = 0x0403;
+    const RSA_PKCS1_SHA384: u16 = 0x0501;
+    const ECDSA_SECP384R1_SHA384: u16 = 0x0503;
+    const RSA_PSS_RSAE_SHA256: u16 = 0x0804;
+    const RSA_PSS_RSAE_SHA384: u16 = 0x0805;
+    const ED25519: u16 = 0x0807;
+    put_u16(&mut exts, EXT_SIGNATURE_ALGS);
+    put_u16(&mut exts, 16);
+    put_u16(&mut exts, 14);
+    put_u16(&mut exts, ECDSA_SECP256R1_SHA256);
+    put_u16(&mut exts, RSA_PSS_RSAE_SHA256);
+    put_u16(&mut exts, RSA_PKCS1_SHA256);
+    put_u16(&mut exts, ED25519);
+    put_u16(&mut exts, ECDSA_SECP384R1_SHA384);
+    put_u16(&mut exts, RSA_PSS_RSAE_SHA384);
+    put_u16(&mut exts, RSA_PKCS1_SHA384);
 
     // key_share: x25519
-    {
-        let mut ks = Vec::with_capacity(2 + 2 + 2 + 32);
-        // client_shares vector
-        let mut entry = Vec::with_capacity(2 + 2 + 32);
-        put_u16(&mut entry, GROUP_X25519);
-        put_u16(&mut entry, 32);
-        entry.extend_from_slice(client_pub);
-        put_u16(&mut ks, entry.len() as u16);
-        ks.extend_from_slice(&entry);
-
-        put_u16(&mut exts, EXT_KEY_SHARE);
-        put_u16(&mut exts, ks.len() as u16);
-        exts.extend_from_slice(&ks);
-    }
+    put_u16(&mut exts, EXT_KEY_SHARE);
+    put_u16(&mut exts, 38);
+    put_u16(&mut exts, 36);
+    put_u16(&mut exts, GROUP_X25519);
+    put_u16(&mut exts, 32);
+    exts.extend_from_slice(client_pub);
 
     // Pre-shared keys / session tickets allow skipping cert verification
     // on resume. Server doesn't need to send it's cert.
@@ -258,7 +230,7 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
 
     // add extensions to CH
     put_u16(&mut ch_body, exts.len() as u16);
-    ch_body.extend_from_slice(&exts);
+    ch_body.append(&mut exts);
 
     ch_body
 }
@@ -286,12 +258,10 @@ fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
     if typ != REC_TYPE_HANDSHAKE {
         return Err(ort_error(ErrorKind::TlsExpectedHandshakeRecord, ""));
     }
-    let sh_buf = payload;
 
     // There can be multiple handshake messages; we need the ServerHello bytes specifically
-    let mut rd = &sh_buf[..];
     let (sh_typ, sh_body, sh_full) =
-        read_handshake_message(&mut rd).context("read_handshake_message")?;
+        read_handshake_message(&mut &payload[..]).context("read_handshake_message")?;
     if sh_typ != HS_SERVER_HELLO {
         return Err(ort_error(
             ErrorKind::TlsExpectedServerHello,
@@ -305,7 +275,7 @@ fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
         ));
     }
 
-    // TODO: later remove the copy. The slices are into sh_buf
+    // TODO: later remove the copy. The slices are into payload
     Ok((sh_body.to_vec(), sh_full.to_vec()))
 }
 
