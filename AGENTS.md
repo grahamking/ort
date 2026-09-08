@@ -6,7 +6,9 @@ It has two commands:
 - Prompt: `ort -m <model-id> "The prompt"`. Default mode.
 - List: `ort list` to show available models.
 
-After completing a change, always call these in order:
+Separately, there is a minimal agent harness in binary `src/bin/art` which does use the standard library.
+
+After completing a change that changed a file, call these in order. Do not call them for a code review:
 - `cargo fmt`
 - `cargo clippy`
 - `cargo test`

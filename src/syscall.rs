@@ -530,6 +530,31 @@ pub fn fcntl(fd: c_int, op: c_int, flags: c_int) -> c_int {
     ret
 }
 
+/// Convenience function to set an fd to blocking or non-blocking.
+/// It does two syscalls: Read current flags, then fcntl +/- the nonblock flag.
+pub fn set_blocking(fd: c_int, is_blocking: bool) -> OrtResult<()> {
+    let current_flags = fcntl(fd, F_GETFL, 0);
+    if current_flags < 0 {
+        return Err(ort_error(
+            ErrorKind::SocketFcntlFailed,
+            "set_blocking F_GETFL",
+        ));
+    }
+    let new_flags = if is_blocking {
+        current_flags & !O_NONBLOCK
+    } else {
+        current_flags | O_NONBLOCK
+    };
+    let result = fcntl(fd, F_SETFL, new_flags);
+    if result < 0 {
+        return Err(ort_error(
+            ErrorKind::SocketFcntlFailed,
+            "set_blocking F_SETFL",
+        ));
+    }
+    Ok(())
+}
+
 pub fn epoll_create(size: c_int) -> c_int {
     let mut ret: c_int;
     unsafe {

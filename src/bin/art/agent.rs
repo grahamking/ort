@@ -109,14 +109,21 @@ pub fn run<W: Write + Send>(
                 &mut total_stats,
                 logger,
             )?;
+
+            // Do we need to inject a user message?
+            if has_more_turns && let Some(prompt) = poll_next_prompt(ifd, &filename)? {
+                messages.push(Message::user(prompt.clone()));
+                output_writer.write(Response::Prompt(prompt))?;
+            };
+
             // After last turn show stats
             if !has_more_turns {
                 output_writer.write(Response::Stats(total_stats.clone()))?;
             }
         }
 
-        // Wait for the next user prompt
-        let Some(prompt) = next_prompt(ifd, &filename)? else {
+        // The model is done. Wait for the next user prompt.
+        let Some(prompt) = wait_next_prompt(ifd, &filename)? else {
             break;
         };
         messages.push(Message::user(prompt.clone()));
@@ -127,9 +134,19 @@ pub fn run<W: Write + Send>(
     Ok(())
 }
 
-/// Wait for next user prompt
-fn next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
+/// Non-blocking waiting for next user prompt
+fn poll_next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
+    next_prompt(ifd, prompt_filename, false)
+}
+
+/// Block waiting for next user prompt
+fn wait_next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
+    next_prompt(ifd, prompt_filename, true)
+}
+
+fn next_prompt(ifd: i32, prompt_filename: &str, block: bool) -> OrtResult<Option<String>> {
     let mut ie = MaybeUninit::<inotify::inotify_event>::uninit();
+    syscall::set_blocking(ifd, block)?;
     let res = syscall::read(
         ifd,
         ie.as_mut_ptr() as *mut c_void,

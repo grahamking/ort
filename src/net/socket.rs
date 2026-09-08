@@ -38,10 +38,19 @@ impl TcpSocket {
         // Get the current flags
         let flags = syscall::fcntl(self.fd, syscall::F_GETFL, 0);
         if flags < 0 {
-            return Err(ort_error(ErrorKind::SocketConnectFailed, ""));
+            return Err(ort_error(
+                ErrorKind::SocketFcntlFailed,
+                "connect reading socket flags",
+            ));
         }
         // Set socket to non blocking by adding to current flags
-        syscall::fcntl(self.fd, syscall::F_SETFL, flags | syscall::O_NONBLOCK);
+        let res = syscall::fcntl(self.fd, syscall::F_SETFL, flags | syscall::O_NONBLOCK);
+        if res < 0 {
+            return Err(ort_error(
+                ErrorKind::SocketFcntlFailed,
+                "connect setting socket flags to NONBLOCK",
+            ));
+        }
 
         let res = syscall::connect(
             self.fd,
@@ -50,7 +59,7 @@ impl TcpSocket {
         );
         // connect failed before we even started, not sure when this can happen
         if res < 0 && res != syscall::EINPROGRESS {
-            syscall::fcntl(self.fd, syscall::F_SETFL, flags);
+            let _ = syscall::fcntl(self.fd, syscall::F_SETFL, flags);
             return Err(ort_error(
                 ErrorKind::SocketConnectFailed,
                 "non-blocking connect failed",
@@ -72,12 +81,18 @@ impl TcpSocket {
                 ) < 0
                 || err != 0
             {
-                syscall::fcntl(self.fd, syscall::F_SETFL, flags);
+                let _ = syscall::fcntl(self.fd, syscall::F_SETFL, flags);
                 return Err(ort_error(ErrorKind::SocketConnectFailed, "timed out"));
             }
         }
         // Success. Set socket back to blocking mode by restoring flags
-        syscall::fcntl(self.fd, syscall::F_SETFL, flags);
+        let res = syscall::fcntl(self.fd, syscall::F_SETFL, flags);
+        if res < 0 {
+            return Err(ort_error(
+                ErrorKind::SocketFcntlFailed,
+                "connect setting socket flags back to blocking",
+            ));
+        }
         Ok(())
     }
 }

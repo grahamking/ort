@@ -65,6 +65,7 @@ pub enum ErrorKind {
     SocketCreateFailed,
     // libc::connect failed
     SocketConnectFailed,
+    SocketFcntlFailed,
     SocketReadFailed,
     SocketWriteFailed,
 
