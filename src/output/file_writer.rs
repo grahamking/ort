@@ -31,45 +31,13 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
 
     fn section(&mut self, to_section: Section) {
         if self.section != to_section {
-            self.new_section(to_section);
+            if self.section == Section::Think {
+                let _ = self.writer.write("</think>".as_bytes());
+            }
+            Section::change(self.section, to_section, "<think>".as_bytes(), self.writer);
+            self.section = to_section;
         } else {
-            self.same_section();
-        }
-    }
-
-    fn new_section(&mut self, to_section: Section) {
-        // From
-        if self.section == Section::Think {
-            let _ = self.writer.write("</think>".as_bytes());
-        }
-
-        // Blank line between each section
-        if self.section != Section::None {
-            let _ = self.writer.write(b"\n\n");
-        }
-
-        // To
-        match to_section {
-            Section::Think => {
-                let _ = self.writer.write("<think>".as_bytes());
-            }
-            Section::Content => {
-                let _ = self.writer.write(super::CONTENT_START);
-            }
-            _ => {}
-        }
-
-        // Update
-        self.section = to_section;
-    }
-
-    fn same_section(&mut self) {
-        match self.section {
-            Section::WebSearch | Section::Tool => {
-                // These must go one per line
-                let _ = self.writer.write_char('\n');
-            }
-            _ => {}
+            Section::same(self.section, self.writer);
         }
     }
 }

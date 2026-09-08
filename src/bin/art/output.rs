@@ -13,7 +13,6 @@ use ort_openrouter_cli::{
 // That all goes in`section`
 
 const THINK_START: &[u8] = "\x1b[0m\x1b[2m".as_bytes();
-const CONTENT_START: &[u8] = "\x1b[0m".as_bytes();
 
 const TOOL_CALL_START: &[u8] = "\x1b[0m".as_bytes();
 const TOOL_CALL_ARGUMENT_START: &[u8] = "\x1b[96m".as_bytes();
@@ -48,40 +47,10 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
 
     fn section(&mut self, to_section: Section) {
         if self.section != to_section {
-            self.new_section(to_section);
+            Section::change(self.section, to_section, THINK_START, self.writer);
+            self.section = to_section;
         } else {
-            self.same_section();
-        }
-    }
-
-    fn new_section(&mut self, to_section: Section) {
-        // Blank line between each section
-        if self.section != Section::None {
-            let _ = self.writer.write(b"\n\n");
-        }
-
-        // To
-        match to_section {
-            Section::Think => {
-                let _ = self.writer.write(THINK_START);
-            }
-            Section::Content => {
-                let _ = self.writer.write(CONTENT_START);
-            }
-            _ => {}
-        }
-
-        // Update
-        self.section = to_section;
-    }
-
-    fn same_section(&mut self) {
-        match self.section {
-            Section::WebSearch | Section::Tool => {
-                // These must go one per line
-                let _ = self.writer.write_char('\n');
-            }
-            _ => {}
+            Section::same(self.section, self.writer);
         }
     }
 }

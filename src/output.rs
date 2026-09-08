@@ -84,7 +84,8 @@ impl Write for StdoutWriter {
     }
 }
 
-#[derive(PartialEq, Eq)]
+/// Section is in charge of formatting output by adding new lines as appropriate.
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub enum Section {
     None,
     Prompt,
@@ -94,4 +95,41 @@ pub enum Section {
     Content,
     Stats,
     Warn,
+}
+
+impl Section {
+    /// Move to a new section, e.g. Think is done now show Content
+    pub fn change<T: Write>(
+        from_section: Section,
+        to_section: Section,
+        think_start: &[u8],
+        writer: &mut T,
+    ) {
+        // Blank line between each section
+        if from_section != Section::None {
+            let _ = writer.write(b"\n\n");
+        }
+
+        // To
+        match to_section {
+            Section::Think => {
+                let _ = writer.write(think_start);
+            }
+            Section::Content => {
+                let _ = writer.write(CONTENT_START);
+            }
+            _ => {}
+        }
+    }
+
+    /// More content for the same section. Usually do nothing.
+    pub fn same<T: Write>(section: Section, writer: &mut T) {
+        match section {
+            Section::WebSearch | Section::Tool => {
+                // These must go one per line
+                let _ = writer.write_char('\n');
+            }
+            _ => {}
+        }
+    }
 }
