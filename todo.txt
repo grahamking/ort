@@ -21,13 +21,6 @@ On error the parser should close all the things and pretend everything ended cle
 --- TLS
 GPT 5.6 Terra list of unnecessary allocations or copies:
 
-1. **ServerHello is copied twice**                                                                                                                                               13:52 [24/54]
-   - `read_server_hello()` receives `payload` into `sh_buf`, parses slices into it, then returns:
-     - `sh_body.to_vec()`
-     - `sh_full.to_vec()`
-   - **Location:** `src/net/tls.rs:284–310`
-   - The source even notes this at line 308. `sh_full` is copied only to append it to the transcript; `sh_body` is copied only to parse the key share later. The parsing/transcript update could be arranged while retaining/borrowing the original record body, avoiding at least one intermediate copy.
-
 3. **The extensions buffer is copied into the ClientHello body**
    - **Location:** `src/net/tls.rs:162, 260–261`
    - `exts` is a separately allocated vector and its complete contents are copied into `ch_body`.

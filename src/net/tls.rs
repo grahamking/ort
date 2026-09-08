@@ -6,7 +6,7 @@
 //
 //! ---------------------- Minimal TLS 1.3 client (AES-128-GCM + X25519) -------
 
-use core::{cmp, ffi::CStr};
+use core::{cmp, ffi::CStr, ops::Range};
 
 extern crate alloc;
 use alloc::ffi::CString;
@@ -253,15 +253,16 @@ fn client_hello_msg(sni_host: &str, client_private_key: &[u8]) -> OrtResult<Vec<
 }
 
 /// Read ServerHello (plaintext Handshake record)
-fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
+fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Range<usize>, Range<usize>)> {
     let (typ, payload) = read_record_plain(io).context("read_record_plain in read_server_hello")?;
     if typ != REC_TYPE_HANDSHAKE {
         return Err(ort_error(ErrorKind::TlsExpectedHandshakeRecord, ""));
     }
 
     // There can be multiple handshake messages; we need the ServerHello bytes specifically
-    let (sh_typ, sh_body, sh_full) =
+    let (sh_typ, sh_body_len, sh_full_len) =
         read_handshake_message(&mut &payload[..]).context("read_handshake_message")?;
+    let sh_body = &payload[4..4 + sh_body_len];
     if sh_typ != HS_SERVER_HELLO {
         return Err(ort_error(
             ErrorKind::TlsExpectedServerHello,
@@ -275,8 +276,7 @@ fn read_server_hello<R: Read>(io: &mut R) -> OrtResult<(Vec<u8>, Vec<u8>)> {
         ));
     }
 
-    // TODO: later remove the copy. The slices are into payload
-    Ok((sh_body.to_vec(), sh_full.to_vec()))
+    Ok((payload, 4..4 + sh_body_len, 0..sh_full_len))
 }
 
 struct HandshakeState {
@@ -312,9 +312,11 @@ impl<T: Read + Write> TlsStream<T> {
         Self::send_client_hello(&mut io, sni_host, &mut transcript, &client_private_key)?;
 
         debug_print("MSG <- ServerHello", &[]);
-        let sh_body = Self::receive_server_hello(&mut io, &mut transcript)?;
+        let (server_hello_payload, server_hello_body_range) =
+            Self::receive_server_hello(&mut io, &mut transcript)?;
+        let sh_body = &server_hello_payload[server_hello_body_range];
 
-        let handshake = Self::derive_handshake_keys(&client_private_key, &sh_body, &transcript)?;
+        let handshake = Self::derive_handshake_keys(&client_private_key, sh_body, &transcript)?;
 
         let mut first_encrypted_record = {
             debug_print("MSG <- ChangeCipherSpec (dummy, optional)", &[]);
@@ -414,10 +416,13 @@ impl<T: Read + Write> TlsStream<T> {
         Ok(())
     }
 
-    fn receive_server_hello<R: Read>(io: &mut R, transcript: &mut Vec<u8>) -> OrtResult<Vec<u8>> {
-        let (sh_body, sh_full) = read_server_hello(io)?;
-        transcript.extend_from_slice(&sh_full);
-        Ok(sh_body)
+    fn receive_server_hello<R: Read>(
+        io: &mut R,
+        transcript: &mut Vec<u8>,
+    ) -> OrtResult<(Vec<u8>, Range<usize>)> {
+        let (payload, sh_body_range, sh_full_range) = read_server_hello(io)?;
+        transcript.extend_from_slice(&payload[sh_full_range]);
+        Ok((payload, sh_body_range))
     }
 
     fn skip_dummy_change_cipher_specs<R: Read>(io: &mut R) -> OrtResult<Option<Record>> {
@@ -469,7 +474,8 @@ impl<T: Read + Write> TlsStream<T> {
         // May contain multiple handshake messages; parse & append to transcript.
         let mut p = &ct[..];
         while !p.is_empty() {
-            let (mtyp, body, full) = match read_handshake_message(&mut p) {
+            let message_start = ct.len() - p.len();
+            let (mtyp, body_len, full_len) = match read_handshake_message(&mut p) {
                 Ok(x) => x,
                 Err(err) => {
                     return Err(ort_err(
@@ -478,6 +484,8 @@ impl<T: Read + Write> TlsStream<T> {
                     ));
                 }
             };
+            let full = &ct[message_start..message_start + full_len];
+            let body = &full[4..4 + body_len];
             transcript.extend_from_slice(full);
             debug_print("handshake message (type is first byte)", full);
 
@@ -929,7 +937,7 @@ fn strip_tls_inner_plaintext(out: &mut Vec<u8>) -> u8 {
 
 // ---------------------- Handshake parsing helpers ---------------------------
 
-fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> OrtResult<(u8, &'a [u8], &'a [u8])> {
+fn read_handshake_message(rd: &mut &[u8]) -> OrtResult<(u8, usize, usize)> {
     if rd.len() < 4 {
         return Err(ort_error(ErrorKind::TlsHandshakeHeaderTooShort, ""));
     }
@@ -938,10 +946,10 @@ fn read_handshake_message<'a>(rd: &mut &'a [u8]) -> OrtResult<(u8, &'a [u8], &'a
     if rd.len() < 4 + len {
         return Err(ort_error(ErrorKind::TlsHandshakeBodyTooShort, ""));
     }
-    let full = &rd[..4 + len];
-    let body = &rd[4..4 + len];
-    *rd = &rd[4 + len..];
-    Ok((typ, body, full))
+    let full_len = 4 + len;
+    let body_len = len;
+    *rd = &rd[full_len..];
+    Ok((typ, body_len, full_len))
 }
 
 fn parse_server_hello_for_keys(sh: &[u8]) -> OrtResult<(u16, [u8; 32])> {
