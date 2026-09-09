@@ -135,7 +135,8 @@ pub struct TlsStream<T: Read + Write> {
 }
 
 fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
-    let mut ch_body = Vec::with_capacity(512);
+    // Length depends on sni_host. It's 189 bytes for openrouter.ai
+    let mut ch_body = Vec::with_capacity(256);
 
     // X25519
     let mut random = [0u8; 32];
@@ -159,38 +160,41 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     ch_body.push(0);
 
     // --- extensions ---
-    let mut exts = Vec::with_capacity(512);
+
+    // Extension length will go here at the end
+    put_u16(&mut ch_body, 0u16);
+    let ext_start = ch_body.len();
 
     // server_name
     let host_bytes = sni_host.as_bytes();
-    put_u16(&mut exts, EXT_SERVER_NAME);
+    put_u16(&mut ch_body, EXT_SERVER_NAME);
     let ext_len = 5 + host_bytes.len();
-    put_u16(&mut exts, ext_len as u16);
-    put_u16(&mut exts, 3 + host_bytes.len() as u16);
-    exts.push(0); // host_name
-    put_u16(&mut exts, host_bytes.len() as u16);
-    exts.extend_from_slice(host_bytes);
+    put_u16(&mut ch_body, ext_len as u16);
+    put_u16(&mut ch_body, 3 + host_bytes.len() as u16);
+    ch_body.push(0); // host_name
+    put_u16(&mut ch_body, host_bytes.len() as u16);
+    ch_body.extend_from_slice(host_bytes);
 
     // application_layer_protocol_negotiation: http/1.1
-    put_u16(&mut exts, EXT_ALPN);
-    put_u16(&mut exts, 11);
+    put_u16(&mut ch_body, EXT_ALPN);
+    put_u16(&mut ch_body, 11);
     // protocol_name_list len u16 = 0x0009
-    put_u16(&mut exts, 9u16);
+    put_u16(&mut ch_body, 9u16);
     // protocol_name len u8 = 8, "http/1.1"
-    exts.push(8);
-    exts.extend_from_slice(b"http/1.1");
+    ch_body.push(8);
+    ch_body.extend_from_slice(b"http/1.1");
 
     // supported_versions: TLS 1.3
-    put_u16(&mut exts, EXT_SUPPORTED_VERSIONS);
-    put_u16(&mut exts, 3);
-    exts.push(2); // length in bytes
-    put_u16(&mut exts, TLS13);
+    put_u16(&mut ch_body, EXT_SUPPORTED_VERSIONS);
+    put_u16(&mut ch_body, 3);
+    ch_body.push(2); // length in bytes
+    put_u16(&mut ch_body, TLS13);
 
     // supported_groups: x25519
-    put_u16(&mut exts, EXT_SUPPORTED_GROUPS);
-    put_u16(&mut exts, 4);
-    put_u16(&mut exts, 2);
-    put_u16(&mut exts, GROUP_X25519);
+    put_u16(&mut ch_body, EXT_SUPPORTED_GROUPS);
+    put_u16(&mut ch_body, 4);
+    put_u16(&mut ch_body, 2);
+    put_u16(&mut ch_body, GROUP_X25519);
 
     // cert signature_algorithms
     // we don't validate signatures so support can be broad
@@ -201,36 +205,38 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     const RSA_PSS_RSAE_SHA256: u16 = 0x0804;
     const RSA_PSS_RSAE_SHA384: u16 = 0x0805;
     const ED25519: u16 = 0x0807;
-    put_u16(&mut exts, EXT_SIGNATURE_ALGS);
-    put_u16(&mut exts, 16);
-    put_u16(&mut exts, 14);
-    put_u16(&mut exts, ECDSA_SECP256R1_SHA256);
-    put_u16(&mut exts, RSA_PSS_RSAE_SHA256);
-    put_u16(&mut exts, RSA_PKCS1_SHA256);
-    put_u16(&mut exts, ED25519);
-    put_u16(&mut exts, ECDSA_SECP384R1_SHA384);
-    put_u16(&mut exts, RSA_PSS_RSAE_SHA384);
-    put_u16(&mut exts, RSA_PKCS1_SHA384);
+    put_u16(&mut ch_body, EXT_SIGNATURE_ALGS);
+    put_u16(&mut ch_body, 16);
+    put_u16(&mut ch_body, 14);
+    put_u16(&mut ch_body, ECDSA_SECP256R1_SHA256);
+    put_u16(&mut ch_body, RSA_PSS_RSAE_SHA256);
+    put_u16(&mut ch_body, RSA_PKCS1_SHA256);
+    put_u16(&mut ch_body, ED25519);
+    put_u16(&mut ch_body, ECDSA_SECP384R1_SHA384);
+    put_u16(&mut ch_body, RSA_PSS_RSAE_SHA384);
+    put_u16(&mut ch_body, RSA_PKCS1_SHA384);
 
     // key_share: x25519
-    put_u16(&mut exts, EXT_KEY_SHARE);
-    put_u16(&mut exts, 38);
-    put_u16(&mut exts, 36);
-    put_u16(&mut exts, GROUP_X25519);
-    put_u16(&mut exts, 32);
-    exts.extend_from_slice(client_pub);
+    put_u16(&mut ch_body, EXT_KEY_SHARE);
+    put_u16(&mut ch_body, 38);
+    put_u16(&mut ch_body, 36);
+    put_u16(&mut ch_body, GROUP_X25519);
+    put_u16(&mut ch_body, 32);
+    ch_body.extend_from_slice(client_pub);
 
     // Pre-shared keys / session tickets allow skipping cert verification
     // on resume. Server doesn't need to send it's cert.
     // We don't verify it anyway so not a big benefit.
     //
-    // put_u16(&mut exts, EXT_PSK_MODES);
-    // put_u16(&mut exts, 2); // extension length
-    // exts.extend_from_slice(&[1, 1]); // vec length, psk_dhe_ke
+    // put_u16(&mut ch_body, EXT_PSK_MODES);
+    // put_u16(&mut ch_body, 2); // extension length
+    // ch_body.extend_from_slice(&[1, 1]); // vec length, psk_dhe_ke
 
     // add extensions to CH
-    put_u16(&mut ch_body, exts.len() as u16);
-    ch_body.append(&mut exts);
+    let ext_len = ch_body.len() - ext_start;
+    let ext_len_bytes = (ext_len as u16).to_be_bytes();
+    ch_body[ext_start - 2] = ext_len_bytes[0];
+    ch_body[ext_start - 1] = ext_len_bytes[1];
 
     ch_body
 }

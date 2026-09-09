@@ -21,11 +21,6 @@ On error the parser should close all the things and pretend everything ended cle
 --- TLS
 GPT 5.6 Terra list of unnecessary allocations or copies:
 
-3. **The extensions buffer is copied into the ClientHello body**
-   - **Location:** `src/net/tls.rs:162, 260–261`
-   - `exts` is a separately allocated vector and its complete contents are copied into `ch_body`.
-   - Building extensions directly in `ch_body` (with an extensions-length placeholder) would avoid this allocation and full copy.
-
 4. **The ClientHello body is copied into a separate handshake-message buffer**
    - **Location:** `src/net/tls.rs:272–280`
    - `client_hello_body()` creates `ch_body`; `client_hello_msg()` then allocates `ch_msg` and copies `ch_body` into it.
