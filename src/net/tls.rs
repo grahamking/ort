@@ -134,10 +134,7 @@ pub struct TlsStream<T: Read + Write> {
     rpos: usize,
 }
 
-fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
-    // Length depends on sni_host. It's 189 bytes for openrouter.ai
-    let mut ch_body = Vec::with_capacity(256);
-
+fn client_hello_body(ch_body: &mut Vec<u8>, sni_host: &str, client_pub: &[u8]) {
     // X25519
     let mut random = [0u8; 32];
     syscall::getrandom(&mut random);
@@ -153,8 +150,8 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     ch_body.push(session_id.len() as u8);
     ch_body.extend_from_slice(&session_id);
     // cipher_suites: only TLS_AES_128_GCM_SHA256
-    put_u16(&mut ch_body, 2);
-    put_u16(&mut ch_body, CIPHER_TLS_AES_128_GCM_SHA256);
+    put_u16(ch_body, 2);
+    put_u16(ch_body, CIPHER_TLS_AES_128_GCM_SHA256);
     // legacy_compression_methods: null
     ch_body.push(1);
     ch_body.push(0);
@@ -162,39 +159,39 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     // --- extensions ---
 
     // Extension length will go here at the end
-    put_u16(&mut ch_body, 0u16);
+    put_u16(ch_body, 0u16);
     let ext_start = ch_body.len();
 
     // server_name
     let host_bytes = sni_host.as_bytes();
-    put_u16(&mut ch_body, EXT_SERVER_NAME);
+    put_u16(ch_body, EXT_SERVER_NAME);
     let ext_len = 5 + host_bytes.len();
-    put_u16(&mut ch_body, ext_len as u16);
-    put_u16(&mut ch_body, 3 + host_bytes.len() as u16);
+    put_u16(ch_body, ext_len as u16);
+    put_u16(ch_body, 3 + host_bytes.len() as u16);
     ch_body.push(0); // host_name
-    put_u16(&mut ch_body, host_bytes.len() as u16);
+    put_u16(ch_body, host_bytes.len() as u16);
     ch_body.extend_from_slice(host_bytes);
 
     // application_layer_protocol_negotiation: http/1.1
-    put_u16(&mut ch_body, EXT_ALPN);
-    put_u16(&mut ch_body, 11);
+    put_u16(ch_body, EXT_ALPN);
+    put_u16(ch_body, 11);
     // protocol_name_list len u16 = 0x0009
-    put_u16(&mut ch_body, 9u16);
+    put_u16(ch_body, 9u16);
     // protocol_name len u8 = 8, "http/1.1"
     ch_body.push(8);
     ch_body.extend_from_slice(b"http/1.1");
 
     // supported_versions: TLS 1.3
-    put_u16(&mut ch_body, EXT_SUPPORTED_VERSIONS);
-    put_u16(&mut ch_body, 3);
+    put_u16(ch_body, EXT_SUPPORTED_VERSIONS);
+    put_u16(ch_body, 3);
     ch_body.push(2); // length in bytes
-    put_u16(&mut ch_body, TLS13);
+    put_u16(ch_body, TLS13);
 
     // supported_groups: x25519
-    put_u16(&mut ch_body, EXT_SUPPORTED_GROUPS);
-    put_u16(&mut ch_body, 4);
-    put_u16(&mut ch_body, 2);
-    put_u16(&mut ch_body, GROUP_X25519);
+    put_u16(ch_body, EXT_SUPPORTED_GROUPS);
+    put_u16(ch_body, 4);
+    put_u16(ch_body, 2);
+    put_u16(ch_body, GROUP_X25519);
 
     // cert signature_algorithms
     // we don't validate signatures so support can be broad
@@ -205,23 +202,23 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     const RSA_PSS_RSAE_SHA256: u16 = 0x0804;
     const RSA_PSS_RSAE_SHA384: u16 = 0x0805;
     const ED25519: u16 = 0x0807;
-    put_u16(&mut ch_body, EXT_SIGNATURE_ALGS);
-    put_u16(&mut ch_body, 16);
-    put_u16(&mut ch_body, 14);
-    put_u16(&mut ch_body, ECDSA_SECP256R1_SHA256);
-    put_u16(&mut ch_body, RSA_PSS_RSAE_SHA256);
-    put_u16(&mut ch_body, RSA_PKCS1_SHA256);
-    put_u16(&mut ch_body, ED25519);
-    put_u16(&mut ch_body, ECDSA_SECP384R1_SHA384);
-    put_u16(&mut ch_body, RSA_PSS_RSAE_SHA384);
-    put_u16(&mut ch_body, RSA_PKCS1_SHA384);
+    put_u16(ch_body, EXT_SIGNATURE_ALGS);
+    put_u16(ch_body, 16);
+    put_u16(ch_body, 14);
+    put_u16(ch_body, ECDSA_SECP256R1_SHA256);
+    put_u16(ch_body, RSA_PSS_RSAE_SHA256);
+    put_u16(ch_body, RSA_PKCS1_SHA256);
+    put_u16(ch_body, ED25519);
+    put_u16(ch_body, ECDSA_SECP384R1_SHA384);
+    put_u16(ch_body, RSA_PSS_RSAE_SHA384);
+    put_u16(ch_body, RSA_PKCS1_SHA384);
 
     // key_share: x25519
-    put_u16(&mut ch_body, EXT_KEY_SHARE);
-    put_u16(&mut ch_body, 38);
-    put_u16(&mut ch_body, 36);
-    put_u16(&mut ch_body, GROUP_X25519);
-    put_u16(&mut ch_body, 32);
+    put_u16(ch_body, EXT_KEY_SHARE);
+    put_u16(ch_body, 38);
+    put_u16(ch_body, 36);
+    put_u16(ch_body, GROUP_X25519);
+    put_u16(ch_body, 32);
     ch_body.extend_from_slice(client_pub);
 
     // Pre-shared keys / session tickets allow skipping cert verification
@@ -237,8 +234,6 @@ fn client_hello_body(sni_host: &str, client_pub: &[u8]) -> Vec<u8> {
     let ext_len_bytes = (ext_len as u16).to_be_bytes();
     ch_body[ext_start - 2] = ext_len_bytes[0];
     ch_body[ext_start - 1] = ext_len_bytes[1];
-
-    ch_body
 }
 
 /// --- Build ClientHello (single cipher: TLS_AES_128_GCM_SHA256) ---
@@ -247,13 +242,21 @@ fn client_hello_msg(sni_host: &str, client_private_key: &[u8]) -> OrtResult<Vec<
     let client_pub_ref = &client_pub_key;
     debug_print("Client public key", client_pub_ref);
 
-    let ch_body = client_hello_body(sni_host, client_pub_ref);
+    // Length depends on sni_host. It's 193 bytes for "openrouter.ai".
+    let mut ch_msg = Vec::with_capacity(256);
 
     // Handshake framing: ClientHello
-    let mut ch_msg = Vec::with_capacity(4 + ch_body.len());
     ch_msg.push(HS_CLIENT_HELLO);
-    put_u24(&mut ch_msg, ch_body.len());
-    ch_msg.extend_from_slice(&ch_body);
+    put_u24(&mut ch_msg, 0); // placeholder
+
+    client_hello_body(&mut ch_msg, sni_host, client_pub_ref);
+
+    let body_len = (ch_msg.len() as u32 - 4).to_be_bytes();
+    // ch_msg[0] is HS_CLIENT_HELLO, len starts at 1
+    // Using body_len[0] would make it a u32, we want a u24
+    ch_msg[1] = body_len[1];
+    ch_msg[2] = body_len[2];
+    ch_msg[3] = body_len[3];
 
     Ok(ch_msg)
 }
