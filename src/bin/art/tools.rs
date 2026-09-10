@@ -299,6 +299,8 @@ impl ActiveTool for ReadTool {
             name: "Read ",
             arguments: self.path.clone(),
             extra: Some(extra),
+            added: None,
+            removed: None,
         }
     }
 }
@@ -340,6 +342,8 @@ impl ActiveTool for BashTool {
             extra: self
                 .limit
                 .map(|limit| " limit ".to_string() + &num_to_string(limit)),
+            added: None,
+            removed: None,
         }
     }
 }
@@ -410,6 +414,8 @@ impl ActiveTool for WriteTool {
             name: "Write ",
             arguments: self.path.clone(),
             extra: None,
+            added: None,
+            removed: None,
         }
     }
 }
@@ -495,6 +501,8 @@ impl ActiveTool for EditTool {
             name: "Edit ",
             arguments: self.path.clone(),
             extra: Some(" lines ".to_string() + &num_to_string(self.old_text.lines().count())),
+            removed: Some(self.old_text.clone()),
+            added: Some(self.new_text.clone()),
         }
     }
 }

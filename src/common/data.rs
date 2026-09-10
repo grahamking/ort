@@ -1072,6 +1072,9 @@ pub struct ToolDisplay {
     pub name: &'static str,
     pub arguments: String,
     pub extra: Option<String>,
+    // For Edit tool
+    pub removed: Option<String>,
+    pub added: Option<String>,
 }
 
 #[cfg(test)]

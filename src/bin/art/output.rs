@@ -5,6 +5,9 @@
 //! MIT License
 //! Copyright (c) 2025 Graham King
 
+extern crate alloc;
+use alloc::borrow::Cow;
+
 use ort_openrouter_cli::{
     ErrorKind, OrtResult, OutputWriter, Response, Section, ThinkEvent, Write, ort_err, ort_error,
 };
@@ -17,6 +20,8 @@ const THINK_START: &[u8] = "\x1b[0m\x1b[2m".as_bytes();
 const TOOL_CALL_START: &[u8] = "\x1b[0m".as_bytes();
 const TOOL_CALL_ARGUMENT_START: &[u8] = "\x1b[96m".as_bytes();
 const TOOL_CALL_END: &[u8] = "\x1b[0m".as_bytes();
+const TOOL_REMOVED: &[u8] = "\x1b[48;5;88m".as_bytes();
+const TOOL_ADDED: &[u8] = "\x1b[48;5;22m".as_bytes();
 
 const AGENT_STATS_START: &[u8] = "\x1b[35m".as_bytes();
 const AGENT_STATS_END: &[u8] = "\x1b[0m".as_bytes();
@@ -89,6 +94,18 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 if let Some(extra) = tool.extra {
                     let _ = self.writer.write(extra.as_bytes());
                 }
+                if let Some(removed) = tool.removed {
+                    let _ = self.writer.write(b"\n  -");
+                    let _ = self.writer.write(TOOL_REMOVED);
+                    let _ = self.writer.write(truncate(&removed, 120).as_bytes());
+                    let _ = self.writer.write(RESET);
+                }
+                if let Some(added) = tool.added {
+                    let _ = self.writer.write(b"\n  +");
+                    let _ = self.writer.write(TOOL_ADDED);
+                    let _ = self.writer.write(truncate(&added, 120).as_bytes());
+                    let _ = self.writer.write(RESET);
+                }
                 let _ = self.writer.flush();
             }
             Response::Annotation(annotation) => {
@@ -136,6 +153,19 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
     }
 }
 
+/// UTF-8 safe truncation
+fn truncate(s: &str, max_chars: usize) -> Cow<'_, str> {
+    if s.chars().count() <= max_chars {
+        return Cow::Borrowed(s);
+    }
+    let end = s
+        .char_indices()
+        .nth(max_chars - 2)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+    Cow::Owned(s[..end].to_string() + "..")
+}
+
 #[cfg(test)]
 mod test {
     use crate::tools::{ActiveTool, ReadTool};
@@ -175,11 +205,15 @@ mod test {
                 name: "Bash ",
                 arguments: "ls -R".to_string(),
                 extra: None,
+                removed: None,
+                added: None,
             }),
             Response::ToolDisplay(ToolDisplay {
                 name: "Bash ",
                 arguments: r#"find . -name "*LICENS*""#.to_string(),
                 extra: Some(" limit 10000".to_string()),
+                removed: None,
+                added: None,
             }),
             Response::Start,
             Response::Think(ThinkEvent::Start),
