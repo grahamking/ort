@@ -1,3 +1,7 @@
+--- Gap with Pi
+
+Lots of good stuff in `gap-analysis-with-pi.md`. Thanks GPT 5.5!
+
 --- Skill support
 
 Add support. We should read and use them.
