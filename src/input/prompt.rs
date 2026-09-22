@@ -506,7 +506,9 @@ impl ActivePrompt {
                     // Do this before getting choices because it's empty on last message.
                     if let Some(usage) = v.usage {
                         self.stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
+                        self.stats.tokens = Some(usage.total_tokens);
                         self.stats.web_search_requests = usage.web_search_requests;
+                        self.stats.tool_calls = usage.tool_calls_executed;
                         if let Some(provider) = v.provider {
                             self.stats.provider = provider;
                         }

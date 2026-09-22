@@ -195,30 +195,44 @@ impl Function {
 }
 
 pub struct Usage {
-    // In dollars, usually a very small fraction
+    /// In dollars, usually a very small fraction
     pub cost: f32,
-    // How many times the OpenRouter server-side search tool was called
+    /// How many tokens this turn used
+    pub total_tokens: u32,
+    /// How many times the OpenRouter server-side search tool was called
     pub web_search_requests: Option<u32>,
+    /// How many tool calls we ran
+    pub tool_calls_executed: Option<u32>,
 }
 
 impl Usage {
     pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
             JsonField::new_float("cost"),
-            JsonField::new_raw("server_tool_use"),
+            JsonField::new_raw("server_tool_use_details"),
+            JsonField::new_int("total_tokens"),
         ];
         autoparser(json, &mut fields)?;
         let mut web_search_requests = None;
+        let mut tool_calls_executed = None;
         if let Some(server_tool_json) = fields[1].get_raw() {
-            let mut server_tool_fields = [JsonField::new_int("web_search_requests")];
+            let mut server_tool_fields = [
+                JsonField::new_int("web_search_requests"),
+                JsonField::new_int("tool_calls_executed"),
+            ];
             autoparser(&server_tool_json, &mut server_tool_fields)?;
             server_tool_fields[0]
                 .get_int()
                 .map(|stu| web_search_requests.replace(stu));
+            server_tool_fields[1]
+                .get_int()
+                .map(|tce| tool_calls_executed.replace(tce));
         }
         Ok(Usage {
             cost: fields[0].get_float().unwrap_or_default(),
+            total_tokens: fields[2].get_int().unwrap_or_default(),
             web_search_requests,
+            tool_calls_executed,
         })
     }
 }

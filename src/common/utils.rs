@@ -44,6 +44,16 @@ pub(crate) fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     i + 1
 }
 
+pub fn num_to_human_string(num: u32) -> String {
+    if num > 1_000 {
+        let v = num / 1_000;
+        let mut s = num_to_string(v);
+        s += "K";
+        return s;
+    };
+    num_to_string(num)
+}
+
 pub fn num_to_string<T>(num: T) -> String
 where
     T: TryInto<i128> + Copy,
