@@ -390,6 +390,7 @@ mod tests {
             system_prompt: Some("System prompt here".to_string()),
             priority: None,
             effort: None,
+            context_size: None,
             show_reasoning: false,
             quiet: false,
             prompt_filename: None,

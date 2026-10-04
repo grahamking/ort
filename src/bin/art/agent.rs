@@ -77,7 +77,7 @@ pub fn run<W: Write + Send>(
         }
     }
 
-    let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning);
+    let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning, cfg.context_size);
 
     // If provided, first prompt is already in `messages`,
     // added in `common/config.rs::messages`.
@@ -393,6 +393,7 @@ mod tests {
             system_prompt: Some("System prompt here".to_string()),
             priority: None,
             effort: None,
+            context_size: None,
             show_reasoning: false,
             quiet: false,
             prompt_filename: None,

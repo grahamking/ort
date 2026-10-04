@@ -121,6 +121,8 @@ Stats printed at the end:
 - Elapsed time: Total query duration, including network, queuing at the provider, thinking, and streaming all tokens.
 - Time To First Token: Time until the first token was received. Note that reasoning (thinking) tokens count, but unless you pass `-rr` they are not displayed. That can make the TTFT look wrong.
 - Inter Token Latency: Average time between each token in milliseconds.
+- Tokens: How many total tokens were used. This includes everything: Input, output, reasoning, tool calls, etc. For `art` this is for the session lifetime, so it grows rapidly. Most of these will be billed at cached rates.
+- (art only) Ctx: An estimate of the current context usage. If you set e.g. `context_size: 1000000` in your config file, that will also display.
 
 ## Config file
 
@@ -174,6 +176,10 @@ private: false
 
 # The IP address(es) of openrouter.ai. This saves time, no DNS lookups. Highly recommend setting.
 dns: 104.18.2.115, 104.18.3.115
+
+# (art only)
+# Context size of the model. Helps decide when to compact the conversation (not implemented yet).
+context_size: 1000000
 ```
 
 Migrating from pre 0.5.0: ort previously had a JSON configuration file. Hopefully the field mapping is obvious. You'll also need to delete the contents of `~/.cache/ort`.

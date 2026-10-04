@@ -44,13 +44,19 @@ pub(crate) fn to_ascii(mut num: usize, buf: &mut [u8]) -> usize {
     i + 1
 }
 
-pub fn num_to_human_string(num: u32) -> String {
+pub fn num_to_human_string(num: usize) -> String {
+    if num >= 1_000_000 {
+        let v = num / 1_000_000;
+        let mut s = num_to_string(v);
+        s += "M";
+        return s;
+    }
     if num > 1_000 {
         let v = num / 1_000;
         let mut s = num_to_string(v);
         s += "K";
         return s;
-    };
+    }
     num_to_string(num)
 }
 
@@ -362,13 +368,20 @@ pub(crate) fn generate_session_id() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{float_to_string, num_to_string};
+    use super::{float_to_string, num_to_human_string, num_to_string};
 
     #[test]
     fn num_to_string_handles_sign() {
         assert_eq!(num_to_string(-42), "-42");
         assert_eq!(num_to_string(42usize), "42");
         assert_eq!(num_to_string(0), "0");
+    }
+
+    #[test]
+    fn num_to_human_string_formats_thousands_and_millions() {
+        assert_eq!(num_to_human_string(26_000), "26K");
+        assert_eq!(num_to_human_string(1_000_000), "1M");
+        assert_eq!(num_to_human_string(2_500_000), "2M");
     }
 
     #[test]

@@ -72,7 +72,7 @@ impl Stats {
             s.push_str(" cents. ");
         }
         if let Some(tokens) = self.tokens {
-            s.push_str(&utils::num_to_human_string(tokens));
+            s.push_str(&utils::num_to_human_string(tokens as usize));
             s.push_str(" tokens. ");
         }
         if let Some(web_search_requests) = self.web_search_requests {

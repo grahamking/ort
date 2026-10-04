@@ -21,8 +21,6 @@ const THINK_START: &[u8] = "\x1b[0m\x1b[2m".as_bytes();
 const TOOL_CALL_START: &[u8] = "\x1b[0m".as_bytes();
 const TOOL_CALL_ARGUMENT_START: &[u8] = "\x1b[96m".as_bytes();
 const TOOL_CALL_END: &[u8] = "\x1b[0m".as_bytes();
-const TOOL_REMOVED: &[u8] = "\x1b[48;5;88m".as_bytes();
-const TOOL_ADDED: &[u8] = "\x1b[48;5;22m".as_bytes();
 
 const AGENT_STATS_START: &[u8] = "\x1b[35m".as_bytes();
 const AGENT_STATS_END: &[u8] = "\x1b[0m".as_bytes();
@@ -36,10 +34,15 @@ const WARN_START: &[u8] = "\x1b[38;5;208m".as_bytes();
 
 const MISSING_CHAR: char = '□';
 
+// These start with \n because are inside a section
+const TOOL_REMOVED: &[u8] = "\n\x1b[48;5;88m".as_bytes();
+const TOOL_ADDED: &[u8] = "\n\x1b[48;5;22m".as_bytes();
+
 pub struct AgentWriter<'a, W: Write + Send> {
     writer: &'a mut W,
     show_reasoning: bool,
     context_size: usize,
+    context_limit: Option<usize>,
     // Message bytes and Usage.total_tokens from the latest conversation request.
     // Summary requests have a different context and must not update this baseline.
     context_baseline: Option<(usize, u32)>,
@@ -47,11 +50,16 @@ pub struct AgentWriter<'a, W: Write + Send> {
 }
 
 impl<'a, W: Write + Send> AgentWriter<'a, W> {
-    pub fn new(writer: &'a mut W, show_reasoning: bool) -> AgentWriter<'a, W> {
+    pub fn new(
+        writer: &'a mut W,
+        show_reasoning: bool,
+        context_limit: Option<usize>,
+    ) -> AgentWriter<'a, W> {
         Self {
             writer,
             show_reasoning,
             context_size: 0,
+            context_limit,
             context_baseline: None,
             section: Section::Prompt,
         }
@@ -122,13 +130,11 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                     let _ = self.writer.write(extra.as_bytes());
                 }
                 if let Some(removed) = tool.removed {
-                    let _ = self.writer.write(b"\n  -");
                     let _ = self.writer.write(TOOL_REMOVED);
                     let _ = self.writer.write(truncate(&removed, 120).as_bytes());
                     let _ = self.writer.write(RESET);
                 }
                 if let Some(added) = tool.added {
-                    let _ = self.writer.write(b"\n  +");
                     let _ = self.writer.write(TOOL_ADDED);
                     let _ = self.writer.write(truncate(&added, 120).as_bytes());
                     let _ = self.writer.write(RESET);
@@ -152,7 +158,13 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.write(b". Ctx: ");
                 let _ = self
                     .writer
-                    .write(utils::num_to_human_string(self.context_size as u32).as_bytes());
+                    .write(utils::num_to_human_string(self.context_size).as_bytes());
+                if let Some(context_limit) = self.context_limit {
+                    let _ = self.writer.write(b" / ");
+                    let _ = self
+                        .writer
+                        .write(utils::num_to_human_string(context_limit).as_bytes());
+                }
                 let _ = self.writer.write(b" tokens.");
                 let _ = self.writer.write(AGENT_STATS_END);
                 let _ = self.writer.flush();
@@ -209,7 +221,7 @@ mod test {
     #[test]
     fn context_compaction_uses_calibration_and_next_usage_refreshes_it() {
         let mut buffer = String::new();
-        let mut writer = AgentWriter::new(&mut buffer, false);
+        let mut writer = AgentWriter::new(&mut buffer, false, None);
         // Including message overhead, these are 400, 200 and 100 bytes.
         let original = vec![Message::user("x".repeat(368))];
         let compacted = vec![Message::user("x".repeat(168))];
@@ -226,9 +238,18 @@ mod test {
     }
 
     #[test]
+    fn stats_display_context_usage_and_configured_limit() {
+        let mut buffer = String::new();
+        let mut writer = AgentWriter::new(&mut buffer, false, Some(1_000_000));
+        writer.context_size = 26_000;
+        writer.write(Response::Stats(Stats::default())).unwrap();
+        assert!(buffer.contains("Ctx: 26K / 1M tokens."));
+    }
+
+    #[test]
     fn context_missing_usage_estimates_growth_and_preserves_calibration() {
         let mut buffer = String::new();
-        let mut writer = AgentWriter::new(&mut buffer, false);
+        let mut writer = AgentWriter::new(&mut buffer, false, None);
         let mut messages = vec![Message::user("x".repeat(368))];
         writer.update_context_size(&messages, None);
         assert_eq!(writer.context_size, 100); // Initial bytes/4 fallback.
@@ -306,7 +327,7 @@ mod test {
         ];
 
         let mut stdout_writer = StdoutWriter {};
-        let mut aw = AgentWriter::new(&mut stdout_writer, true);
+        let mut aw = AgentWriter::new(&mut stdout_writer, true, None);
         for ev in events {
             let _ = aw.write(ev);
         }

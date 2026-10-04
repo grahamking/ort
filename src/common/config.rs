@@ -130,6 +130,9 @@ pub struct Cfg {
     /// How much thinking to do. -r flag.
     pub effort: Option<ReasoningEffort>,
 
+    /// Model context window size, in tokens.
+    pub context_size: Option<usize>,
+
     /// Images to attach to the request.
     pub files: Vec<String>,
 
@@ -190,6 +193,7 @@ impl Cfg {
         let mut priority = None;
         let mut include_web_tools = DEFAULT_INCLUDE_WEB_TOOLS;
         let mut effort = None;
+        let mut context_size = None;
         let mut files = Vec::new();
         let mut is_private = false;
         let mut session_id = None;
@@ -240,6 +244,14 @@ impl Cfg {
                     effort = Some(r);
                 }
                 "include_web_tools" => include_web_tools = value == "true",
+                "context_size" => {
+                    context_size = Some(value.parse().map_err(|_| {
+                        ort_error(
+                            ErrorKind::ConfigParseFailed,
+                            "Invalid context_size field. Must be a non-negative integer",
+                        )
+                    })?);
+                }
                 "session_id" => session_id = Some(value.to_string()),
                 _ => {
                     /*
@@ -267,6 +279,7 @@ impl Cfg {
             provider,
             include_web_tools,
             effort,
+            context_size,
             files,
             is_private,
             session_id: session_id.unwrap_or_else(utils::generate_session_id),
@@ -514,6 +527,7 @@ provider: openai
 priority: price
 include_web_tools: true
 effort: low
+context_size: 128000
 private: false
 "#;
         let cfg = Cfg::from_str(s).unwrap();
@@ -539,6 +553,7 @@ private: false
         assert_eq!(cfg.priority, Some(Priority::Price));
         assert!(cfg.include_web_tools);
         assert_eq!(cfg.effort, Some(ReasoningEffort::Low));
+        assert_eq!(cfg.context_size, Some(128_000));
     }
 
     #[test]
