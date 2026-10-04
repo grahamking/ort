@@ -89,7 +89,7 @@ struct Prepared {
     paths: Paths,
 }
 
-fn estimated_bytes(message: &Message) -> usize {
+pub(super) fn estimated_bytes(message: &Message) -> usize {
     32 + message.content.iter().map(Content::len).sum::<usize>()
         + message.reasoning.as_ref().map_or(0, String::len)
         + message.reasoning_details.as_ref().map_or(0, String::len)

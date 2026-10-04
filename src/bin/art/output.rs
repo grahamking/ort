@@ -9,7 +9,8 @@ extern crate alloc;
 use alloc::borrow::Cow;
 
 use ort_openrouter_cli::{
-    ErrorKind, OrtResult, OutputWriter, Response, Section, ThinkEvent, Write, ort_err, ort_error,
+    ErrorKind, Message, OrtResult, OutputWriter, Response, Section, ThinkEvent, Write, ort_err,
+    ort_error, utils,
 };
 
 // No \n in these constants!
@@ -38,6 +39,10 @@ const MISSING_CHAR: char = '□';
 pub struct AgentWriter<'a, W: Write + Send> {
     writer: &'a mut W,
     show_reasoning: bool,
+    context_size: usize,
+    // Message bytes and Usage.total_tokens from the latest conversation request.
+    // Summary requests have a different context and must not update this baseline.
+    context_baseline: Option<(usize, u32)>,
     section: Section,
 }
 
@@ -46,7 +51,29 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
         Self {
             writer,
             show_reasoning,
+            context_size: 0,
+            context_baseline: None,
             section: Section::Prompt,
+        }
+    }
+
+    /// Refresh from actual usage when available; otherwise estimate with the
+    /// latest measured tokens/byte ratio (including after repeated compaction).
+    pub fn update_context_size(&mut self, messages: &[Message], total_tokens: Option<u32>) {
+        let bytes = messages
+            .iter()
+            .map(super::compact::estimated_bytes)
+            .sum::<usize>();
+        if let Some(tokens) = total_tokens.filter(|&tokens| tokens > 0) {
+            self.context_baseline = Some((bytes, tokens));
+            self.context_size = tokens as usize;
+        } else {
+            self.context_size = match self.context_baseline {
+                Some((baseline_bytes, tokens)) if baseline_bytes > 0 => {
+                    (bytes as u128 * tokens as u128 / baseline_bytes as u128) as usize
+                }
+                _ => bytes / 4,
+            };
         }
     }
 
@@ -122,6 +149,11 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 // TODO: Align flush right
                 let _ = self.writer.write(AGENT_STATS_START);
                 let _ = self.writer.write(stats.as_string().as_bytes());
+                let _ = self.writer.write(b". Ctx: ");
+                let _ = self
+                    .writer
+                    .write(utils::num_to_human_string(self.context_size as u32).as_bytes());
+                let _ = self.writer.write(b" tokens.");
                 let _ = self.writer.write(AGENT_STATS_END);
                 let _ = self.writer.flush();
             }
@@ -173,6 +205,42 @@ mod test {
     use super::*;
     use core::time::Duration;
     use ort_openrouter_cli::{Annotation, Stats, StdoutWriter, ToolDisplay};
+
+    #[test]
+    fn context_compaction_uses_calibration_and_next_usage_refreshes_it() {
+        let mut buffer = String::new();
+        let mut writer = AgentWriter::new(&mut buffer, false);
+        // Including message overhead, these are 400, 200 and 100 bytes.
+        let original = vec![Message::user("x".repeat(368))];
+        let compacted = vec![Message::user("x".repeat(168))];
+        let compacted_again = vec![Message::user("x".repeat(68))];
+        writer.update_context_size(&original, Some(200));
+        writer.update_context_size(&compacted, None);
+        assert_eq!(writer.context_size, 100);
+        writer.update_context_size(&compacted_again, None);
+        assert_eq!(writer.context_size, 50);
+        writer.update_context_size(&compacted_again, Some(80));
+        assert_eq!(writer.context_size, 80);
+        writer.update_context_size(&compacted, None);
+        assert_eq!(writer.context_size, 160);
+    }
+
+    #[test]
+    fn context_missing_usage_estimates_growth_and_preserves_calibration() {
+        let mut buffer = String::new();
+        let mut writer = AgentWriter::new(&mut buffer, false);
+        let mut messages = vec![Message::user("x".repeat(368))];
+        writer.update_context_size(&messages, None);
+        assert_eq!(writer.context_size, 100); // Initial bytes/4 fallback.
+        writer.update_context_size(&messages, Some(200));
+        writer.update_context_size(&messages, None);
+        assert_eq!(writer.context_size, 200); // Failed/no-op compaction.
+        messages.push(Message::tool("id".into(), "x".repeat(368)));
+        writer.update_context_size(&messages, None);
+        assert_eq!(writer.context_size, 400);
+        writer.update_context_size(&messages, Some(0));
+        assert_eq!(writer.context_size, 400); // Missing total_tokens defaults to zero.
+    }
 
     // Test agent output to stdout, particularly new lines.
     // Run with `-- --nocapture` and eyeball it.

@@ -162,9 +162,13 @@ fn handle_compact<W: Write + Send>(
         Ok(false) => output.write(Response::Prompt(
             "-- Nothing older to compact; recent history retained --".into(),
         )),
-        Ok(true) => output.write(Response::Prompt(
-            "-- Conversation compacted. Waiting for prompt --".into(),
-        )),
+        Ok(true) => {
+            output.update_context_size(messages, None);
+            output.write(Response::Stats(stats.clone()))?;
+            output.write(Response::Prompt(
+                "-- Conversation compacted. Waiting for prompt --".into(),
+            ))
+        }
         Err(err) => output.write(Response::Warn(format!(
             "Compaction failed; conversation unchanged: {}",
             err.as_string()
@@ -315,9 +319,11 @@ fn run_single<W: Write + Send>(
         }
     }
 
+    let stats = active_prompt.stop();
     let has_tool_call = match assistant_tool_calls {
         None => {
             messages.push(Message::assistant(assistant_message));
+            output_writer.update_context_size(messages, stats.tokens);
             false
         }
         Some(all_tool_calls) => {
@@ -329,6 +335,7 @@ fn run_single<W: Write + Send>(
                 reasoning,
                 reasoning_details,
             ));
+            output_writer.update_context_size(messages, stats.tokens);
             // Then multiple messages with "role: tool" and the results one by one.
             // The calls and results are not co-located.
             for (id, res) in tool_call_results {
@@ -338,7 +345,10 @@ fn run_single<W: Write + Send>(
         }
     };
 
-    let stats = active_prompt.stop();
+    // Tool results were not included in this request's usage.
+    if has_tool_call {
+        output_writer.update_context_size(messages, None);
+    }
     *total_stats += stats;
 
     output_writer.stop(true)?; // Doesn't do anything
