@@ -341,6 +341,7 @@ pub struct ActivePrompt {
     pub start: Option<time::Ticks>,
     num_tokens: usize,
     is_start: bool,
+    finish_reason: Option<String>,
     is_first_reasoning: bool,
     is_first_content: bool,
     line_buf: String,
@@ -387,6 +388,7 @@ impl ActivePrompt {
             start: None,
             num_tokens: 0,
             is_start: true,
+            finish_reason: None,
             is_first_reasoning: true,
             is_first_content: true,
             line_buf: String::with_capacity(1024),
@@ -542,6 +544,9 @@ impl ActivePrompt {
                     let has_tool_calls = !choice.delta.tool_calls.is_empty();
                     let has_annotations = !choice.delta.annotations.is_empty();
                     let is_finished = choice.finish_reason.is_some();
+                    if is_finished {
+                        self.finish_reason = choice.finish_reason.clone();
+                    }
                     if !(has_reasoning
                         || has_reasoning_details
                         || has_content
@@ -667,6 +672,11 @@ impl ActivePrompt {
 
             return Ok(Some(queue));
         }
+    }
+
+    /// The provider completion status, absent if the stream ended prematurely.
+    pub fn finish_reason(&self) -> Option<&str> {
+        self.finish_reason.as_deref()
     }
 
     pub fn tsc_calibration(&self) -> Option<time::TscCalibration> {

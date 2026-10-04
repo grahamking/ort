@@ -64,6 +64,8 @@ echo "What is the license of this project? Look only in the current directory." 
 
 The `prompt` file is the initial prompt (the `@` is required here). We then watch (with `inotify`) that file for a change, which is the next prompt. So instead of a CLI, the interface is that `prompt` file that you edit with your own editor, and on save the new prompt is sent to the agent. Stdout shows the agent output. The prompt file MUST CONTAIN AN INITIAL PROMPT before you start `art`. Use tmux to show `art` and your editor (`nvim` for me) on the screen together, split vertically 80/20.
 
+A prompt of `/compact` compacts an existing conversation to reduce context size. Use it if getting near to the limit. This is not yet triggered automatically. Compaction cannot be triggered as a "steering" prompt during a turn. All the tool calls from the previous run must have completed and the model stopped waiting for user input.
+
 `art` includes a default system prompt explaining the tools. That is nearly always what you want, but you can `-s <here>` to replace it, or in config file just like `ort. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
 
 WARNING: Always run agents in a sandbox (I like `firejail`). `art` never asks you for confirmation and does not sandbox for you.

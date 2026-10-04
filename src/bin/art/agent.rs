@@ -19,8 +19,8 @@ use ort_openrouter_cli::{ort_err, syscall};
 use core::{ffi::c_void, mem::MaybeUninit};
 use std::fs;
 
-use crate::inotify;
 use crate::ort_error;
+use crate::{compact, inotify};
 use ort_openrouter_cli::{
     ActivePrompt, Content, ErrorKind, Message, OrtResult, OutputWriter as _, Response, Role, Stats,
     Tool, Write, cli::Env, config,
@@ -97,6 +97,7 @@ pub fn run<W: Write + Send>(
     };
 
     let mut total_stats = Stats::default();
+    let mut compactor = compact::Compactor::default();
     loop {
         // Send a prompt, run all the requested tools
         while has_more_turns {
@@ -126,12 +127,49 @@ pub fn run<W: Write + Send>(
         let Some(prompt) = wait_next_prompt(ifd, &filename)? else {
             break;
         };
+        if compact::is_command(&prompt) {
+            handle_compact(
+                &mut compactor,
+                api_key,
+                cfg,
+                &mut messages,
+                &mut output_writer,
+                &mut total_stats,
+                &mut logger,
+            )?;
+            continue;
+        }
         messages.push(Message::user(prompt.clone()));
         output_writer.write(Response::Prompt(prompt))?;
         has_more_turns = true;
     }
 
     Ok(())
+}
+
+/// Compaction failure is recoverable: keep the conversation and wait for input.
+fn handle_compact<W: Write + Send>(
+    compactor: &mut compact::Compactor,
+    api_key: &str,
+    cfg: &config::Cfg,
+    messages: &mut Vec<Message>,
+    output: &mut AgentWriter<W>,
+    stats: &mut Stats,
+    logger: &mut Option<Logger>,
+) -> OrtResult<()> {
+    output.write(Response::Prompt("-- Compacting conversation --".into()))?;
+    match compactor.run(api_key, cfg, messages, stats, logger) {
+        Ok(false) => output.write(Response::Prompt(
+            "-- Nothing older to compact; recent history retained --".into(),
+        )),
+        Ok(true) => output.write(Response::Prompt(
+            "-- Conversation compacted. Waiting for prompt --".into(),
+        )),
+        Err(err) => output.write(Response::Warn(format!(
+            "Compaction failed; conversation unchanged: {}",
+            err.as_string()
+        ))),
+    }
 }
 
 /// Non-blocking waiting for next user prompt
