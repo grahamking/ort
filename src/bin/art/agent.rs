@@ -77,6 +77,13 @@ pub fn run<W: Write + Send>(
         }
     }
 
+    // TODO
+    //if exists(ROOT .agents/skills) {
+    //    let extra_content = load_skills();
+    // TODO: Merge the AGENTS.md extra content adding
+    //    add_to_system_prompt(extra_content);
+    //}
+
     let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning, cfg.context_size);
 
     // If provided, first prompt is already in `messages`,
@@ -175,6 +182,22 @@ fn handle_compact<W: Write + Send>(
         ))),
     }
 }
+
+// Probably move to system_prompt.rs, along with AGENTS.md code
+/*
+fn load_skills() -> String {
+    for every directory in $ROOT/.agents/skill
+        Does it have SKILL.md
+        If yes load name, preamble and path, add to Vec
+        line-oriented, "name: .." and "description: .."
+
+    if vec not empty:
+        add Skills instructions (Codex render.rs or Pi)
+        add vec joined with \n
+
+    return text
+}
+*/
 
 /// Non-blocking waiting for next user prompt
 fn poll_next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
