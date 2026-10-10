@@ -1,3 +1,10 @@
+
+--- Read files with mmap and do fadvise
+
+--- Context API
+
+NVIDIA NOAA harness thing has it, so has Codex. But can models use it?
+
 --- Gap with Pi
 
 Lots of good stuff in `gap-analysis-with-pi.md`. Thanks GPT 5.5!

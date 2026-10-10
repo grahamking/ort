@@ -37,7 +37,8 @@ pub type sa_family_t = u16;
 pub type in_addr_t = u32;
 pub type in_port_t = u16;
 
-// /usr/include/asm/unistd_64.h
+// Fedora: /usr/include/asm/unistd_64.h
+// Ubuntu: /usr/include/x86_64-linux-gnu/asm/unistd_64.h
 const SYS_READ: u32 = 0;
 const SYS_WRITE: u32 = 1;
 const SYS_OPEN: u32 = 2;
@@ -47,6 +48,7 @@ const SYS_POLL: u32 = 7;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
 const SYS_IOCTL: u32 = 16;
+const SYS_WRITEV: u32 = 20;
 const SYS_ACCESS: u32 = 21;
 const SYS_DUP2: i32 = 33;
 const SYS_SOCKET: u32 = 41;
@@ -65,6 +67,7 @@ const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
 const SYS_PIPE2: i32 = 293;
 
+// /usr/include/asm-generic/errno-base.h
 pub const EAGAIN: i32 = -11; // Operation would block, try again
 const EINTR: i32 = -4; // Interrupted system call
 const EACCES: i32 = -13; // Permission denied
@@ -171,6 +174,14 @@ pub struct Stat {
     __unused: [i64; 3],
 }
 
+#[repr(C)]
+pub struct iovec {
+    // Pointer to data
+    pub iov_base: *const c_void,
+    // Length of data
+    pub iov_len: size_t,
+}
+
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct epoll_event {
@@ -230,6 +241,22 @@ pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> i32 {
             in("edi") fd,
             in("rsi") buf,
             in("rdx") count,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack)
+        );
+    }
+    ret
+}
+
+pub fn writev(fd: c_int, iov: *const iovec, iovcnt: i32) -> i32 {
+    let mut ret: i32;
+    unsafe {
+        asm!("syscall",
+            inlateout("eax") SYS_WRITEV => ret,
+            in("edi") fd,
+            in("rsi") iov,
+            in("rdx") iovcnt,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack)

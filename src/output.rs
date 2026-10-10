@@ -12,6 +12,7 @@ extern crate alloc;
 use core::ffi::c_void;
 
 use crate::common::error::ort_error;
+use crate::net::AsFd;
 use crate::syscall;
 use crate::{ErrorKind, OrtResult, Write};
 
@@ -81,6 +82,12 @@ impl Write for StdoutWriter {
 
     fn flush(&mut self) -> OrtResult<()> {
         Ok(())
+    }
+}
+
+impl AsFd for StdoutWriter {
+    fn as_fd(&self) -> i32 {
+        1
     }
 }
 

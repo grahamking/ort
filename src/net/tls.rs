@@ -1098,6 +1098,12 @@ pub mod tests {
         }
     }
 
+    impl AsFd for TestIo {
+        fn as_fd(&self) -> i32 {
+            self.bytes.as_fd()
+        }
+    }
+
     fn plain_record(typ: u8, body: &[u8]) -> Vec<u8> {
         let mut record = Vec::new();
         record.push(typ);

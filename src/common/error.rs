@@ -48,6 +48,7 @@ pub enum ErrorKind {
     ResponseStreamError,
     LastWriterError,
     ToolRun,
+    Writev,
 
     // Filesystem
     //

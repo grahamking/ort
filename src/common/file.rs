@@ -11,6 +11,7 @@ use core::mem::MaybeUninit;
 extern crate alloc;
 
 use crate::common::time;
+use crate::net::AsFd;
 use crate::{ErrorKind, OrtResult, Read, Write, ort_error, syscall};
 
 pub struct File {
@@ -62,6 +63,12 @@ impl Write for File {
     fn flush(&mut self) -> OrtResult<()> {
         // The stdlib version is a no-op on Unix. It does not fsync.
         Ok(())
+    }
+}
+
+impl AsFd for File {
+    fn as_fd(&self) -> i32 {
+        self.fd
     }
 }
 

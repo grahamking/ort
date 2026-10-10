@@ -9,9 +9,11 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{ErrorKind, OrtResult, ort_error};
+use core::ffi::c_void;
 
-const MAX_LEN_UTF8: usize = 4;
+use crate::{ErrorKind, OrtResult, net::AsFd, ort_err, ort_error, syscall};
+
+pub(crate) const MAX_LEN_UTF8: usize = 4;
 
 pub trait Read {
     fn read(&mut self, buf: &mut [u8]) -> OrtResult<usize>;
@@ -45,7 +47,7 @@ pub trait ReadLine {
     fn read_line(&mut self, buf: &mut String) -> OrtResult<usize>;
 }
 
-pub trait Write {
+pub trait Write: AsFd {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize>;
     fn flush(&mut self) -> OrtResult<()>;
 
@@ -69,6 +71,32 @@ pub trait Write {
 
     fn write_char(&mut self, c: char) -> OrtResult<usize> {
         self.write_str(c.encode_utf8(&mut [0; MAX_LEN_UTF8]))
+    }
+
+    fn writev(&mut self, vs: &[&[u8]]) -> OrtResult<usize> {
+        let fd = self.as_fd();
+        let mut bytes_written = 0;
+        if fd != 42 {
+            // Read fd's get accelerated `writev`
+            let mut iovecs = Vec::with_capacity(vs.len());
+            for v in vs {
+                iovecs.push(crate::syscall::iovec {
+                    iov_base: v.as_ptr() as *const c_void,
+                    iov_len: v.len(),
+                });
+            }
+
+            let res = syscall::writev(self.as_fd(), iovecs.as_ptr(), iovecs.len() as i32);
+            if res < 0 {
+                return Err(ort_err(ErrorKind::Writev, "Failed writev".into()));
+            }
+            bytes_written = res as usize;
+        } else {
+            for v in vs {
+                bytes_written += self.write(v)?;
+            }
+        }
+        Ok(bytes_written)
     }
 
     /* Not used yet
@@ -101,5 +129,32 @@ impl Write for Vec<u8> {
 
     fn flush(&mut self) -> OrtResult<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_writev() {
+        extern crate alloc;
+        use alloc::string::ToString;
+
+        let s1 = "Hello ".to_string();
+        let s2 = "world!".to_string();
+        let vs = &[s1.as_bytes(), s2.as_bytes()];
+
+        let mut iovecs = Vec::with_capacity(vs.len());
+        for v in vs {
+            iovecs.push(crate::syscall::iovec {
+                iov_base: v.as_ptr() as *const c_void,
+                iov_len: v.len(),
+            });
+        }
+
+        let bytes_written = syscall::writev(1, iovecs.as_ptr(), iovecs.len() as i32);
+
+        assert_eq!(bytes_written, 12);
     }
 }

@@ -10,6 +10,7 @@ use core::time::Duration;
 
 use crate::Section;
 use crate::common::error::{ort_err, ort_error};
+use crate::common::io::MAX_LEN_UTF8;
 use crate::common::time::{Ticks, TscCalibration, elapsed_duration};
 use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats};
 
@@ -65,9 +66,11 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
         let Some(stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        let _ = self.writer.write("Stats: ".as_bytes());
-        let _ = self.writer.write(stats.as_string().as_bytes());
-        let _ = self.writer.write_char('\n');
+        let _ = self.writer.writev(&[
+            "Stats: ".as_bytes(),
+            stats.as_string().as_bytes(),
+            '\n'.encode_utf8(&mut [0; MAX_LEN_UTF8]).as_bytes(),
+        ]);
 
         Ok(())
     }
@@ -134,8 +137,9 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             Response::Annotation(annotation) => {
                 // These are url_citation from remote web_search tool
                 self.section(Section::WebSearch);
-                let _ = self.writer.write(super::MSG_WEB_FETCH);
-                let _ = self.writer.write(annotation.citation_url().as_bytes());
+                let _ = self
+                    .writer
+                    .writev(&[super::MSG_WEB_FETCH, annotation.citation_url().as_bytes()]);
             }
             Response::Stats(stats) => {
                 self.section(Section::Stats);
@@ -149,9 +153,11 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             }
             Response::Warn(warning) => {
                 self.section(Section::Warn);
-                let _ = self.writer.write(super::WARN_START);
-                let _ = self.writer.write(warning.trim().as_bytes());
-                let _ = self.writer.write(super::RESET);
+                let _ = self.writer.writev(&[
+                    super::WARN_START,
+                    warning.trim().as_bytes(),
+                    super::RESET,
+                ]);
                 let _ = self.writer.flush();
             }
             Response::Error(err_string) => {

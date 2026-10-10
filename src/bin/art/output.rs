@@ -144,36 +144,43 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             Response::Annotation(annotation) => {
                 // These are url_citation from remote web_search tool
                 self.section(Section::WebSearch);
-                let _ = self.writer.write(MSG_WEB_FETCH);
-                let _ = self.writer.write(annotation.citation_url().as_bytes());
+                let _ = self
+                    .writer
+                    .writev(&[MSG_WEB_FETCH, annotation.citation_url().as_bytes()]);
             }
             Response::Stats(mut stats) => {
                 self.section(Section::Stats);
                 // Prevent timing display
                 stats.time_to_first_token = None;
 
+                let mut writes = Vec::with_capacity(8);
+
                 // TODO: Align flush right
-                let _ = self.writer.write(AGENT_STATS_START);
-                let _ = self.writer.write(stats.as_string().as_bytes());
-                let _ = self.writer.write(b". Ctx: ");
-                let _ = self
-                    .writer
-                    .write(utils::num_to_human_string(self.context_size).as_bytes());
+                writes.push(AGENT_STATS_START);
+                let stats_s = stats.as_string();
+                writes.push(stats_s.as_bytes());
+                writes.push(b". Ctx: ");
+                let context_size_h = utils::num_to_human_string(self.context_size);
+                writes.push(context_size_h.as_bytes());
+                let context_limit_h;
                 if let Some(context_limit) = self.context_limit {
-                    let _ = self.writer.write(b" / ");
-                    let _ = self
-                        .writer
-                        .write(utils::num_to_human_string(context_limit).as_bytes());
+                    writes.push(b" / ");
+                    context_limit_h = utils::num_to_human_string(context_limit);
+                    writes.push(context_limit_h.as_bytes());
                 }
-                let _ = self.writer.write(b" tokens.");
-                let _ = self.writer.write(AGENT_STATS_END);
+                writes.push(b" tokens.");
+                writes.push(AGENT_STATS_END);
+
+                let _ = self.writer.writev(&writes);
                 let _ = self.writer.flush();
             }
             Response::Prompt(prompt) => {
                 self.section(Section::Prompt);
-                let _ = self.writer.write(PROMPT_START);
-                let _ = self.writer.write(prompt.trim_matches('\n').as_bytes());
-                let _ = self.writer.write(RESET);
+                let _ = self.writer.writev(&[
+                    PROMPT_START,
+                    prompt.trim_matches('\n').as_bytes(),
+                    RESET,
+                ]);
                 let _ = self.writer.flush();
             }
             Response::Missing => {
@@ -181,9 +188,9 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             }
             Response::Warn(warning) => {
                 self.section(Section::Warn);
-                let _ = self.writer.write(WARN_START);
-                let _ = self.writer.write(warning.trim().as_bytes());
-                let _ = self.writer.write(RESET);
+                let _ = self
+                    .writer
+                    .writev(&[WARN_START, warning.trim().as_bytes(), RESET]);
                 let _ = self.writer.flush();
             }
             Response::Error(err_string) => {
