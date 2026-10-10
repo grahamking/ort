@@ -47,6 +47,7 @@ const SYS_FSTAT: u32 = 5;
 const SYS_POLL: u32 = 7;
 const SYS_MMAP: u32 = 9;
 const SYS_MPROTECT: u32 = 10;
+const SYS_MUNMAP: u32 = 11;
 const SYS_IOCTL: u32 = 16;
 const SYS_WRITEV: u32 = 20;
 const SYS_ACCESS: u32 = 21;
@@ -62,6 +63,7 @@ const SYS_WAIT4: i32 = 61;
 const SYS_FCNTL: i32 = 72;
 const SYS_MKDIR: u32 = 83;
 const SYS_EPOLL_CREATE: i32 = 213;
+const SYS_FADVISE64: i32 = 221;
 const SYS_EPOLL_WAIT: i32 = 232;
 const SYS_EPOLL_CTL: i32 = 233;
 const SYS_GETDENTS64: u32 = 217;
@@ -107,7 +109,11 @@ pub const PROT_WRITE: c_int = 2;
 
 pub const MAP_PRIVATE: c_int = 0x0002;
 pub const MAP_ANONYMOUS: c_int = 0x0020;
-pub const MAP_STACK: c_int = 0x020000;
+pub const MAP_POPULATE: c_int = 0x08000; // Populate (prefault) pagetables.
+
+// /usr/include/linux/fadvise.h
+pub const POSIX_FADV_SEQUENTIAL: c_int = 2; // Expect sequential page references
+pub const POSIX_FADV_WILLNEED: c_int = 3; // Will need these pages
 
 pub const F_GETFL: c_int = 3;
 pub const F_SETFL: c_int = 4;
@@ -295,6 +301,21 @@ pub fn mmap(
     }
 }
 
+pub fn munmap(addr: *mut c_void, len: size_t) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inlateout("rax") SYS_MUNMAP => ret,
+            in("rdi") addr,
+            in("rsi") len,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack)
+        );
+    }
+    ret
+}
+
 pub fn mprotect(addr: *mut c_void, len: size_t, prot: c_int) -> c_int {
     let mut ret: c_long;
     unsafe {
@@ -442,6 +463,12 @@ pub fn poll_write(fd: c_int, timeout_ms: c_int) -> c_int {
 /// open + fstat + close
 pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'static str> {
     let fd = open(path, O_RDONLY, 0)?;
+    fstat(fd, sb)?;
+    let _ = close(fd);
+    Ok(())
+}
+
+pub fn fstat(fd: i32, sb: &mut MaybeUninit<Stat>) -> Result<(), &'static str> {
     let mut ret: i32;
     unsafe {
         asm!("syscall",
@@ -456,9 +483,25 @@ pub fn stat(path: *const c_char, sb: &mut MaybeUninit<Stat>) -> Result<(), &'sta
     if ret != 0 {
         Err("fstat failed")
     } else {
-        let _ = close(fd);
         Ok(())
     }
+}
+
+pub fn fadvise64(fd: i32, offset: off_t, len: off_t, advice: i32) -> c_int {
+    let mut ret: c_int;
+    unsafe {
+        asm!("syscall",
+            inout("eax") SYS_FADVISE64 => ret,
+            in("edi") fd,
+            in("esi") offset,
+            in("edx") len,
+            in("r10") advice,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    ret
 }
 
 pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> i32 {

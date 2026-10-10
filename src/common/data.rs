@@ -851,7 +851,7 @@ impl PromptFile {
         Ok(PromptFile {
             kind,
             filename: filename.split('/').next_back().unwrap().to_string(),
-            base64: base64::encode(&data),
+            base64: base64::encode(data.as_bytes()),
         })
     }
 

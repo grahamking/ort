@@ -10,6 +10,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use core::ffi::{c_str::CStr, c_void};
+use core::mem::MaybeUninit;
+use core::{ptr, slice};
 
 use crate::cli::Env;
 use crate::common::{dir, file, time};
@@ -272,8 +274,24 @@ pub(crate) fn path_exists(path: &CStr) -> bool {
     syscall::access(path.as_ptr(), syscall::F_OK) == 0
 }
 
-/// Read a file into memory
-pub(crate) fn filename_read_to_bytes(filename: &str) -> Result<Vec<u8>, &'static str> {
+pub(crate) struct FileContents {
+    contents: &'static [u8],
+}
+
+impl FileContents {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.contents
+    }
+}
+
+impl Drop for FileContents {
+    fn drop(&mut self) {
+        let (base, len) = (self.contents.as_ptr(), self.contents.len());
+        syscall::munmap(base.cast_mut().cast::<c_void>(), len);
+    }
+}
+
+pub(crate) fn filename_read_to_bytes(filename: &str) -> Result<FileContents, &'static str> {
     let cs = CString::new(filename).unwrap();
     let fd = match syscall::open(cs.as_ptr(), syscall::O_RDONLY, 0) {
         Ok(fd) => fd,
@@ -285,31 +303,43 @@ pub(crate) fn filename_read_to_bytes(filename: &str) -> Result<Vec<u8>, &'static
         }
     };
 
-    let mut content = Vec::new();
-    let mut buffer = [0u8; 4096];
+    let mut st = MaybeUninit::<syscall::Stat>::uninit();
+    syscall::fstat(fd, &mut st)?;
+    let st = unsafe { st.assume_init() };
+    let file_size = st.st_size as usize;
 
-    loop {
-        let bytes_read = syscall::read(fd, buffer.as_mut_ptr() as *mut c_void, buffer.len());
+    // Tell the kernel how we intend to use this file: sequentially, and immediately.
+    // Likely this overlaps with MAP_POPULATE, but the goal here is
+    // using cool syscalls, not being boring.
+    syscall::fadvise64(
+        fd,
+        0,
+        0,
+        syscall::POSIX_FADV_SEQUENTIAL | syscall::POSIX_FADV_WILLNEED,
+    );
 
-        if bytes_read < 0 {
-            let _ = syscall::close(fd);
-            return Err("READ ERROR");
-        }
-        if bytes_read == 0 {
-            break;
-        }
-        let bytes_read = bytes_read as usize; // we checked, it's positive
-        content.extend_from_slice(&buffer[..bytes_read]);
-    }
+    let base = syscall::mmap(
+        ptr::null_mut(),
+        file_size,
+        syscall::PROT_READ,
+        syscall::MAP_PRIVATE | syscall::MAP_POPULATE,
+        fd,
+        0,
+    ) as *mut u8;
     let _ = syscall::close(fd);
+    if base.is_null() {
+        return Err("mmap failed in filename_read_to_bytes");
+    }
 
-    Ok(content)
+    Ok(FileContents {
+        contents: unsafe { slice::from_raw_parts(base, file_size) },
+    })
 }
 
 /// Read a text file into memory
 pub fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     let content = filename_read_to_bytes(filename)?;
-    let out = String::from_utf8_lossy(&content);
+    let out = String::from_utf8_lossy(content.as_bytes());
     Ok(out.into_owned().to_string())
 }
 
