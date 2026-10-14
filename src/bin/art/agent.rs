@@ -18,12 +18,12 @@ use ort_openrouter_cli::{ort_err, syscall};
 
 use core::{ffi::c_void, mem::MaybeUninit};
 use std::fs;
+use std::path::Path;
 
-use crate::ort_error;
-use crate::{compact, inotify};
+use crate::{compact, inotify, system_prompt};
 use ort_openrouter_cli::{
-    ActivePrompt, Content, ErrorKind, Message, OrtResult, OutputWriter as _, Response, Role, Stats,
-    Tool, Write, cli::Env, config,
+    ActivePrompt, ErrorKind, Message, OrtResult, OutputWriter as _, Response, Stats, Tool, Write,
+    cli::Env, config,
 };
 
 use super::output::AgentWriter;
@@ -51,38 +51,16 @@ pub fn run<W: Write + Send>(
 
     // Load AGENTS.md
     if let Ok(agents_md) = fs::read_to_string("AGENTS.md") {
-        match messages.first_mut() {
-            Some(Message {
-                role: Role::System,
-                content: content_vec,
-                ..
-            }) => {
-                match content_vec.first_mut() {
-                    Some(Content::Text(s)) => {
-                        // Append AGENTS.md body
-                        s.push('\n');
-                        s.push_str(&agents_md);
-                    }
-                    _ => {
-                        return Err(ort_error(ErrorKind::MissingSystemPrompt, "No content"));
-                    }
-                }
-            }
-            _ => {
-                return Err(ort_error(
-                    ErrorKind::MissingSystemPrompt,
-                    "No system prompt",
-                ));
-            }
-        }
+        system_prompt::add(&mut messages, &agents_md)?;
     }
 
-    // TODO
-    //if exists(ROOT .agents/skills) {
-    //    let extra_content = load_skills();
-    // TODO: Merge the AGENTS.md extra content adding
-    //    add_to_system_prompt(extra_content);
-    //}
+    let skill_dir = Path::new(".agents/skills");
+    if skill_dir.exists() {
+        let extra_content = system_prompt::load_skills(skill_dir);
+        if !extra_content.is_empty() {
+            system_prompt::add(&mut messages, &extra_content)?;
+        }
+    }
 
     let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning, cfg.context_size);
 
@@ -182,22 +160,6 @@ fn handle_compact<W: Write + Send>(
         ))),
     }
 }
-
-// Probably move to system_prompt.rs, along with AGENTS.md code
-/*
-fn load_skills() -> String {
-    for every directory in $ROOT/.agents/skill
-        Does it have SKILL.md
-        If yes load name, preamble and path, add to Vec
-        line-oriented, "name: .." and "description: .."
-
-    if vec not empty:
-        add Skills instructions (Codex render.rs or Pi)
-        add vec joined with \n
-
-    return text
-}
-*/
 
 /// Non-blocking waiting for next user prompt
 fn poll_next_prompt(ifd: i32, prompt_filename: &str) -> OrtResult<Option<String>> {
@@ -599,5 +561,58 @@ mod tests {
         }
         // Assert: All of that JSONL produces a single tool call.
         assert_eq!(num_tool_calls, 2);
+    }
+
+    #[test]
+    fn test_load_skills_and_add_to_system_prompt() {
+        let base_dir =
+            std::env::temp_dir().join(format!("ort_art_skills_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base_dir);
+
+        let skill_a_dir = base_dir.join("alpha");
+        let skill_b_dir = base_dir.join("beta");
+        let no_skill_dir = base_dir.join("gamma");
+        fs::create_dir_all(&skill_a_dir).unwrap();
+        fs::create_dir_all(&skill_b_dir).unwrap();
+        fs::create_dir_all(&no_skill_dir).unwrap();
+
+        fs::write(
+            skill_a_dir.join("SKILL.md"),
+            "---\nname: \"alpha-skill\"\ndescription: \"First skill description.\"\n---\n# Alpha\n",
+        )
+        .unwrap();
+
+        fs::write(
+            skill_b_dir.join("SKILL.md"),
+            "---\ndescription: >\n  Multi-line\n  beta description.\n---\n# Beta\n",
+        )
+        .unwrap();
+
+        let rendered = system_prompt::load_skills(&base_dir);
+        let alpha_path = skill_a_dir
+            .join("SKILL.md")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let beta_path = skill_b_dir
+            .join("SKILL.md")
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        assert!(rendered.contains("## Skills"));
+        assert!(rendered.contains(&format!(
+            "- alpha-skill: First skill description. (file: {alpha_path})"
+        )));
+        assert!(rendered.contains(&format!(
+            "- beta: Multi-line beta description. (file: {beta_path})"
+        )));
+
+        let mut messages = vec![Message::system("Base prompt".to_string())];
+        system_prompt::add(&mut messages, &rendered).unwrap();
+        assert_eq!(
+            messages[0].content[0].text().unwrap(),
+            format!("Base prompt\n{rendered}")
+        );
+
+        let _ = fs::remove_dir_all(&base_dir);
     }
 }

@@ -10,7 +10,6 @@ cargo +nightly-2026-09-01 install --locked ort-openrouter-cli
 
 4. or build from source with `./build.sh` - note the agent builds into `target/release-art/`
 
-
 The binary is called `ort`. The agent is `art`.
 
 Linux / x86_64 only. Uses Linux specific syscalls and x86_64 specific instrinsics.
@@ -67,6 +66,8 @@ The `prompt` file is the initial prompt (the `@` is required here). We then watc
 A prompt of `/compact` compacts an existing conversation to reduce context size. Use it if getting near to the limit. This is not yet triggered automatically. Compaction cannot be triggered as a "steering" prompt during a turn. All the tool calls from the previous run must have completed and the model stopped waiting for user input.
 
 `art` includes a default system prompt explaining the tools. That is nearly always what you want, but you can `-s <here>` to replace it, or in config file just like `ort. Special strings `$PWD` and `$DATE` are replaced with the current working directory, and the output of shell `date` command.
+
+`AGENTS.md` and skills (`.agent/skills/`) are used, but only those in the curent directory.
 
 WARNING: Always run agents in a sandbox (I like `firejail`). `art` never asks you for confirmation and does not sandbox for you.
 
