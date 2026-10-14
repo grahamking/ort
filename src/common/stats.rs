@@ -68,8 +68,14 @@ impl Stats {
         }
         s.push_str(". ");
         if let Some(cost_in_cents) = self.cost_in_cents {
-            s.push_str(&utils::float_to_string(cost_in_cents, 4));
-            s.push_str(" cents. ");
+            if cost_in_cents >= 100.0 {
+                s.push('$');
+                s.push_str(&utils::float_to_string(cost_in_cents / 100.0, 2));
+                s.push_str(". ");
+            } else {
+                s.push_str(&utils::float_to_string(cost_in_cents, 4));
+                s.push_str(" cents. ");
+            }
         }
         if let Some(tokens) = self.tokens {
             s.push_str(&utils::num_to_human_string(tokens as usize));
