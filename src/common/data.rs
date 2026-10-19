@@ -422,7 +422,6 @@ impl Message {
     }
 
     pub fn assistant(content: String) -> Self {
-        // TODO: also send reasoning back
         Self::new(Role::Assistant, Some(content), None)
     }
 
@@ -501,7 +500,7 @@ impl Message {
         autoparser(json, &mut fields)?;
 
         let role = fields[0]
-            .get_raw()
+            .get_string()
             .as_deref()
             .map(|role| {
                 Role::from_str(role).map_err(|err| ort_err(ErrorKind::FormatError, err.into()))
@@ -1103,6 +1102,18 @@ mod tests {
 "#;
         let l = LastData::from_json(s).unwrap();
         assert_eq!(l.messages.len(), 2);
+    }
+
+    #[test]
+    fn last_data_preserves_message_roles() {
+        let data = LastData::from_json(
+            r#"{"messages":[{"role":"system","content":"instructions"},{"role":"user","content":"question"},{"role":"assistant","content":"answer"}]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(data.messages[0].role.as_str(), "system");
+        assert_eq!(data.messages[1].role.as_str(), "user");
+        assert_eq!(data.messages[2].role.as_str(), "assistant");
     }
 
     #[test]
