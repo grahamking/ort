@@ -57,7 +57,7 @@ pub(crate) fn last_data_file(env: &Env) -> OrtResult<String> {
         let mut last_path = [0u8; 128];
         let cache_dir_end = config::cache_dir(env, &mut last_path)?;
         let cache_dir = unsafe { str::from_utf8_unchecked(&last_path[..cache_dir_end]) };
-        utils::most_recent(cache_dir, "last-").context("most_recent")
+        utils::most_recent(cache_dir, "last-", "json").context("most_recent")
     }
 }
 

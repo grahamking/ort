@@ -233,32 +233,17 @@ pub fn slug(s: &str) -> String {
 
 // The filename of the last invocation of `ort`, taking into account tmux pane ID.
 pub(crate) fn last_filename(env: &Env, ext: &str) -> String {
-    // We don't expect pane IDs to go beyong 999
-    let mut buf: [u8; 3] = [0; 3];
-    let buf_len = tmux_pane_id(env.TMUX_PANE.unwrap_or_default(), &mut buf);
-
-    let mut out = String::with_capacity(16);
+    // Removing leading '%'. Values are e.g. '%4'
+    let id = env
+        .TMUX_PANE
+        .and_then(|s| s.strip_prefix('%'))
+        .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+        .unwrap_or("0");
+    let mut out = String::with_capacity(5 + id.len() + ext.len());
     out.push_str("last-");
-    // safety: to_ascii only returns chars '0'-'9'.
-    out.push_str(unsafe { str::from_utf8_unchecked(&buf[..buf_len]) });
+    out.push_str(id);
     out.push_str(ext);
-
     out
-}
-
-// Write the ID of this tmux pane as a string into the given buf.
-// Writes 0 if there is no TMUX_PANE env var defined.
-// Returns the length in bytes of the written ID.
-pub fn tmux_pane_id(tmux_pane_var: &str, buf: &mut [u8]) -> usize {
-    let v = tmux_pane_var;
-    if v.is_empty() {
-        buf[0] = b'0';
-        return 1;
-    }
-    // removing leading '%'. Values are e.g. '%4'
-    let id_len = v.len() - 1;
-    buf[..id_len].copy_from_slice(&v.as_bytes()[1..]);
-    id_len
 }
 
 /// Create this directory if necessary. Does not create ancestors.
@@ -343,16 +328,16 @@ pub fn filename_read_to_string(filename: &str) -> Result<String, &'static str> {
     Ok(out.into_owned().to_string())
 }
 
-/// Find the most recent file in `dir` that starts with `filename_prefix`.
+/// Find the most recent file in `dir` matching the filename prefix and suffix.
 /// Uses the minimal amount of disk access to go as fast as possible.
-pub fn most_recent(dir: &str, filename_prefix: &str) -> OrtResult<String> {
+pub fn most_recent(dir: &str, filename_prefix: &str, filename_suffix: &str) -> OrtResult<String> {
     let c_dir = CString::new(dir)
         .map_err(|_| ort_error(ErrorKind::FileReadFailed, "Null byte in most_recent dir"))?;
     let dir_files = dir::DirFiles::new(c_dir.as_c_str())?;
 
     let mut most_recent_file: Option<(String, time::Instant)> = None;
     for name in dir_files {
-        if !name.starts_with(filename_prefix) {
+        if !name.starts_with(filename_prefix) || !name.ends_with(filename_suffix) {
             continue;
         }
         let path = dir.to_string() + "/" + &name;
