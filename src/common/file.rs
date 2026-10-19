@@ -52,12 +52,18 @@ impl Read for File {
 
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> OrtResult<usize> {
-        let bytes_written = syscall::write(self.fd, buf.as_ptr() as *const c_void, buf.len());
-        if bytes_written < 0 {
-            Err(ort_error(ErrorKind::FileWriteFailed, "syscall write error"))
-        } else {
-            Ok(bytes_written as usize)
+        let mut offset = 0;
+        while offset < buf.len() {
+            let n = syscall::write(self.fd, buf[offset..].as_ptr().cast(), buf.len() - offset);
+            if n == syscall::EINTR {
+                continue;
+            }
+            if n <= 0 {
+                return Err(ort_error(ErrorKind::FileWriteFailed, "syscall write error"));
+            }
+            offset += n as usize;
         }
+        Ok(offset)
     }
 
     fn flush(&mut self) -> OrtResult<()> {

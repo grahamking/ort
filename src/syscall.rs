@@ -71,7 +71,7 @@ const SYS_PIPE2: i32 = 293;
 
 // /usr/include/asm-generic/errno-base.h
 pub const EAGAIN: i32 = -11; // Operation would block, try again
-const EINTR: i32 = -4; // Interrupted system call
+pub const EINTR: i32 = -4; // Interrupted system call
 const EACCES: i32 = -13; // Permission denied
 const ENOTTY: i32 = -25; // Not a typewriter / inappropriate ioctl for device
 pub const EINPROGRESS: i32 = -115; // Operation now in progress
