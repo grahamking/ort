@@ -114,13 +114,19 @@ pub fn run<W: Write + Send>(
                     }
                 }
             }
-            Err(err) => {
-                // TODO? 429 is useful to know about
-                // let err_str = err.as_string();
-                // if err_str.contains("429 Too Many Requests") {
-                utils::print_string(c"active_prompt.next: ", &err.as_string());
-            }
+            Err(err) => return Err(err),
         }
+    }
+
+    // A dropped connection must not replace the last usable conversation.
+    if active_prompt
+        .finish_reason()
+        .is_none_or(|reason| reason == "error")
+    {
+        return Err(ort_error(
+            ErrorKind::LastWriterError,
+            "Incomplete response; previous conversation retained",
+        ));
     }
 
     // Clean finish, send stats
@@ -598,10 +604,6 @@ impl ActivePrompt {
                     {
                         self.num_tokens += 1;
                         if self.is_first_reasoning {
-                            if reasoning_content.trim().is_empty() {
-                                // Don't allow starting with carriage return or blank space, that messes up the display
-                                continue;
-                            }
                             queue.push(Response::Think(ThinkEvent::Start));
                             self.is_first_reasoning = false;
                         }
