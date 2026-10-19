@@ -292,8 +292,9 @@ impl Cfg {
         let mut f =
             unsafe { file::File::create(&path[..len + 1]).context("create last file config")? };
         let as_str = self.to_string();
-        let _ = f.write_all(as_str.as_bytes());
-        Ok(())
+        let result = f.write_all(as_str.as_bytes());
+        f.close();
+        result
     }
 
     #[allow(clippy::should_implement_trait)]

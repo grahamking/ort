@@ -219,9 +219,6 @@ impl ToolCall {
 }
 
 pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> {
-    if data.content.is_empty() && data.reasoning.is_none() && data.tool_calls.is_empty() {
-        return Ok(());
-    }
     w.write_str("{\"role\":")?;
     write_json_str_simple(w, data.role.as_str())?;
     if let Some(tool_call_id) = &data.tool_call_id {
