@@ -44,7 +44,8 @@ pub fn build_body(
             if !is_first {
                 w.write_str(", ")?;
             }
-            w.write_str("\"order\": [")?;
+
+            w.write_str(r#""allow_fallbacks": false, "only": ["#)?;
             write_json_str(w, pr)?;
             w.write_char(']')?;
         }
@@ -407,7 +408,7 @@ mod tests {
             }
         };
 
-        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"order": ["google-ai-studio"]}, "reasoning_effort": "none", "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}]}"#;
+        let expected = r#"{"stream": true, "model": "google/gemma-3n-e4b-it:free", "provider": {"allow_fallbacks": false, "only": ["google-ai-studio"]}, "reasoning_effort": "none", "messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hello there!"}], "tools":[{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}]}"#;
 
         assert_eq!(got, expected);
     }
