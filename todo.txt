@@ -1,3 +1,6 @@
+Re-apply 7347803
+
+Then make `last-1.cfg` only save provider if user selected one. The returned provider is not always (or even often) a valid slug.
 
 --- Context API
 
