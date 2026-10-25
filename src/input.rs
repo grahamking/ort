@@ -6,6 +6,7 @@
 
 pub mod args;
 pub mod cli;
+pub mod info;
 pub mod list;
 pub mod prompt;
 pub mod to_json;

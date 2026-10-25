@@ -77,7 +77,7 @@ impl<R: Read + AsFd> AsFd for ContentLengthReader<R> {
 }
 
 // The constant part of the list request headers
-const LIST_REQ_MIDDLE: &[u8] = concat!(
+const REQ_MIDDLE: &[u8] = concat!(
     "Accept: application/json\r\n",
     "User-Agent: ",
     env!("CARGO_PKG_NAME"),
@@ -129,8 +129,8 @@ pub fn list_models(
 
     // Rest of the HTTP headers
     start = end;
-    end += LIST_REQ_MIDDLE.len();
-    req[start..end].copy_from_slice(LIST_REQ_MIDDLE);
+    end += REQ_MIDDLE.len();
+    req[start..end].copy_from_slice(REQ_MIDDLE);
 
     // The constant part finished with "Authorization: Bearer ".
     // Append the API key and the final double CRLF.
@@ -147,6 +147,67 @@ pub fn list_models(
     tls.write_all(&req[..end])
         .context("write list_models request")?;
     tls.flush().context("flush list_models request")?;
+
+    Ok(tls)
+}
+
+pub fn info(
+    api_key: &str,
+    host: &str,
+    base_path: &str,
+    model_id: &str,
+    addrs: Vec<SocketAddr>,
+) -> OrtResult<TlsStream<TcpSocket>> {
+    let tcp = connect(addrs)?;
+
+    let mut tls = TlsStream::connect(tcp, host)?;
+
+    // Built request on the stack, zero alloc
+    // Req is about 276 bytes right now. 384 is 256 + 128.
+    let mut req = [0u8; 384];
+
+    // GET <info_url> HTTP/1.1\r\n
+    let list_url = base_path.to_string() + "/model/" + model_id;
+    let mut start = 0;
+    let mut end = GET.len();
+    req[start..end].copy_from_slice(GET);
+    start = end;
+    end += list_url.len();
+    req[start..end].copy_from_slice(list_url.as_bytes());
+    start = end;
+    end += HTTP_1_1.len();
+    req[start..end].copy_from_slice(HTTP_1_1);
+
+    // Host: <host>\r\n
+    start = end;
+    end += HOST_HEADER.len();
+    req[start..end].copy_from_slice(HOST_HEADER);
+    start = end;
+    end += host.len();
+    req[start..end].copy_from_slice(host.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    // Rest of the HTTP headers
+    start = end;
+    end += REQ_MIDDLE.len();
+    req[start..end].copy_from_slice(REQ_MIDDLE);
+
+    // The constant part finished with "Authorization: Bearer ".
+    // Append the API key and the final double CRLF.
+    start = end;
+    end += api_key.len();
+    req[start..end].copy_from_slice(api_key.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    tls.write_all(&req[..end]).context("write info request")?;
+    tls.flush().context("flush info request")?;
 
     Ok(tls)
 }

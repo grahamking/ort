@@ -1,3 +1,17 @@
+--- info
+
+Add providers / prices / etc, see example file
+
+--- Usage
+
+Have AI generate a correct and full and nice USAGE message and paste that in.
+
+--- Size
+
+`ort list` and `ort info` overlap a lot. Combine to reduce binary size.
+
+--- Correct provider in last file
+
 Re-apply 7347803
 
 Then make `last-1.cfg` only save provider if user selected one. The returned provider is not always (or even often) a valid slug.
@@ -9,10 +23,6 @@ NVIDIA NOAA harness thing has it, so has Codex. But can models use it?
 --- Gap with Pi
 
 Lots of good stuff in `gap-analysis-with-pi.md`. Thanks GPT 5.5!
-
---- Skill support
-
-Add support. We should read and use them.
 
 --- MCP support
 

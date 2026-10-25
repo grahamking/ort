@@ -17,6 +17,7 @@ use crate::common::config::Cfg;
 use crate::input::args;
 use crate::input::args::Cmd;
 use crate::input::args::PromptOpts;
+use crate::input::info;
 use crate::input::list;
 use crate::input::prompt;
 use crate::output::last_writer;
@@ -57,8 +58,11 @@ fn parse_args(args: &[String]) -> Result<args::Cmd, args::ArgParseError> {
         return Err(args::ArgParseError::show_help());
     }
 
-    if args[1].as_str() == "list" {
+    let cmd = args[1].as_str();
+    if cmd == "list" {
         args::parse_list_args(args)
+    } else if cmd == "info" {
+        args::parse_info_args(args)
     } else {
         let is_pipe_input = !syscall::isatty(STDIN_FILENO);
         let stdin = if is_pipe_input {
@@ -91,6 +95,7 @@ pub fn main<W: Write + Send>(
     };
     let config_file = match &cmd {
         Cmd::List(opts) => opts.config_file.as_deref(),
+        Cmd::Info(opts) => opts.config_file.as_deref(),
         Cmd::Prompt(opts) | Cmd::ContinueConversation(opts) => opts.config_file.as_deref(),
     };
 
@@ -136,6 +141,7 @@ pub fn main<W: Write + Send>(
             prompt::run_continue(&api_key, &prev_cfg, &env, new_prompt, !is_terminal, w)
         }
         args::Cmd::List(args) => list::run(&api_key, &cfg, args, w),
+        args::Cmd::Info(args) => info::run(&api_key, &cfg, args, w),
     };
     cmd_result.map(|_| 0)
 }

@@ -1,0 +1,17 @@
+$ curl --request GET --url https://openrouter.ai/api/v1/model/google/gemini-4-argon --header 'Authorization: Bearer sk-<..>
+
+$ curl --request GET --url https://openrouter.ai/api/v1/models/google/gemini-4-argon-20261013/endpoints --header 'Authorization: Bearer sk-<..>
+
+---
+
+google/gemini-4-argon				# data.id
+
+high, medium, low (medium)			# data.reasoning.supported_efforts (reasoning.default_effort)
+text+image+file+audio+video->text	# data.architecture.modality
+
+# Fetch data.links.details
+# In there, for each data.endpoints print this line:
+# <tag> \t ctx=<context_length> in=$<pricing.prompt * 1_000_000> out=$<pricing.completion * 1_000_000> cache=$<pricing.input_cache_read * 1_000_000>
+google-ai-studio/flex	ctx=1,048,576 in=$1.00 out=$5.00 cache=$0.05
+google-vertex/global	ctx=1,048,576 in=$2.00 out=$10.00 cache=$0.10
+

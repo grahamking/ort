@@ -24,7 +24,7 @@ It is built the old fashioned way, in solid Rust. It doesn't slow you down with 
 
 It's direct. Use the default model model with no fuss: `ort "What is the capital of France?"`. And if you mess up, it tells you straight: `OPENROUTER_API_KEY is not set`. That's an environment variable.
 
-If you're new here in town, it'll introduce you: `ort list [-json]`. Everyone's a model here.
+If you're new here in town, it'll introduce you: `ort list [-json]`. Everyone's a model here. `ort info [-json] <model-slug>` to find out about a specific model: supported reasoning levels, in/out modalities, and providers with prices.
 
 You like to know who you're talking to so `-m <model>` selects your conversation partner, and it knows you don't want to impose more then necessary so `-r off|none|low|medium|high|<toks>` sets reasoning effort. But you have your own priorities, we all do. Use `-p price|throughput|latency` for that.
 

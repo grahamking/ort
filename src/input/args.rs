@@ -25,12 +25,19 @@ const MAX_CONCURRENT_MODELS: usize = 10;
 
 pub enum Cmd {
     List(ListOpts),
+    Info(InfoOpts),
     Prompt(PromptOpts),
     ContinueConversation(PromptOpts),
 }
 
 pub struct ListOpts {
     pub config_file: Option<String>,
+    pub is_json: bool,
+}
+
+pub struct InfoOpts {
+    pub config_file: Option<String>,
+    pub model_id: String,
     pub is_json: bool,
 }
 
@@ -218,6 +225,50 @@ pub fn parse_prompt_args(args: &[String], stdin: Option<String>) -> Result<Cmd, 
     } else {
         Ok(Cmd::Prompt(prompt_opts))
     }
+}
+
+pub fn parse_info_args(args: &[String]) -> Result<Cmd, ArgParseError> {
+    let mut config_file = None;
+    let mut model_id_opt = None;
+    let mut is_json = false;
+
+    let mut i = 2;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "--cfg" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ArgParseError::new_str("Missing value for -c"));
+                }
+                config_file = Some(args[i].clone());
+            }
+            "-json" => {
+                is_json = true;
+            }
+            maybe_model_id => {
+                if model_id_opt.is_some() {
+                    return Err(ArgParseError::new(
+                        "Invalid info argument: ".to_string() + maybe_model_id,
+                    ));
+                }
+                model_id_opt = Some(maybe_model_id);
+            }
+        }
+        i += 1;
+    }
+
+    let Some(model_id) = model_id_opt else {
+        return Err(ArgParseError::new(
+            "Missing model_id as first arg after 'info'".to_string(),
+        ));
+    };
+
+    Ok(Cmd::Info(InfoOpts {
+        model_id: model_id.to_string(),
+        config_file,
+        is_json,
+    }))
 }
 
 pub fn parse_list_args(args: &[String]) -> Result<Cmd, ArgParseError> {
