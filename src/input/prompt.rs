@@ -412,7 +412,7 @@ impl ActivePrompt {
         }
         let (host, port, base_path) = http::split_url(&self.cfg.base_url);
         self.start = Some(time::Ticks::now());
-        let addrs = if self.cfg.dns.is_empty() {
+        let addrs: Vec<SocketAddr> = if self.cfg.dns.is_empty() {
             let ips = unsafe { resolver::resolve(host).context("resolver::resolve")? };
             ips.into_iter()
                 .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
@@ -432,7 +432,7 @@ impl ActivePrompt {
             host,
             base_path,
             &self.session_id,
-            addrs,
+            &addrs,
             &body,
         )
         .context("http::chat_completions")?;

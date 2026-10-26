@@ -29,7 +29,7 @@ pub fn run<W: Write + Send>(
     w: &mut W,
 ) -> OrtResult<()> {
     let (host, port, base_path) = http::split_url(&cfg.base_url);
-    let addrs = if cfg.dns.is_empty() {
+    let addrs: Vec<SocketAddr> = if cfg.dns.is_empty() {
         let ips = unsafe { resolver::resolve(host).context("resolver::resolve")? };
         ips.into_iter()
             .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
@@ -43,11 +43,13 @@ pub fn run<W: Write + Send>(
             })
             .collect()
     };
-    let reader = http::list_models(api_key, host, base_path, addrs).context("list_models")?;
+    let reader = http::list_models(api_key, host, base_path, &addrs).context("list_models")?;
     let mut reader = buf_read::OrtBufReader::new(reader);
     let response_body = http::skip_header(&mut reader)?;
 
     if opts.is_json {
+        super::stream_json(response_body, reader, w)?;
+        /*
         // The full JSON. User should use `jq` or similar to pretty it.
         match response_body {
             http::ResponseBody::Chunked => {
@@ -84,6 +86,7 @@ pub fn run<W: Write + Send>(
             }
         }
         w.flush().context("flush models JSON")?;
+        */
     } else {
         // 342 models as of Feb 16th 2026
         let mut slugs = Vec::with_capacity(400);

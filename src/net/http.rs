@@ -94,7 +94,7 @@ pub fn list_models(
     api_key: &str,
     host: &str,
     base_path: &str,
-    addrs: Vec<SocketAddr>,
+    addrs: &[SocketAddr],
 ) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
 
@@ -151,12 +151,12 @@ pub fn list_models(
     Ok(tls)
 }
 
-pub fn info(
+pub fn model_info(
     api_key: &str,
     host: &str,
     base_path: &str,
     model_id: &str,
-    addrs: Vec<SocketAddr>,
+    addrs: &[SocketAddr],
 ) -> OrtResult<TlsStream<TcpSocket>> {
     let tcp = connect(addrs)?;
 
@@ -167,13 +167,13 @@ pub fn info(
     let mut req = [0u8; 384];
 
     // GET <info_url> HTTP/1.1\r\n
-    let list_url = base_path.to_string() + "/model/" + model_id;
+    let url = base_path.to_string() + "/model/" + model_id;
     let mut start = 0;
     let mut end = GET.len();
     req[start..end].copy_from_slice(GET);
     start = end;
-    end += list_url.len();
-    req[start..end].copy_from_slice(list_url.as_bytes());
+    end += url.len();
+    req[start..end].copy_from_slice(url.as_bytes());
     start = end;
     end += HTTP_1_1.len();
     req[start..end].copy_from_slice(HTTP_1_1);
@@ -212,6 +212,67 @@ pub fn info(
     Ok(tls)
 }
 
+pub fn model_details(
+    api_key: &str,
+    host: &str,
+    url: &str,
+    addrs: &[SocketAddr],
+) -> OrtResult<TlsStream<TcpSocket>> {
+    let tcp = connect(addrs)?;
+
+    let mut tls = TlsStream::connect(tcp, host)?;
+
+    // Built request on the stack, zero alloc
+    // Req is about 276 bytes right now. 384 is 256 + 128.
+    let mut req = [0u8; 384];
+
+    // GET <url> HTTP/1.1\r\n
+    let url = url.to_string();
+    let mut start = 0;
+    let mut end = GET.len();
+    req[start..end].copy_from_slice(GET);
+    start = end;
+    end += url.len();
+    req[start..end].copy_from_slice(url.as_bytes());
+    start = end;
+    end += HTTP_1_1.len();
+    req[start..end].copy_from_slice(HTTP_1_1);
+
+    // Host: <host>\r\n
+    start = end;
+    end += HOST_HEADER.len();
+    req[start..end].copy_from_slice(HOST_HEADER);
+    start = end;
+    end += host.len();
+    req[start..end].copy_from_slice(host.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    // Rest of the HTTP headers
+    start = end;
+    end += REQ_MIDDLE.len();
+    req[start..end].copy_from_slice(REQ_MIDDLE);
+
+    // The constant part finished with "Authorization: Bearer ".
+    // Append the API key and the final double CRLF.
+    start = end;
+    end += api_key.len();
+    req[start..end].copy_from_slice(api_key.as_bytes());
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+    start = end;
+    end += CRLF.len();
+    req[start..end].copy_from_slice(CRLF);
+
+    tls.write_all(&req[..end])
+        .context("write model_details request")?;
+    tls.flush().context("flush model_details request")?;
+
+    Ok(tls)
+}
+
 const CHAT_REQ_MIDDLE: &[u8] = concat!(
     "Content-Type: application/json\r\n",
     "Accept: text/event-stream\r\n",
@@ -233,7 +294,7 @@ pub fn post_chat_completions(
     host: &str,
     base_path: &str,
     session_id: &str,
-    addrs: Vec<SocketAddr>,
+    addrs: &[SocketAddr],
     json_body: &str,
 ) -> OrtResult<buf_read::OrtBufReader<TlsStream<TcpSocket>>> {
     let tcp = connect(addrs)?;
@@ -477,14 +538,14 @@ pub fn split_url(url: &str) -> (&str, u16, &str) {
 /// Attempt to connect to all the SocketAddr in order.
 /// The addresses come from the system resolver or `${XDG_CONFIG_HOME}/ort.json`
 /// in settings/dns.
-fn connect(addrs: Vec<SocketAddr>) -> OrtResult<TcpSocket> {
+fn connect(addrs: &[SocketAddr]) -> OrtResult<TcpSocket> {
     for addr in addrs {
         let addr_v4 = match addr {
             SocketAddr::V4(v4) => v4,
             _ => continue,
         };
         let sock = TcpSocket::new()?;
-        if sock.connect(&addr_v4, SOCKET_CONNECT_TIMEOUT_MS).is_ok() {
+        if sock.connect(addr_v4, SOCKET_CONNECT_TIMEOUT_MS).is_ok() {
             return Ok(sock);
         }
     }

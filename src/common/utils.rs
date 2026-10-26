@@ -15,7 +15,7 @@ use core::{ptr, slice};
 
 use crate::cli::Env;
 use crate::common::{dir, file, time};
-use crate::{ErrorKind, OrtResult, ort_error, syscall};
+use crate::{ErrorKind, OrtResult, ort_err, ort_error, syscall};
 
 /// Converts the number to a string, putting it plus a carriage return into `buf`.
 /// `buf` must be big enough to hold the largest possible number of digits in
@@ -122,6 +122,11 @@ pub(crate) fn float_to_string(mut f: f64, significant_digits: usize) -> String {
     // Handle integer part
     let mut integer_part = f as u64;
     let mut fraction_part = f - (integer_part as f64);
+    if fraction_part > 0.0 {
+        // Compensate for representation/subtraction error, retaining truncation.
+        // Stay below one so the correction cannot produce a non-decimal digit.
+        fraction_part = (fraction_part + f * f64::EPSILON).min(1.0 - f64::EPSILON);
+    }
 
     // Naive integer to string conversion
     if integer_part == 0 {
@@ -179,6 +184,154 @@ pub fn parse_u32(b: &[u8]) -> Result<u32, &'static str> {
         return Err("expected integer");
     }
     Ok(val)
+}
+
+/// Returns a tuple of the float value, and how many characters we used
+pub fn parse_f64(b: &[u8]) -> OrtResult<(f64, usize)> {
+    let len = b.len();
+    if len == 0 {
+        return Err(ort_err(
+            ErrorKind::FormatError,
+            "Missing f64 to parse".into(),
+        ));
+    }
+    let mut i = 0;
+
+    // Sign
+    let mut neg = false;
+    let c = b[i];
+    if c == b'-' {
+        neg = true;
+        i += 1;
+    } else if c == b'+' {
+        i += 1;
+    }
+
+    // Mantissa accumulation (up to 9 significant digits)
+    let mut mant: u32 = 0;
+    let mut mant_digits: i32 = 0;
+    let mut ints: i32 = 0;
+
+    // Integer part
+    while i < len {
+        let c = b[i];
+        if c.is_ascii_digit() {
+            if mant_digits < 9 {
+                mant = mant.saturating_mul(10).wrapping_add((c - b'0') as u32);
+                mant_digits += 1;
+            }
+            i += 1;
+            ints += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Fractional part
+    let mut frac_any = false;
+    if i < len && b[i] == b'.' {
+        i += 1;
+        let start_frac = i;
+        while i < len {
+            let c = b[i];
+            if c.is_ascii_digit() {
+                if mant_digits < 9 {
+                    mant = mant.saturating_mul(10).wrapping_add((c - b'0') as u32);
+                    mant_digits += 1;
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        frac_any = i > start_frac;
+    }
+
+    if ints == 0 && !frac_any {
+        return Err(ort_err(ErrorKind::FormatError, "expected number".into()));
+    }
+
+    // Exponent part
+    let mut exp_part: i32 = 0;
+    if i < len && (b[i] == b'e' || b[i] == b'E') {
+        i += 1;
+        let mut eneg = false;
+        if i < len {
+            if b[i] == b'-' {
+                eneg = true;
+                i += 1;
+            } else if b[i] == b'+' {
+                i += 1;
+            }
+        }
+        if i == len || !b[i].is_ascii_digit() {
+            return Err(ort_err(ErrorKind::FormatError, "expected exponent".into()));
+        }
+        let mut eacc: i32 = 0;
+        while i < len {
+            let c = b[i];
+            if c.is_ascii_digit() {
+                let d = (c - b'0') as i32;
+                if eacc < 1_000_000_000 / 10 {
+                    eacc = eacc * 10 + d;
+                } else {
+                    eacc = 1_000_000_000; // clamp large exponents
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        exp_part = if eneg { -eacc } else { eacc };
+    }
+
+    // Effective base-10 exponent relative to the mantissa we built
+    let exp10 = ints - mant_digits + exp_part;
+
+    // Scale using f64 to avoid premature underflow; cast to f64 at the end
+    let mut val = mant as f64;
+
+    const POW10_POS: [f64; 39] = [
+        1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
+        1e17, 1e18, 1e19, 1e20, 1e21, 1e22, 1e23, 1e24, 1e25, 1e26, 1e27, 1e28, 1e29, 1e30, 1e31,
+        1e32, 1e33, 1e34, 1e35, 1e36, 1e37, 1e38,
+    ];
+    const POW10_NEG: [f64; 46] = [
+        1.0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13,
+        1e-14, 1e-15, 1e-16, 1e-17, 1e-18, 1e-19, 1e-20, 1e-21, 1e-22, 1e-23, 1e-24, 1e-25, 1e-26,
+        1e-27, 1e-28, 1e-29, 1e-30, 1e-31, 1e-32, 1e-33, 1e-34, 1e-35, 1e-36, 1e-37, 1e-38, 1e-39,
+        1e-40, 1e-41, 1e-42, 1e-43, 1e-44, 1e-45,
+    ];
+
+    if exp10 > 0 {
+        let mut e = exp10;
+        while e > 0 {
+            let chunk = if e > 38 { 38 } else { e } as usize;
+            val *= POW10_POS[chunk];
+            if !val.is_finite() {
+                return Err(ort_err(ErrorKind::FormatError, "f32 overflow".into()));
+            }
+            e -= chunk as i32;
+        }
+    } else if exp10 < 0 {
+        let mut e = -exp10;
+        while e > 0 {
+            let chunk = if e > 45 { 45 } else { e } as usize;
+            val *= POW10_NEG[chunk];
+            if val == 0.0 {
+                break;
+            }
+            e -= chunk as i32;
+        }
+    }
+
+    if !val.is_finite() {
+        return Err(ort_err(ErrorKind::FormatError, "f64 overflow".into()));
+    }
+    if neg {
+        val = -val;
+    }
+    Ok((val, i))
 }
 
 #[allow(unused)]
@@ -383,51 +536,66 @@ pub(crate) fn generate_session_id() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{float_to_string, num_to_human_string, num_to_string};
+    use super::{float_to_string, num_to_human_string, num_to_string, parse_f64};
 
     #[test]
-    fn num_to_string_handles_sign() {
-        assert_eq!(num_to_string(-42), "-42");
-        assert_eq!(num_to_string(42usize), "42");
-        assert_eq!(num_to_string(0), "0");
+    fn test_parse_f64() {
+        let ts = [
+            ("0.00000002", (0.00000002, 10)),
+            ("0.00000405", (0.00000405, 10)),
+            ("3.12", (3.12, 4)),
+            ("0.005", (0.005, 5)),
+            ("1.000", (1.0, 5)),
+        ];
+        for (input, output) in ts {
+            assert_eq!(parse_f64(input.as_bytes()).unwrap(), output);
+        }
     }
 
     #[test]
-    fn num_to_human_string_formats_thousands_and_millions() {
+    fn test_num_to_string() {
+        // sign
+        assert_eq!(num_to_string(-42), "-42");
+        assert_eq!(num_to_string(42usize), "42");
+        assert_eq!(num_to_string(0), "0");
+
+        // humanize
         assert_eq!(num_to_human_string(26_000), "26K");
         assert_eq!(num_to_human_string(1_000_000), "1M");
         assert_eq!(num_to_human_string(2_500_000), "2M");
     }
 
     #[test]
-    fn nan_and_infinity() {
+    fn test_float_to_string() {
+        // NaN and Inf
         assert_eq!(float_to_string(f64::NAN, 3), "NaN");
         assert_eq!(float_to_string(f64::INFINITY, 3), "inf");
         assert_eq!(float_to_string(f64::NEG_INFINITY, 3), "-inf");
-    }
 
-    #[test]
-    fn sign_and_integer_part() {
+        // Sign and integer part
         assert_eq!(float_to_string(-2.5, 1), "-2.5");
         assert_eq!(float_to_string(0.0, 0), "0");
         assert_eq!(float_to_string(-0.0, 2), "0.00"); // f < 0.0 is false for -0.0
         assert_eq!(float_to_string(12345.0, 0), "12345");
-    }
 
-    #[test]
-    fn fractional_digits_truncate_not_round() {
+        // fractional_digits_truncate_not_round
         // 1.875 is exactly representable; with 2 digits -> "1.87" (truncation)
         assert_eq!(float_to_string(1.875, 2), "1.87");
-    }
 
-    #[test]
-    fn fractional_leading_zeros() {
+        // fractional_leading_zeros
         // 1/64 = 0.015625 is exactly representable
         assert_eq!(float_to_string(0.015625, 3), "0.015");
-    }
 
-    #[test]
-    fn no_decimal_point_when_zero_digits() {
+        // no_decimal_point_when_zero_digits
         assert_eq!(float_to_string(3.75, 0), "3");
+
+        // Decimal values must not lose a digit to binary representation error.
+        assert_eq!(float_to_string(4.05, 2), "4.05");
+        assert_eq!(float_to_string(-4.05, 2), "-4.05");
+        assert_eq!(float_to_string(1.01, 2), "1.01");
+        assert_eq!(float_to_string(0.29, 2), "0.29");
+        assert_eq!(float_to_string(4.059, 2), "4.05");
+        assert_eq!(float_to_string(4.0, 16), "4.0000000000000000");
+        assert_eq!(float_to_string(1.9999999999999998, 2), "1.99");
     }
 }
