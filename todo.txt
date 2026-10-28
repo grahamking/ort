@@ -1,11 +1,3 @@
---- info
-
-Add providers / prices / etc, see example file
-
---- Usage
-
-Have AI generate a correct and full and nice USAGE message and paste that in.
-
 --- Size
 
 `ort list` and `ort info` overlap a lot. Combine to reduce binary size.

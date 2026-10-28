@@ -27,10 +27,57 @@ use crate::{ErrorKind, ort_error};
 const STDIN_FILENO: i32 = 0;
 const STDERR_FILENO: i32 = 0;
 
-// Keep default mode in sync with common/data.rs DEFAULT_MODEL
-const USAGE: &str = "Usage: ort [--cfg ort.cfg] [-m <model>] [-s \"<system prompt>\"] [-p <price|throughput|latency>] [-pr provider-slug] [-r] [-rr] [-q] [-nc] [-ws] <prompt>\n\
-Defaults: -m nvidia/nemotron-3-super-120b-a12b:free -s omitted ; -p omitted\n\
-Example:\n  ort -p price -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
+// Keep default model in sync with common/data.rs DEFAULT_MODEL
+const USAGE: &str = "ort - OpenRouter CLI
+
+Usage:
+  ort [OPTIONS] [PROMPT...]
+  ort list [--cfg <FILE>] [-json]
+  ort info <MODEL> [--cfg <FILE>] [-json]
+  ort -h | --help
+
+Commands:
+  list                 List available models
+  info <MODEL>         Show details for a model
+  (default)            Send a prompt to a model
+
+Common option:
+  --cfg <FILE>         Config file name (default: ort.cfg)
+
+Prompt options (must appear before PROMPT):
+  -m <MODEL>           Model ID; repeat to query up to 10 models concurrently
+  -s <SYSTEM>          System prompt text or @<FILE>
+  -p <PRIORITY>        Provider sort: price, throughput, or latency
+  -pr <PROVIDER>       Preferred provider name or slug
+  -r <EFFORT>          Reasoning effort: none, off, low, medium, high, or xhigh
+                       (off is an alias for none; values are case-insensitive)
+  -rr                  Show reasoning output
+  -q                   Hide stats after the request
+  -c                   Continue the previous conversation; options override
+                       the previous conversation's settings
+  -f <FILE|URL>        Attach an image (local JPG/PNG or HTTP(S) URL); repeatable
+  -ws                  Enable server-side web_search and web_fetch tools
+  -private             Do not save this conversation; disables later continuation
+  -h, --help           Show this help
+
+List and info option:
+  -json                Output JSON
+
+Prompt input:
+  PROMPT words are joined with spaces. Use @<FILE> to read a prompt file.
+  Piped stdin is appended to PROMPT, or used alone if PROMPT is omitted.
+  A prompt is required, either as an argument or through stdin.
+
+Defaults:
+  Options not supplied use config settings or built-in defaults.
+  Default model: nvidia/nemotron-3-super-120b-a12b:free
+
+Examples:
+  ort -m openai/gpt-oss-20b -r low -rr -s \"Respond like a pirate\" \"Write a limerick about AI\"
+  ort -c \"Are you sure?\"
+  echo 'Explain this code' | ort -m openai/gpt-oss-20b
+  ort list -json
+  ort info openai/gpt-oss-20b
 
 See https://github.com/grahamking/ort for full docs.
 ";
