@@ -8,6 +8,7 @@
 // feature(test) for benchmarking
 #![cfg_attr(test, feature(test))]
 
+mod api;
 mod common;
 mod input;
 mod net;
@@ -24,6 +25,7 @@ pub use common::data::{
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_error};
 pub use common::file;
 pub use common::json_parser;
+pub use common::json_writer::write_json_str;
 pub use common::stats::Stats;
 pub use common::{io::Read, io::Write};
 pub use common::{time, utils};
@@ -34,10 +36,10 @@ pub use common::utils::num_to_string;
 #[allow(unused)]
 pub(crate) use common::utils::{eprint_string, print_string};
 
+pub use api::chat_completions::build_body;
 pub use input::args;
 pub use input::cli;
 pub use input::prompt::{ActivePrompt, PromptReader};
-pub use input::to_json::{build_body, write_json_str};
 
 pub use net::socket::TcpSocket;
 pub use net::tls::TlsStream;

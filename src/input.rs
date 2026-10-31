@@ -12,7 +12,6 @@ pub mod cli;
 pub mod info;
 pub mod list;
 pub mod prompt;
-pub mod to_json;
 
 fn stream_json<R: Read, W: Write + Send>(
     response_body: http::ResponseBody,

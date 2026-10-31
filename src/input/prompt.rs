@@ -427,7 +427,7 @@ impl ActivePrompt {
                 })
                 .collect()
         };
-        let mut buf_reader = http::post_chat_completions(
+        let mut buf_reader = http::post_prompt(
             &self.api_key,
             host,
             base_path,

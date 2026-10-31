@@ -12,6 +12,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::api;
 use crate::common::error::ort_err;
 use crate::common::utils;
 use crate::net::AsFd;
@@ -289,7 +290,7 @@ const CHAT_REQ_MIDDLE: &[u8] = concat!(
 )
 .as_bytes();
 
-pub fn post_chat_completions(
+pub fn post_prompt(
     api_key: &str,
     host: &str,
     base_path: &str,
@@ -307,10 +308,10 @@ pub fn post_chat_completions(
     // With longest current model name headers len is 341 so use 512.
     let mut req = Vec::with_capacity(512 + body.len());
 
-    // POST <chat_completions_url> HTTP/1.1\r\n
-    let chat_completions_url = base_path.to_string() + "/chat/completions";
+    // POST <url> HTTP/1.1\r\n
+    let url = base_path.to_string() + api::PROMPT_URL;
     req.extend_from_slice(POST);
-    req.extend_from_slice(chat_completions_url.as_bytes());
+    req.extend_from_slice(url.as_bytes());
     req.extend_from_slice(HTTP_1_1); // CRLF included
 
     // Host: <host>\r\n
@@ -345,9 +346,8 @@ pub fn post_chat_completions(
     req.extend_from_slice(body);
 
     // Send as a single TLS packet - if it fits
-    tls.write_all(req.as_mut())
-        .context("write chat_completions")?;
-    tls.flush().context("flush chat_completions")?;
+    tls.write_all(req.as_mut()).context("write prompt")?;
+    tls.flush().context("flush prompt")?;
 
     Ok(buf_read::OrtBufReader::new(tls))
 }

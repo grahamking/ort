@@ -17,6 +17,7 @@ pub mod error;
 pub mod file;
 pub mod io;
 pub mod json_parser;
+pub mod json_writer;
 pub mod resolver;
 pub mod stats;
 pub mod time;

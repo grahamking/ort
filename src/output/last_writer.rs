@@ -14,7 +14,7 @@ use crate::cli::Env;
 use crate::common::config::Cfg;
 use crate::common::data::ToolCall;
 use crate::common::json_parser::Parser;
-use crate::input::to_json::{write_encoded_bytes, write_json_str};
+use crate::common::json_writer::{write_encoded_bytes, write_json_str};
 use crate::output::OutputWriter;
 use crate::{
     Context, ErrorKind, LastData, Message, OrtResult, Response, Write, common::config,
@@ -264,7 +264,7 @@ impl OutputWriter for LastWriter {
                     if i != 0 {
                         self.w.write_char(',')?;
                     }
-                    crate::input::to_json::write_json_message(msg, &mut self.w)?;
+                    crate::api::chat_completions::write_json_message(msg, &mut self.w)?;
                 }
                 if !self.data.messages.is_empty() {
                     self.w.write_char(',')?;
