@@ -1,3 +1,58 @@
+--- Don't send reasoning if user didn't specify
+
+Let the model default it.
+
+**Unconditional `reasoning: {"effort":"none"}`.** OpenRouter accepts `none` on Responses, but "concrete model slugs keep strict validation — sending `effort: "none"` to a model that mandates reasoning returns a 400". Since `cfg.effort == None` is the common default, consider omitting the `reasoning` object entirely when the user didn't set `-r`, which lets the model use its default and avoids the 400.
+
+--- Reasoning alloc size
+
+**(b) Reasoning is budgeted but never written.** For the Responses format the diff deliberately drops `reasoning`/`reasoning_details`, yet `size()` still counts it (`content_len.max(reasonin
+g_len)`):
+
+```
+reasoning body_len=118  est_cap=201034  final_cap=201034
+```
+
+201 KB allocated to produce a 118-byte body, on every turn of a reasoning conversation. Over-allocation is not harmless here: `src/common/alloc.rs` is an arena that never unmaps, so this is
+permanent RSS (and it wastes an extra 1 MiB chunk crossing the `ARENA_SIZE` boundary). `size()` needs to know the format — either `Message::size(&self, format: Format)` or a separate `serial
+ized_size(format)` (note `Message::size` is publicly re-exported, so pick deliberately).
+
+--- Tool call arguments in body_buffer initial alloc size
+
+`body_buffer()` sizes the request buffer from `1024 + Σ Message::size()`. `Message::size()` (`data.rs:484`) only counts `max(content_len, reasoning_len) + 10`. Three measured failures:
+
+**(a) Tool-call arguments are counted as zero.** `Message::size()` never looks at `tool_calls[].function.arguments`. For an accurate estimate of 500 KB of tool arguments I measured:
+
+```
+toolcall  body_len=500260  est_cap=1046  final_cap=1000380
+```
+
+An initial capacity of 1 KB for a 500 KB body. That's ~10 doublings, each copying the whole buffer — the single worst case in the app, because `art` round-trips large `write_file`/`edit` arguments on every continue request. This is the case the TODO comment is about, and it's a two-line fix inside `Message::size()`.
+
+Tools are not counted at all**, as the TODO admits. `client_tools` isn't even passed to `body_buffer`. Since `Tool` is `'static` and its fields are cheap `len()`s, folding `tools` into
+ the estimate is trivial and removes the TODO.
+
+--- art: DS Flash 4.1 1017 has too many newlines
+
+Extract, the multiple new lines as displayed:
+
+```
+`jcc` is unchanged (6628 both) while `.text` shrank 144 bytes. Let me verify no new dead-code warnings and run the full checks:
+
+
+
+Bash cd /home/graham/src/ort/master && echo "=== default check ===" && timeout 600 cargo check --offline --all-targets 2>&1 | grep -E "^(warning|error)" | head; echo "=== responses check ===
+" && timeout 600 cargo check --offline --features responses --all-targets 2>&1 | grep -E "^(warning|error)" | head; echo done
+
+
+
+
+
+Bash cd /home/graham/src/ort/master && rg -n "Format::|enum Format|dead_code" src/api.rs src/api/*.rs
+
+`Format` is now genuinely used in both feature configs (the two `allow(dead_code)` lines are my earlier module-level ones, unrelated). Full required checks:
+```
+
 --- Size
 
 `ort list` and `ort info` overlap a lot. Combine to reduce binary size.

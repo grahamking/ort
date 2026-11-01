@@ -1041,6 +1041,27 @@ pub fn exit(exit_code: i32) -> ! {
     }
 }
 
+/// Atomically replace a pathname on the same filesystem (Linux x86_64).
+pub fn rename(from: &CStr, to: &CStr) -> i32 {
+    let ret: i32;
+    unsafe {
+        asm!("syscall", inlateout("eax") 82u32 => ret,
+            in("rdi") from.as_ptr(), in("rsi") to.as_ptr(),
+            lateout("rcx") _, lateout("r11") _, options(nostack));
+    }
+    ret
+}
+
+pub fn unlink(path: &CStr) -> i32 {
+    let ret: i32;
+    unsafe {
+        asm!("syscall", inlateout("eax") 87u32 => ret,
+            in("rdi") path.as_ptr(),
+            lateout("rcx") _, lateout("r11") _, options(nostack));
+    }
+    ret
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1070,25 +1091,4 @@ mod tests {
         }
     }
     */
-}
-
-/// Atomically replace a pathname on the same filesystem (Linux x86_64).
-pub fn rename(from: &CStr, to: &CStr) -> i32 {
-    let ret: i32;
-    unsafe {
-        asm!("syscall", inlateout("eax") 82u32 => ret,
-            in("rdi") from.as_ptr(), in("rsi") to.as_ptr(),
-            lateout("rcx") _, lateout("r11") _, options(nostack));
-    }
-    ret
-}
-
-pub fn unlink(path: &CStr) -> i32 {
-    let ret: i32;
-    unsafe {
-        asm!("syscall", inlateout("eax") 87u32 => ret,
-            in("rdi") path.as_ptr(),
-            lateout("rcx") _, lateout("r11") _, options(nostack));
-    }
-    ret
 }

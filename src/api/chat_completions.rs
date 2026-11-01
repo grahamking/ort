@@ -2,22 +2,22 @@
 //! https://github.com/grahamking/ort
 //!
 //! MIT License
-//! Copyright (c) 2025 Graham King
+//! Copyright (c) 2025, 2026 Graham King
 
 extern crate alloc;
 use alloc::string::String;
 
-/// Where we POST a completions request to. The part after `/v1/`.
-pub(crate) const PROMPT_URL: &str = "/chat/completions";
-
 use crate::common::json_writer::{write_json_str, write_json_str_simple};
 use crate::{
-    Message, OrtResult, ReasoningEffort, Write,
+    Message, OrtResult, Write,
     common::{
         config::Cfg,
-        data::{Content, Tool, ToolCall, ToolParameter},
+        data::{Content, Tool, ToolCall},
     },
 };
+
+/// Where we POST a completions request to. The part after `/v1/`.
+pub(crate) const PROMPT_URL: &str = "/chat/completions";
 
 /// Build the POST body
 /// The system and user prompts must already be in messages.
@@ -28,45 +28,9 @@ pub fn build_body(
     // Does not include server-side tools like web_search
     client_tools: &[&'static Tool],
 ) -> OrtResult<String> {
-    // TODO: Add tools encoded byte size to avoid realloc
-    let capacity: u32 = 1024 + messages.iter().map(|m| m.size()).sum::<u32>();
-    let mut string_buf = String::with_capacity(capacity as usize);
+    let mut string_buf = super::body_buffer(messages);
     let w = unsafe { string_buf.as_mut_vec() };
-
-    w.write_str("{\"stream\": true, \"model\": ")?;
-    write_json_str(w, cfg.models.get(idx).expect("Missing model"))?;
-
-    if cfg.priority.is_some() || cfg.provider.is_some() {
-        w.write_str(", \"provider\": {")?;
-        let mut is_first = true;
-        if let Some(p) = cfg.priority {
-            w.write_str("\"sort\":")?;
-            write_json_str_simple(w, p.as_str())?;
-            is_first = false;
-        }
-        if let Some(pr) = &cfg.provider {
-            if !is_first {
-                w.write_str(", ")?;
-            }
-            w.write_str("\"order\": [")?;
-            write_json_str(w, pr)?;
-            w.write_char(']')?;
-        }
-        w.write_char('}')?;
-    }
-
-    w.write_str(", \"reasoning_effort\": ")?;
-    match &cfg.effort {
-        // No -r and nothing in config file
-        // cli "-r off" or config file '"enabled": false'
-        None | Some(ReasoningEffort::None) => {
-            write_json_str_simple(w, "none")?;
-        }
-        // Reasoning on
-        Some(effort) => {
-            write_json_str_simple(w, effort.as_str())?;
-        }
-    };
+    super::write_request_options(idx, cfg, super::Format::Chat, w)?;
 
     w.write_str(", \"messages\":")?;
     Message::write_json_array(messages, w)?;
@@ -74,7 +38,7 @@ pub fn build_body(
     // Some inference platforms reject empty tools
     if cfg.include_web_tools || !client_tools.is_empty() {
         w.write_str(", \"tools\":")?;
-        Tool::write_json_array(client_tools, cfg.include_web_tools, w)?;
+        super::write_tools(client_tools, cfg.include_web_tools, super::Format::Chat, w)?;
     }
 
     // I think PDFs are not sent natively to the model, they are pre-parsed by open router.
@@ -96,74 +60,6 @@ impl Message {
             write_json_message(msg, w)?;
         }
         w.write_char(']')?;
-        Ok(())
-    }
-}
-
-const WEB_TOOLS: &str = r#"{"type": "openrouter:web_search"}, {"type": "openrouter:web_fetch"}"#;
-
-impl Tool {
-    pub fn write_json_array<W: Write>(
-        tools: &[&'static Tool],
-        include_web_tools: bool,
-        w: &mut W,
-    ) -> OrtResult<()> {
-        w.write_char('[')?;
-        if include_web_tools {
-            w.write_str(WEB_TOOLS)?;
-        }
-
-        for (i, tool) in tools.iter().enumerate() {
-            if include_web_tools || i != 0 {
-                w.write_char(',')?;
-            }
-            tool.write_json(w)?;
-        }
-        w.write_char(']')?;
-        Ok(())
-    }
-
-    pub fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
-        w.write_str(r#"{"type": "function", "function": {"name": "#)?;
-        write_json_str_simple(w, self.name)?;
-
-        w.write_str(r#", "description": "#)?;
-        write_json_str(w, self.description)?;
-
-        w.write_str(r#", "parameters": {"type": "object", "properties": {"#)?;
-        for (idx, param) in self.parameters.iter().enumerate() {
-            if idx != 0 {
-                w.write_char(',')?;
-            }
-            param.write_json(w)?;
-        }
-
-        w.write_str(r#"}, "required": ["#)?;
-        for (idx, req) in self.required_parameters.iter().enumerate() {
-            if idx != 0 {
-                w.write_char(',')?;
-            }
-            write_json_str_simple(w, req)?;
-        }
-        // Close the required params array,
-        // the 'properties' object,
-        // the 'function' object,
-        // and the tool object.
-        w.write_str("]}}}")?;
-        Ok(())
-    }
-}
-
-impl ToolParameter {
-    fn write_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
-        write_json_str_simple(w, self.name)?;
-        w.write_str(r#": {"type": "#)?;
-        write_json_str_simple(w, self.param_type)?;
-        // TODO: support arrays. They need
-        // "items": {"type": "string"},
-        w.write_str(r#", "description": "#)?;
-        write_json_str(w, self.description)?;
-        w.write_char('}')?;
         Ok(())
     }
 }
@@ -211,7 +107,7 @@ pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> 
                     if i != 0 {
                         w.write_char(',')?;
                     }
-                    item.to_json(w)?;
+                    super::write_content_part(item, super::Wrap::Chat, w)?;
                 }
                 w.write_char(']')?;
             }
@@ -239,46 +135,6 @@ pub fn write_json_message<W: Write>(data: &Message, w: &mut W) -> OrtResult<()> 
 
     w.write_char('}')?;
     Ok(())
-}
-
-impl Content {
-    #[allow(dead_code)]
-    pub fn to_json<W: Write>(&self, w: &mut W) -> OrtResult<()> {
-        w.write_str("{\"type\":")?;
-        use Content::*;
-        match self {
-            Text(s) => {
-                write_json_str(w, "text")?;
-                w.write_str(", \"text\": ")?;
-                write_json_str(w, s.as_str())?;
-            }
-            Image { base64, mime_type } => {
-                write_json_str(w, "image_url")?;
-                w.write_str(", \"image_url\": { \"url\": \"data:")?;
-                w.write_str(mime_type)?;
-                w.write_str(";base64,")?; // end of the data: URL prefix
-                w.write_str(base64.as_str())?;
-                w.write_str("\"}")?;
-            }
-            ImageUrl(url) => {
-                write_json_str(w, "image_url")?;
-                w.write_str(", \"image_url\": { \"url\": \"")?;
-                w.write_str(url)?;
-                w.write_str("\"}")?;
-            }
-            File(f) => {
-                write_json_str(w, "file")?;
-                w.write_str(", \"file\": {\"filename\": ")?;
-                write_json_str(w, &f.filename)?;
-                // TODO: Support non-PDF, or restrict -f to PDF
-                w.write_str(", \"file_data\": \"data:application/pdf;base64,")?;
-                w.write_str(&f.base64)?;
-                w.write_str("\"}")?;
-            }
-        }
-        w.write_char('}')?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]

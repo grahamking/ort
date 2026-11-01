@@ -12,11 +12,6 @@ repository = "https://github.com/grahamking/ort"
 readme = "README.md"
 
 [features]
-default = ["chat_completions"]
-
-# Use /v1/chat/completions. Default.
-chat_completions = []
-
 # Use /v1/responses instead of chat completions
 responses = []
 
