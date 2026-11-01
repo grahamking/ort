@@ -24,7 +24,7 @@ use crate::{OrtError, chunked};
 use crate::ChatCompletionsResponse;
 use crate::Message;
 use crate::OrtResult;
-use crate::build_body;
+use crate::api::build_body;
 use crate::common::config::Cfg;
 use crate::common::error::{ort_err, ort_error};
 use crate::common::io::{ReadLine, Write};
@@ -435,7 +435,7 @@ impl ActivePrompt {
             &addrs,
             &body,
         )
-        .context("http::chat_completions")?;
+        .context("http::post_prompt")?;
 
         match http::skip_header(&mut buf_reader).context("http::skip_header")? {
             http::ResponseBody::Chunked => {

@@ -12,6 +12,14 @@ repository = "https://github.com/grahamking/ort"
 readme = "README.md"
 
 [features]
+default = ["chat_completions"]
+
+# Use /v1/chat/completions. Default.
+chat_completions = []
+
+# Use /v1/responses instead of chat completions
+responses = []
+
 # Will print to stderr "+530\n" and "-530\n" when memory is allocated and freed
 # --release mode only because in debug mode we use Rust's allocator
 print-allocations = []

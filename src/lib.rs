@@ -32,11 +32,12 @@ pub use common::{time, utils};
 // Only for panic_handler.rs
 pub use common::utils::num_to_string;
 
+pub use api::build_body;
+
 // Shorten the import path
 #[allow(unused)]
 pub(crate) use common::utils::{eprint_string, print_string};
 
-pub use api::chat_completions::build_body;
 pub use input::args;
 pub use input::cli;
 pub use input::prompt::{ActivePrompt, PromptReader};

@@ -7,6 +7,9 @@
 extern crate alloc;
 use alloc::string::String;
 
+/// Where we POST a completions request to. The part after `/v1/`.
+pub(crate) const PROMPT_URL: &str = "/chat/completions";
+
 use crate::common::json_writer::{write_json_str, write_json_str_simple};
 use crate::{
     Message, OrtResult, ReasoningEffort, Write,

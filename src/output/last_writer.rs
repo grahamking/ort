@@ -264,7 +264,7 @@ impl OutputWriter for LastWriter {
                     if i != 0 {
                         self.w.write_char(',')?;
                     }
-                    crate::api::chat_completions::write_json_message(msg, &mut self.w)?;
+                    crate::api::write_json_message(msg, &mut self.w)?;
                 }
                 if !self.data.messages.is_empty() {
                     self.w.write_char(',')?;
@@ -361,7 +361,7 @@ impl Drop for LastWriter {
 mod tests {
     extern crate std;
     use super::*;
-    use crate::{Function, Role, build_body, time};
+    use crate::{Function, Role, api::build_body, time};
     use alloc::{boxed::Box, format, vec};
     use std::fs;
 
