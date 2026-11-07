@@ -58,7 +58,7 @@ pub struct PromptOpts {
     pub effort: Option<ReasoningEffort>,
     /// Show reasoning output
     pub show_reasoning: Option<bool>,
-    /// Don't show stats after request
+    /// Only show the output, nothing else
     pub quiet: Option<bool>,
     /// Images to attach to the request.
     pub files: Vec<String>,

@@ -76,6 +76,9 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
     }
 
     fn write(&mut self, data: Response) -> OrtResult<()> {
+        if self.is_quiet && !matches!(data, Response::Content(_) | Response::Error(_)) {
+            return Ok(());
+        }
         match data {
             Response::Connecting => {
                 let _ = self.writer.write(super::MSG_CONNECTING);
@@ -127,7 +130,10 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 }
             }
             Response::Content(content) => {
-                self.section(Section::Content);
+                // In quiet mode there is only one section
+                if !self.is_quiet {
+                    self.section(Section::Content);
+                }
                 let _ = self.writer.write_all(content.as_bytes());
                 let _ = self.writer.flush();
             }

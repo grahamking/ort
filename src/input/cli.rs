@@ -52,7 +52,7 @@ Prompt options (must appear before PROMPT):
   -r <EFFORT>          Reasoning effort: none, off, low, medium, high, or xhigh
                        (off is an alias for none; values are case-insensitive)
   -rr                  Show reasoning output
-  -q                   Hide stats after the request
+  -q                   Quiet. Only show the output, no stats, no progress.
   -c                   Continue the previous conversation; options override
                        the previous conversation's settings
   -f <FILE|URL>        Attach an image (local JPG/PNG or HTTP(S) URL); repeatable
