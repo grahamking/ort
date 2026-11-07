@@ -1,3 +1,7 @@
+--- Common format, to support Responses
+
+`StreamEvent` maybe, see `common-format-plan.md`
+
 --- Don't send reasoning if user didn't specify
 
 Let the model default it.
