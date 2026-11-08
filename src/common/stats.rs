@@ -15,12 +15,17 @@ use crate::common::utils;
 
 #[derive(Default, Clone, Debug)]
 pub struct Stats {
-    pub used_model: String,
-    pub provider: String,
+    pub metadata: Option<Metadata>,
     pub elapsed_time: Duration,
     pub time_to_first_token: Option<Duration>,
     pub inter_token_latency_ms: u128,
-    pub usage: Usage,
+    pub usage: Option<Usage>,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Metadata {
+    pub used_model: String,
+    pub provider: String,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -33,67 +38,88 @@ pub struct Usage {
 
 impl AddAssign for Stats {
     fn add_assign(&mut self, other: Self) {
-        if let Some(cost) = other.usage.cost_in_cents {
-            *self.usage.cost_in_cents.get_or_insert(0.0) += cost;
+        if let Some(other_usage) = other.usage {
+            let mut usage = self.usage.take().unwrap_or_default();
+            if let Some(cost) = other_usage.cost_in_cents {
+                *usage.cost_in_cents.get_or_insert(0.0) += cost;
+            }
+            if let Some(tokens) = other_usage.tokens {
+                *usage.tokens.get_or_insert(0) += tokens;
+            }
+            if let Some(web_searches) = other_usage.web_search_requests {
+                *usage.web_search_requests.get_or_insert(0) += web_searches;
+            }
+            if let Some(tool_calls) = other_usage.tool_calls {
+                *usage.tool_calls.get_or_insert(0) += tool_calls;
+            }
+            self.usage = Some(usage);
         }
-        if let Some(tokens) = other.usage.tokens {
-            *self.usage.tokens.get_or_insert(0) += tokens;
-        }
-        if let Some(web_searches) = other.usage.web_search_requests {
-            *self.usage.web_search_requests.get_or_insert(0) += web_searches;
-        }
-        if let Some(tool_calls) = other.usage.tool_calls {
-            *self.usage.tool_calls.get_or_insert(0) += tool_calls;
-        }
+
         if self.time_to_first_token.is_none() {
             self.time_to_first_token = other.time_to_first_token;
         }
         self.elapsed_time += other.elapsed_time;
-        if self.provider.is_empty() {
-            self.provider = other.provider;
-        }
-        if self.used_model.is_empty() {
-            self.used_model = other.used_model;
+
+        if let Some(other_metadata) = other.metadata {
+            let mut m = self.metadata.take().unwrap_or_default();
+            if m.provider.is_empty() {
+                m.provider = other_metadata.provider;
+            }
+            if m.used_model.is_empty() {
+                m.used_model = other_metadata.used_model;
+            }
+            self.metadata = Some(m);
         }
     }
 }
 
 impl Stats {
     pub fn provider(&self) -> &str {
-        &self.provider
+        if let Some(m) = &self.metadata {
+            &m.provider
+        } else {
+            ""
+        }
     }
 
     pub fn as_string(&self) -> String {
         // "{used_model} at {provider}. {cost_in_cents:.4} cents. {elapsed_time} ({time_to_first_token} TTFT, {inter_token_latency_ms}ms ITL)",
         let mut s = String::with_capacity(256);
-        s.push_str(&self.used_model);
-        if !self.provider.is_empty() {
-            s.push_str(" at ");
-            s.push_str(&self.provider);
+
+        if let Some(metadata) = &self.metadata {
+            s.push_str(&metadata.used_model);
+            if !metadata.provider.is_empty() {
+                s.push_str(" at ");
+                s.push_str(&metadata.provider);
+            }
+            s.push_str(". ");
         }
-        s.push_str(". ");
-        if let Some(cost_in_cents) = self.usage.cost_in_cents {
-            if cost_in_cents >= 100.0 {
-                s.push('$');
-                s.push_str(&utils::float_to_string(cost_in_cents / 100.0, 2));
-                s.push_str(". ");
-            } else {
-                s.push_str(&utils::float_to_string(cost_in_cents, 4));
-                s.push_str(" cents. ");
+
+        if let Some(usage) = &self.usage {
+            if let Some(cost_in_cents) = usage.cost_in_cents {
+                if cost_in_cents >= 100.0 {
+                    s.push('$');
+                    s.push_str(&utils::float_to_string(cost_in_cents / 100.0, 2));
+                    s.push_str(". ");
+                } else {
+                    s.push_str(&utils::float_to_string(cost_in_cents, 4));
+                    s.push_str(" cents. ");
+                }
+            }
+            if let Some(tokens) = usage.tokens {
+                s.push_str(&utils::num_to_human_string(tokens as usize));
+                s.push_str(" tokens. ");
+            }
+            if let Some(web_search_requests) = usage.web_search_requests {
+                s.push_str(&utils::num_to_string(web_search_requests));
+                s.push_str(" web search. ");
+            }
+            if let Some(tool_calls) = usage.tool_calls {
+                s.push_str(&utils::num_to_string(tool_calls));
+                s.push_str(" tool calls. ");
             }
         }
-        if let Some(tokens) = self.usage.tokens {
-            s.push_str(&utils::num_to_human_string(tokens as usize));
-            s.push_str(" tokens. ");
-        }
-        if let Some(web_search_requests) = self.usage.web_search_requests {
-            s.push_str(&utils::num_to_string(web_search_requests));
-            s.push_str(" web search. ");
-        }
-        if let Some(tool_calls) = self.usage.tool_calls {
-            s.push_str(&utils::num_to_string(tool_calls));
-            s.push_str(" tool calls. ");
-        }
+
         if self.elapsed_time != Duration::ZERO {
             s.push_str(&format_duration(self.elapsed_time));
         }

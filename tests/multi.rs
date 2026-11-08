@@ -37,6 +37,7 @@ fn test_multi() {
     if contents.is_empty() {
         panic!("No output from 'ort'. Try it at the command line.");
     }
+    let mut debug_lines = vec![];
     let mut seen_hello = 0;
     let mut seen_model = [false; 2];
     for line in contents.lines() {
@@ -49,9 +50,16 @@ fn test_multi() {
                 break;
             }
         }
+        debug_lines.push(line);
     }
 
-    assert_eq!(seen_hello, 2, "Did not see hello response twice");
+    if seen_hello != 2 {
+        eprintln!("LINES:");
+        for l in debug_lines {
+            eprintln!("\t{l}");
+        }
+        panic!("Saw hello {seen_hello} times, expected twice");
+    }
     assert!(
         seen_model.iter().all(|&b| b),
         "Did not see all the model names"

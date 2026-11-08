@@ -802,6 +802,8 @@ pub enum Response {
     Annotation(Annotation),
     /// Usage object from upstream. Included in Stats later.
     Usage(super::stats::Usage),
+    /// Provider and Model used. Included in Stats later.
+    Metadata(super::stats::Metadata),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
     /// Survivable error. Model tried to use a tool that does not exist.

@@ -382,9 +382,11 @@ impl ActivePrompt {
             reader: None,
             stats: Stats {
                 // Default the model to the passed one, in case provider stats don't include it
-                used_model: model_id.clone(),
-                // Provider doesn't make sense for build.nvidia.com
-                provider: "".to_string(),
+                metadata: Some(stats::Metadata {
+                    used_model: model_id.clone(),
+                    // Provider doesn't make sense for build.nvidia.com
+                    provider: "".to_string(),
+                }),
                 ..Default::default()
             },
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
@@ -556,16 +558,14 @@ impl ActivePrompt {
                 tool_calls: usage.tool_calls_executed,
             };
             queue.push(Response::Usage(u));
-        }
-        if self.stats.provider.is_empty()
-            && let Some(provider) = v.provider
-        {
-            self.stats.provider = provider;
-        }
-        if self.stats.used_model.is_empty()
-            && let Some(model) = v.model
-        {
-            self.stats.used_model = model;
+
+            // Chat Completions includes this on every message. We only
+            // want it once, so use the last message, the Usage one.
+            let m = stats::Metadata {
+                provider: v.provider.unwrap_or_default(),
+                used_model: v.model.unwrap_or_default(),
+            };
+            queue.push(Response::Metadata(m));
         }
 
         if let Some(error) = v.error {

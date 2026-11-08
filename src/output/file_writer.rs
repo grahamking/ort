@@ -15,6 +15,7 @@ pub struct FileWriter<'a, W: Write + Send> {
     show_reasoning: bool,
     is_quiet: bool,
     usage: Option<stats::Usage>,
+    metadata: Option<stats::Metadata>,
     stats_out: Option<stats::Stats>,
     section: Section,
 }
@@ -26,6 +27,7 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
             show_reasoning,
             is_quiet,
             usage: None,
+            metadata: None,
             stats_out: None,
             section: Section::None,
         }
@@ -81,6 +83,9 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
             Response::Usage(usage) => {
                 self.usage = Some(usage);
             }
+            Response::Metadata(metadata) => {
+                self.metadata = Some(metadata);
+            }
             Response::Stats(stats) => {
                 self.section(Section::Stats);
                 self.stats_out = Some(stats);
@@ -116,9 +121,8 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
         let Some(mut stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        if let Some(usage) = self.usage.take() {
-            stats.usage = usage;
-        }
+        stats.usage = self.usage.take();
+        stats.metadata = self.metadata.take();
         let _ = self.writer.write("Stats: ".as_bytes());
         let _ = self.writer.write(stats.as_string().as_bytes());
         let _ = self.writer.write_char('\n');

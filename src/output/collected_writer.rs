@@ -15,6 +15,7 @@ use crate::{ErrorKind, OrtResult, Response, common::stats};
 pub struct CollectedWriter {
     contents: String,
     usage: Option<stats::Usage>,
+    metadata: Option<stats::Metadata>,
     stats_out: Option<stats::Stats>,
     pub output: Option<String>,
 }
@@ -23,6 +24,7 @@ impl CollectedWriter {
     pub fn new() -> Self {
         Self {
             usage: None,
+            metadata: None,
             stats_out: None,
             contents: String::with_capacity(4096),
             output: None,
@@ -43,6 +45,9 @@ impl super::OutputWriter for CollectedWriter {
             }
             Response::Annotation(_) => {
                 // TODO
+            }
+            Response::Metadata(metadata) => {
+                self.metadata = Some(metadata);
             }
             Response::Usage(usage) => {
                 self.usage = Some(usage);
@@ -68,9 +73,8 @@ impl super::OutputWriter for CollectedWriter {
         let Some(mut stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        if let Some(usage) = self.usage.take() {
-            stats.usage = usage;
-        }
+        stats.usage = self.usage.take();
+        stats.metadata = self.metadata.take();
         let stat_string = stats.as_string();
         let mut out = String::with_capacity(stat_string.len() + self.contents.len() + 9);
         out.push_str("--- ");

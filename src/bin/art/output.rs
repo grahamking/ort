@@ -9,8 +9,8 @@ extern crate alloc;
 use alloc::borrow::Cow;
 
 use ort_openrouter_cli::{
-    ErrorKind, Message, OrtResult, OutputWriter, Response, Section, ThinkEvent, Usage, Write,
-    ort_err, ort_error, utils,
+    ErrorKind, Message, Metadata, OrtResult, OutputWriter, Response, Section, ThinkEvent, Usage,
+    Write, ort_err, ort_error, utils,
 };
 
 // No \n in these constants!
@@ -48,6 +48,7 @@ pub struct AgentWriter<'a, W: Write + Send> {
     context_baseline: Option<(usize, u32)>,
     section: Section,
     usage: Option<Usage>,
+    metadata: Option<Metadata>,
 }
 
 impl<'a, W: Write + Send> AgentWriter<'a, W> {
@@ -64,6 +65,7 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
             context_baseline: None,
             section: Section::Prompt,
             usage: None,
+            metadata: None,
         }
     }
 
@@ -153,12 +155,14 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             Response::Usage(usage) => {
                 self.usage = Some(usage);
             }
+            Response::Metadata(metadata) => {
+                self.metadata = Some(metadata);
+            }
             Response::Stats(mut stats) => {
                 self.section(Section::Stats);
 
-                if let Some(usage) = self.usage.take() {
-                    stats.usage = usage;
-                }
+                stats.metadata = self.metadata.take();
+                stats.usage = self.usage.take();
 
                 // Prevent timing display
                 stats.time_to_first_token = None;
@@ -335,13 +339,15 @@ mod test {
             Response::Content(" is".to_string()),
             Response::Content(" licensed".to_string()),
             Response::Stats(Stats {
-                used_model: "openai/gpt-oss-120b".to_string(),
-                provider: "OpenAI".to_string(),
+                metadata: Some(Metadata {
+                    used_model: "openai/gpt-oss-120b".to_string(),
+                    provider: "OpenAI".to_string(),
+                }),
                 elapsed_time: Duration::from_secs(24),
-                usage: Usage {
+                usage: Some(Usage {
                     cost_in_cents: Some(0.6020),
                     ..Default::default()
-                },
+                }),
                 ..Default::default()
             }),
         ];
