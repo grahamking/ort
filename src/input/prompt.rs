@@ -507,142 +507,11 @@ impl ActivePrompt {
                 l.log(data);
             }
 
-            // Each data: line is a JSON chunk in OpenAI streaming format
-            match ChatCompletionsResponse::from_json(data) {
-                Ok(mut v) => {
-                    // Handle last message which contains the "usage" key
-                    // Do this before getting choices because it's empty on last message.
-                    if let Some(usage) = v.usage {
-                        self.stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
-                        self.stats.tokens = Some(usage.total_tokens);
-                        self.stats.web_search_requests = usage.web_search_requests;
-                        self.stats.tool_calls = usage.tool_calls_executed;
-                        if let Some(provider) = v.provider {
-                            self.stats.provider = provider;
-                        }
-                        if let Some(model) = v.model {
-                            self.stats.used_model = model;
-                        }
-                    }
-
-                    if let Some(error) = v.error {
-                        queue.push(Response::Error(error.message().to_string()));
-                    };
-
-                    // Standard OpenAI stream delta shape
-                    let Some(choice) = v.choices.pop() else {
-                        if queue.is_empty() {
-                            continue;
-                        } else {
-                            return Ok(Some(queue));
-                        }
-                    };
-
-                    let has_reasoning = choice
-                        .delta
-                        .reasoning
-                        .as_ref()
-                        .map(|x| !x.is_empty())
-                        .unwrap_or(false);
-                    let has_reasoning_details = choice.delta.reasoning_details.is_some();
-                    let content = choice.delta.text();
-                    let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
-                    let has_tool_calls = !choice.delta.tool_calls.is_empty();
-                    let has_annotations = !choice.delta.annotations.is_empty();
-                    let is_finished = choice.finish_reason.is_some();
-                    if is_finished {
-                        self.finish_reason = choice.finish_reason.clone();
-                    }
-                    if !(has_reasoning
-                        || has_reasoning_details
-                        || has_content
-                        || has_tool_calls
-                        || has_annotations
-                        || is_finished)
-                    {
-                        continue;
-                    }
-
-                    // Record time to first token
-                    if self.stats.time_to_first_token.is_none() {
-                        let first_token = time::Ticks::now();
-                        self.stats.time_to_first_token = self
-                            .tsc_calibration
-                            .map(|tc| time::elapsed_duration(self.start.unwrap(), first_token, tc));
-                        self.token_stream_start = Some(time::Ticks::now());
-                    }
-
-                    // Handle tool calls
-                    // TODO: Consider copying and ownership
-                    // TODO: If we have lots of tool calls (> 10) switch
-                    // to a different data structure for pending_tool_calls.
-                    if has_tool_calls {
-                        for tool_call in &choice.delta.tool_calls {
-                            match self
-                                .pending_tool_calls
-                                .iter_mut()
-                                .find(|item| item.index == tool_call.index)
-                            {
-                                Some(pending) => {
-                                    pending.update_from(tool_call);
-                                }
-                                None => {
-                                    // We don't have a pending one either because this is a new one,
-                                    // or we hit an error and have to skip the call.
-                                    // A new one has an id.
-                                    if tool_call.id.is_some() {
-                                        self.pending_tool_calls.push(tool_call.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Handle reasoning content
-                    if let Some(reasoning_content) = choice.delta.reasoning.as_ref()
-                        && !reasoning_content.is_empty()
-                    {
-                        self.num_tokens += 1;
-                        if self.is_first_reasoning {
-                            queue.push(Response::Think(ThinkEvent::Start));
-                            self.is_first_reasoning = false;
-                        }
-                        let r_event =
-                            Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
-                        queue.push(r_event);
-                    }
-                    if let Some(reasoning_details) = choice.delta.reasoning_details.as_ref() {
-                        let r_event =
-                            Response::Think(ThinkEvent::Details(reasoning_details.to_string()));
-                        queue.push(r_event);
-                    }
-
-                    // Handle annotations
-                    for a in &choice.delta.annotations {
-                        queue.push(Response::Annotation(a.clone()));
-                    }
-
-                    // Handle regular content
-                    if let Some(content) = content
-                        && !content.is_empty()
-                    {
-                        // If we signaled the open (!is_first_reasoning)
-                        // and we haven't signaled the close yet (is_first_reasoning),
-                        // signal the close.
-                        if !self.is_first_reasoning && self.is_first_content {
-                            queue.push(Response::Think(ThinkEvent::Stop));
-                        }
-                        self.is_first_content = false;
-                        self.num_tokens += 1;
-                        let r_event = Response::Content(content.to_string());
-                        queue.push(r_event);
-                    }
-
-                    if choice.is_tool_call_finish() && !self.pending_tool_calls.is_empty() {
-                        let event =
-                            Response::ToolCalls(core::mem::take(&mut self.pending_tool_calls));
-                        queue.push(event);
-                    }
+            // Each data: line is a JSON chunk
+            let response = ChatCompletionsResponse::from_json(data);
+            match response {
+                Ok(v) => {
+                    self.extract_events(v, &mut queue);
                 }
                 Err(err) => {
                     if let Some(l) = self.logger.as_mut() {
@@ -673,6 +542,142 @@ impl ActivePrompt {
             }
 
             return Ok(Some(queue));
+        }
+    }
+
+    fn extract_events(&mut self, mut v: ChatCompletionsResponse, queue: &mut Vec<Response>) {
+        // Handle last message which contains the "usage" key
+        // Do this before getting choices because it's empty on last message.
+        if let Some(usage) = v.usage {
+            self.stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
+            self.stats.tokens = Some(usage.total_tokens);
+            self.stats.web_search_requests = usage.web_search_requests;
+            self.stats.tool_calls = usage.tool_calls_executed;
+            if let Some(provider) = v.provider {
+                self.stats.provider = provider;
+            }
+            if let Some(model) = v.model {
+                self.stats.used_model = model;
+            }
+        }
+
+        if let Some(error) = v.error {
+            queue.push(Response::Error(error.message().to_string()));
+        };
+
+        // Standard OpenAI stream delta shape
+        let Some(choice) = v.choices.pop() else {
+            return;
+            /*
+            if queue.is_empty() {
+                continue;
+            } else {
+                return Ok(Some(queue));
+            }
+            */
+        };
+
+        let has_reasoning = choice
+            .delta
+            .reasoning
+            .as_ref()
+            .map(|x| !x.is_empty())
+            .unwrap_or(false);
+        let has_reasoning_details = choice.delta.reasoning_details.is_some();
+        let content = choice.delta.text();
+        let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
+        let has_tool_calls = !choice.delta.tool_calls.is_empty();
+        let has_annotations = !choice.delta.annotations.is_empty();
+        let is_finished = choice.finish_reason.is_some();
+        if is_finished {
+            self.finish_reason = choice.finish_reason.clone();
+        }
+        if !(has_reasoning
+            || has_reasoning_details
+            || has_content
+            || has_tool_calls
+            || has_annotations
+            || is_finished)
+        {
+            return;
+        }
+
+        // Record time to first token
+        if self.stats.time_to_first_token.is_none() {
+            let first_token = time::Ticks::now();
+            self.stats.time_to_first_token = self
+                .tsc_calibration
+                .map(|tc| time::elapsed_duration(self.start.unwrap(), first_token, tc));
+            self.token_stream_start = Some(time::Ticks::now());
+        }
+
+        // Handle tool calls
+        // TODO: Consider copying and ownership
+        // TODO: If we have lots of tool calls (> 10) switch
+        // to a different data structure for pending_tool_calls.
+        if has_tool_calls {
+            for tool_call in &choice.delta.tool_calls {
+                match self
+                    .pending_tool_calls
+                    .iter_mut()
+                    .find(|item| item.index == tool_call.index)
+                {
+                    Some(pending) => {
+                        pending.update_from(tool_call);
+                    }
+                    None => {
+                        // We don't have a pending one either because this is a new one,
+                        // or we hit an error and have to skip the call.
+                        // A new one has an id.
+                        if tool_call.id.is_some() {
+                            self.pending_tool_calls.push(tool_call.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle reasoning content
+        if let Some(reasoning_content) = choice.delta.reasoning.as_ref()
+            && !reasoning_content.is_empty()
+        {
+            self.num_tokens += 1;
+            if self.is_first_reasoning {
+                queue.push(Response::Think(ThinkEvent::Start));
+                self.is_first_reasoning = false;
+            }
+            let r_event = Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
+            queue.push(r_event);
+        }
+        if let Some(reasoning_details) = choice.delta.reasoning_details.as_ref() {
+            let r_event = Response::Think(ThinkEvent::Details(reasoning_details.to_string()));
+            queue.push(r_event);
+        }
+
+        // Handle annotations
+        for a in &choice.delta.annotations {
+            queue.push(Response::Annotation(a.clone()));
+        }
+
+        // Handle regular content
+        if let Some(content) = content
+            && !content.is_empty()
+        {
+            // If we signaled the open (!is_first_reasoning)
+            // and we haven't signaled the close yet (is_first_reasoning),
+            // signal the close.
+            if !self.is_first_reasoning && self.is_first_content {
+                queue.push(Response::Think(ThinkEvent::Stop));
+            }
+            self.is_first_content = false;
+            self.num_tokens += 1;
+            let r_event = Response::Content(content.to_string());
+            queue.push(r_event);
+        }
+
+        if choice.is_tool_call_finish() && !self.pending_tool_calls.is_empty() {
+            let event = Response::ToolCalls(core::mem::take(&mut self.pending_tool_calls));
+            queue.push(event);
         }
     }
 
