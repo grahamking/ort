@@ -17,28 +17,33 @@ use crate::common::utils;
 pub struct Stats {
     pub used_model: String,
     pub provider: String,
-    pub cost_in_cents: Option<f64>, // Divide by 100 for $
-    pub tokens: Option<u32>,
     pub elapsed_time: Duration,
     pub time_to_first_token: Option<Duration>,
     pub inter_token_latency_ms: u128,
+    pub usage: Usage,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Usage {
+    pub cost_in_cents: Option<f64>, // Divide by 100 for $
+    pub tokens: Option<u32>,
     pub web_search_requests: Option<u32>,
     pub tool_calls: Option<u32>,
 }
 
 impl AddAssign for Stats {
     fn add_assign(&mut self, other: Self) {
-        if let Some(cost) = other.cost_in_cents {
-            *self.cost_in_cents.get_or_insert(0.0) += cost;
+        if let Some(cost) = other.usage.cost_in_cents {
+            *self.usage.cost_in_cents.get_or_insert(0.0) += cost;
         }
-        if let Some(tokens) = other.tokens {
-            *self.tokens.get_or_insert(0) += tokens;
+        if let Some(tokens) = other.usage.tokens {
+            *self.usage.tokens.get_or_insert(0) += tokens;
         }
-        if let Some(web_searches) = other.web_search_requests {
-            *self.web_search_requests.get_or_insert(0) += web_searches;
+        if let Some(web_searches) = other.usage.web_search_requests {
+            *self.usage.web_search_requests.get_or_insert(0) += web_searches;
         }
-        if let Some(tool_calls) = other.tool_calls {
-            *self.tool_calls.get_or_insert(0) += tool_calls;
+        if let Some(tool_calls) = other.usage.tool_calls {
+            *self.usage.tool_calls.get_or_insert(0) += tool_calls;
         }
         if self.time_to_first_token.is_none() {
             self.time_to_first_token = other.time_to_first_token;
@@ -67,7 +72,7 @@ impl Stats {
             s.push_str(&self.provider);
         }
         s.push_str(". ");
-        if let Some(cost_in_cents) = self.cost_in_cents {
+        if let Some(cost_in_cents) = self.usage.cost_in_cents {
             if cost_in_cents >= 100.0 {
                 s.push('$');
                 s.push_str(&utils::float_to_string(cost_in_cents / 100.0, 2));
@@ -77,15 +82,15 @@ impl Stats {
                 s.push_str(" cents. ");
             }
         }
-        if let Some(tokens) = self.tokens {
+        if let Some(tokens) = self.usage.tokens {
             s.push_str(&utils::num_to_human_string(tokens as usize));
             s.push_str(" tokens. ");
         }
-        if let Some(web_search_requests) = self.web_search_requests {
+        if let Some(web_search_requests) = self.usage.web_search_requests {
             s.push_str(&utils::num_to_string(web_search_requests));
             s.push_str(" web search. ");
         }
-        if let Some(tool_calls) = self.tool_calls {
+        if let Some(tool_calls) = self.usage.tool_calls {
             s.push_str(&utils::num_to_string(tool_calls));
             s.push_str(" tool calls. ");
         }

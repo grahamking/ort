@@ -20,13 +20,13 @@ pub use common::buf_read::{OrtBufReader, StringReader};
 pub use common::config;
 pub use common::data::{
     Annotation, ChatCompletionsResponse, Choice, Content, Function, LastData, Message, Priority,
-    ReasoningEffort, Response, Role, ThinkEvent, Tool, ToolDisplay, ToolParameter, Usage,
+    ReasoningEffort, Response, Role, ThinkEvent, Tool, ToolDisplay, ToolParameter,
 };
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_error};
 pub use common::file;
 pub use common::json_parser;
 pub use common::json_writer::write_json_str;
-pub use common::stats::Stats;
+pub use common::stats::{Stats, Usage};
 pub use common::{io::Read, io::Write};
 pub use common::{time, utils};
 // Only for panic_handler.rs

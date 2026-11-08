@@ -9,18 +9,21 @@ extern crate alloc;
 use alloc::string::String;
 
 use crate::common::error::ort_err;
+use crate::ort_error;
 use crate::{ErrorKind, OrtResult, Response, common::stats};
 
 pub struct CollectedWriter {
     contents: String,
-    got_stats: Option<stats::Stats>,
+    usage: Option<stats::Usage>,
+    stats_out: Option<stats::Stats>,
     pub output: Option<String>,
 }
 
 impl CollectedWriter {
     pub fn new() -> Self {
         Self {
-            got_stats: None,
+            usage: None,
+            stats_out: None,
             contents: String::with_capacity(4096),
             output: None,
         }
@@ -41,8 +44,11 @@ impl super::OutputWriter for CollectedWriter {
             Response::Annotation(_) => {
                 // TODO
             }
+            Response::Usage(usage) => {
+                self.usage = Some(usage);
+            }
             Response::Stats(stats) => {
-                self.got_stats = Some(stats);
+                self.stats_out = Some(stats);
             }
             Response::Prompt(_) => {}
             Response::Missing => {
@@ -59,7 +65,13 @@ impl super::OutputWriter for CollectedWriter {
     }
 
     fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
-        let stat_string = self.got_stats.take().unwrap().as_string();
+        let Some(mut stats) = self.stats_out.take() else {
+            return Err(ort_error(ErrorKind::MissingUsageStats, ""));
+        };
+        if let Some(usage) = self.usage.take() {
+            stats.usage = usage;
+        }
+        let stat_string = stats.as_string();
         let mut out = String::with_capacity(stat_string.len() + self.contents.len() + 9);
         out.push_str("--- ");
         out.push_str(&stat_string);

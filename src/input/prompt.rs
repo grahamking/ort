@@ -549,16 +549,23 @@ impl ActivePrompt {
         // Handle last message which contains the "usage" key
         // Do this before getting choices because it's empty on last message.
         if let Some(usage) = v.usage {
-            self.stats.cost_in_cents = Some(usage.cost as f64 * 100.0); // convert to cents
-            self.stats.tokens = Some(usage.total_tokens);
-            self.stats.web_search_requests = usage.web_search_requests;
-            self.stats.tool_calls = usage.tool_calls_executed;
-            if let Some(provider) = v.provider {
-                self.stats.provider = provider;
-            }
-            if let Some(model) = v.model {
-                self.stats.used_model = model;
-            }
+            let u = stats::Usage {
+                cost_in_cents: Some(usage.cost as f64 * 100.0), // convert to cents
+                tokens: Some(usage.total_tokens),
+                web_search_requests: usage.web_search_requests,
+                tool_calls: usage.tool_calls_executed,
+            };
+            queue.push(Response::Usage(u));
+        }
+        if self.stats.provider.is_empty()
+            && let Some(provider) = v.provider
+        {
+            self.stats.provider = provider;
+        }
+        if self.stats.used_model.is_empty()
+            && let Some(model) = v.model
+        {
+            self.stats.used_model = model;
         }
 
         if let Some(error) = v.error {
@@ -568,13 +575,6 @@ impl ActivePrompt {
         // Standard OpenAI stream delta shape
         let Some(choice) = v.choices.pop() else {
             return;
-            /*
-            if queue.is_empty() {
-                continue;
-            } else {
-                return Ok(Some(queue));
-            }
-            */
         };
 
         let has_reasoning = choice

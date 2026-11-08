@@ -800,6 +800,8 @@ pub enum Response {
     ToolDisplay(ToolDisplay),
     /// A url_citation from web_search tool, or maybe other things
     Annotation(Annotation),
+    /// Usage object from upstream. Included in Stats later.
+    Usage(super::stats::Usage),
     /// Summary stats at the end of the run
     Stats(super::stats::Stats),
     /// Survivable error. Model tried to use a tool that does not exist.

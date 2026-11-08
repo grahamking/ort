@@ -21,6 +21,7 @@ pub struct ConsoleWriter<'a, W: Write + Send> {
     show_reasoning: bool,
     is_quiet: bool,
     spindx: usize,
+    usage: Option<stats::Usage>,
     stats_out: Option<stats::Stats>,
     tsc_calibration: Option<TscCalibration>,
     last_spinner_update: Ticks,
@@ -39,6 +40,7 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
             show_reasoning,
             is_quiet,
             spindx: 0,
+            usage: None,
             stats_out: None,
             tsc_calibration,
             last_spinner_update: Ticks::now(),
@@ -63,9 +65,12 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             return Ok(());
         }
 
-        let Some(stats) = self.stats_out.take() else {
+        let Some(mut stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
+        if let Some(usage) = self.usage.take() {
+            stats.usage = usage;
+        }
         let _ = self.writer.writev(&[
             "Stats: ".as_bytes(),
             stats.as_string().as_bytes(),
@@ -146,6 +151,9 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self
                     .writer
                     .writev(&[super::MSG_WEB_FETCH, annotation.citation_url().as_bytes()]);
+            }
+            Response::Usage(usage) => {
+                self.usage = Some(usage);
             }
             Response::Stats(stats) => {
                 self.section(Section::Stats);

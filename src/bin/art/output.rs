@@ -9,8 +9,8 @@ extern crate alloc;
 use alloc::borrow::Cow;
 
 use ort_openrouter_cli::{
-    ErrorKind, Message, OrtResult, OutputWriter, Response, Section, ThinkEvent, Write, ort_err,
-    ort_error, utils,
+    ErrorKind, Message, OrtResult, OutputWriter, Response, Section, ThinkEvent, Usage, Write,
+    ort_err, ort_error, utils,
 };
 
 // No \n in these constants!
@@ -47,6 +47,7 @@ pub struct AgentWriter<'a, W: Write + Send> {
     // Summary requests have a different context and must not update this baseline.
     context_baseline: Option<(usize, u32)>,
     section: Section,
+    usage: Option<Usage>,
 }
 
 impl<'a, W: Write + Send> AgentWriter<'a, W> {
@@ -62,6 +63,7 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
             context_limit,
             context_baseline: None,
             section: Section::Prompt,
+            usage: None,
         }
     }
 
@@ -148,8 +150,16 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                     .writer
                     .writev(&[MSG_WEB_FETCH, annotation.citation_url().as_bytes()]);
             }
+            Response::Usage(usage) => {
+                self.usage = Some(usage);
+            }
             Response::Stats(mut stats) => {
                 self.section(Section::Stats);
+
+                if let Some(usage) = self.usage.take() {
+                    stats.usage = usage;
+                }
+
                 // Prevent timing display
                 stats.time_to_first_token = None;
 
@@ -327,8 +337,11 @@ mod test {
             Response::Stats(Stats {
                 used_model: "openai/gpt-oss-120b".to_string(),
                 provider: "OpenAI".to_string(),
-                cost_in_cents: Some(0.6020),
                 elapsed_time: Duration::from_secs(24),
+                usage: Usage {
+                    cost_in_cents: Some(0.6020),
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
         ];

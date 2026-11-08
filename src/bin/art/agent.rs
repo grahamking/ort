@@ -308,7 +308,7 @@ fn run_single<W: Write + Send>(
     let has_tool_call = match assistant_tool_calls {
         None => {
             messages.push(Message::assistant(assistant_message));
-            output_writer.update_context_size(messages, stats.tokens);
+            output_writer.update_context_size(messages, stats.usage.tokens);
             false
         }
         Some(all_tool_calls) => {
@@ -320,7 +320,7 @@ fn run_single<W: Write + Send>(
                 reasoning,
                 reasoning_details,
             ));
-            output_writer.update_context_size(messages, stats.tokens);
+            output_writer.update_context_size(messages, stats.usage.tokens);
             // Then multiple messages with "role: tool" and the results one by one.
             // The calls and results are not co-located.
             for (id, res) in tool_call_results {
