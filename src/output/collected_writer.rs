@@ -65,6 +65,7 @@ impl super::OutputWriter for CollectedWriter {
             Response::Error(err) => {
                 return Err(ort_err(ErrorKind::ResponseStreamError, err.into()));
             }
+            Response::Finish(_reason) => {}
         }
         Ok(())
     }

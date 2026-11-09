@@ -476,22 +476,24 @@ mod tests {
         active_prompt.reader = Some(buf_reader);
         active_prompt.start = Some(time::Ticks::now());
 
-        // Two events, first is Start
+        // Three events, first is Start
 
         let Ok(Some(mut events)) = active_prompt.next() else {
             panic!("No events, expected one set.");
         };
         assert_eq!(
             events.len(),
-            2,
-            "Expected too message, the Start and a ToolCalls"
+            3,
+            "Expected three messages: Start, Finish(tool_call), ToolCalls"
         );
         assert_matches!(events[0], Response::Start);
 
         // Then a single ToolCall with error
-
-        let Response::ToolCalls(tool_calls) = events.remove(1) else {
-            panic!("Second event should be ToolCalls with the single malformed tool call");
+        let tc = events.remove(2);
+        let Response::ToolCalls(tool_calls) = tc else {
+            panic!(
+                "Final event should be ToolCalls with the single malformed tool call. Got: {tc:?}"
+            );
         };
         assert_eq!(tool_calls.len(), 1);
         let tc = tool_calls.first().unwrap();

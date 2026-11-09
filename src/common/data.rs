@@ -815,6 +815,8 @@ pub enum Response {
     /// We couldn't parse this, could be thinking or content. Writer should display
     /// a character to indicate the gap.
     Missing,
+    /// Turn completed. String is reason. (maybe make enum)
+    Finish(String),
 }
 
 #[derive(Debug, Clone)]

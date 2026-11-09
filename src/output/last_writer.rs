@@ -588,7 +588,6 @@ mod tests {
                 w.write(event).unwrap();
             }
         }
-        assert_eq!(prompt.finish_reason(), Some("stop"));
         w.stop(false).unwrap();
         let last = f.read();
         assert_eq!(last.messages[1].text(), Some("answer"));

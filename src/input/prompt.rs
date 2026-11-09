@@ -101,6 +101,7 @@ pub fn run<W: Write + Send>(
     output_writer.write(Response::Connecting)?;
     active_prompt.send_request()?;
 
+    let mut finish_reason = None;
     loop {
         match active_prompt.next() {
             Ok(None) => {
@@ -108,6 +109,9 @@ pub fn run<W: Write + Send>(
             }
             Ok(Some(out)) => {
                 for event in out {
+                    if let Response::Finish(reason) = &event {
+                        finish_reason = Some(reason.clone());
+                    }
                     output_writer.write(event.clone())?;
                     if let Some(lw) = last_writer.as_mut() {
                         lw.write(event)?;
@@ -119,10 +123,7 @@ pub fn run<W: Write + Send>(
     }
 
     // A dropped connection must not replace the last usable conversation.
-    if active_prompt
-        .finish_reason()
-        .is_none_or(|reason| reason == "error")
-    {
+    if finish_reason.is_none_or(|reason| reason == "error") {
         return Err(ort_error(
             ErrorKind::LastWriterError,
             "Incomplete response; previous conversation retained",
@@ -347,7 +348,6 @@ pub struct ActivePrompt {
     pub start: Option<time::Ticks>,
     num_tokens: usize,
     is_start: bool,
-    finish_reason: Option<String>,
     is_first_reasoning: bool,
     is_first_content: bool,
     line_buf: String,
@@ -396,7 +396,6 @@ impl ActivePrompt {
             start: None,
             num_tokens: 0,
             is_start: true,
-            finish_reason: None,
             is_first_reasoning: true,
             is_first_content: true,
             line_buf: String::with_capacity(1024),
@@ -588,9 +587,10 @@ impl ActivePrompt {
         let has_content = content.map(|x| !x.is_empty()).unwrap_or(false);
         let has_tool_calls = !choice.delta.tool_calls.is_empty();
         let has_annotations = !choice.delta.annotations.is_empty();
-        let is_finished = choice.finish_reason.is_some();
-        if is_finished {
-            self.finish_reason = choice.finish_reason.clone();
+        let mut is_finished = false;
+        if let Some(finish_reason) = &choice.finish_reason {
+            queue.push(Response::Finish(finish_reason.clone()));
+            is_finished = true;
         }
         if !(has_reasoning
             || has_reasoning_details
@@ -679,11 +679,6 @@ impl ActivePrompt {
             let event = Response::ToolCalls(core::mem::take(&mut self.pending_tool_calls));
             queue.push(event);
         }
-    }
-
-    /// The provider completion status, absent if the stream ended prematurely.
-    pub fn finish_reason(&self) -> Option<&str> {
-        self.finish_reason.as_deref()
     }
 
     pub fn tsc_calibration(&self) -> Option<time::TscCalibration> {

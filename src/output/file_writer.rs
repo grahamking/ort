@@ -109,6 +109,7 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
+            Response::Finish(_reason) => {}
         }
         Ok(())
     }

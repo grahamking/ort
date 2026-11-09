@@ -213,6 +213,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
+            Response::Finish(_reason) => {}
         }
         Ok(())
     }

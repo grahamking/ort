@@ -245,6 +245,7 @@ impl Compactor {
 /// Commit only after a complete, nonempty text response. Errors leave history intact.
 fn collect(active: &mut ActivePrompt) -> OrtResult<String> {
     let mut summary = String::new();
+    let mut finish_reason = None;
     while let Some(events) = active.next()? {
         for event in events {
             match event {
@@ -255,11 +256,14 @@ fn collect(active: &mut ActivePrompt) -> OrtResult<String> {
                         "Invalid compaction response",
                     ));
                 }
+                Response::Finish(reason) => {
+                    finish_reason = Some(reason);
+                }
                 _ => {}
             }
         }
     }
-    if active.finish_reason() != Some("stop") || summary.trim().is_empty() {
+    if finish_reason.as_deref() != Some("stop") || summary.trim().is_empty() {
         return Err(ort_error(
             ErrorKind::ResponseStreamError,
             "Incomplete or empty compaction summary",
