@@ -220,6 +220,7 @@ fn run_single<W: Write + Send>(
     let mut tool_call_results = vec![];
     let mut reasoning = None;
     let mut reasoning_details = None;
+    let mut stats = None;
 
     loop {
         match active_prompt.next() {
@@ -292,7 +293,7 @@ fn run_single<W: Write + Send>(
                                 }
                             }
                         }
-                        Response::Stats(_) => {}
+                        Response::Stats(s) => stats = Some(s.clone()),
                         _ => {}
                     }
                     output_writer.write(event.clone())?;
@@ -304,7 +305,7 @@ fn run_single<W: Write + Send>(
         }
     }
 
-    let stats = active_prompt.stop();
+    let stats = stats.unwrap_or_default();
     let has_tool_call = match assistant_tool_calls {
         None => {
             messages.push(Message::assistant(assistant_message));
@@ -339,8 +340,6 @@ fn run_single<W: Write + Send>(
         output_writer.update_context_size(messages, None);
     }
     *total_stats += stats;
-
-    output_writer.stop(true)?; // Doesn't do anything
 
     let logger = active_prompt.take_logger();
     Ok((has_tool_call, logger))

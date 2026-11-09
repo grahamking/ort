@@ -198,8 +198,8 @@ impl Compactor {
         active: &mut ActivePrompt,
         messages: &mut Vec<Message>,
         prepared: Prepared,
-    ) -> OrtResult<()> {
-        let mut summary = collect(active)?;
+    ) -> OrtResult<Stats> {
+        let (mut summary, stats) = collect(active)?;
         prepared.paths.append(&mut summary);
         let mut replacement = prepared.system;
         let summary_index = replacement.len();
@@ -208,7 +208,7 @@ impl Compactor {
         *messages = replacement;
         self.summary_index = Some(summary_index);
         self.paths = prepared.paths;
-        Ok(())
+        Ok(stats)
     }
 
     /// False means no older prefix exists. No API request is made.
@@ -233,18 +233,23 @@ impl Compactor {
             0,
             logger.take(),
         );
-        let result = active
+        let maybe_stats = active
             .send_request()
             .and_then(|()| self.apply(&mut active, messages, prepared));
-        *total_stats += active.stop();
         *logger = active.take_logger();
-        result.map(|()| true)
+        if let Ok(stats) = maybe_stats {
+            *total_stats += stats;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
 /// Commit only after a complete, nonempty text response. Errors leave history intact.
-fn collect(active: &mut ActivePrompt) -> OrtResult<String> {
+fn collect(active: &mut ActivePrompt) -> OrtResult<(String, Stats)> {
     let mut summary = String::new();
+    let mut stats = None;
     let mut finish_reason = None;
     while let Some(events) = active.next()? {
         for event in events {
@@ -255,6 +260,9 @@ fn collect(active: &mut ActivePrompt) -> OrtResult<String> {
                         ErrorKind::ResponseStreamError,
                         "Invalid compaction response",
                     ));
+                }
+                Response::Stats(s) => {
+                    stats = Some(s);
                 }
                 Response::Finish(reason) => {
                     finish_reason = Some(reason);
@@ -269,7 +277,7 @@ fn collect(active: &mut ActivePrompt) -> OrtResult<String> {
             "Incomplete or empty compaction summary",
         ));
     }
-    Ok(summary)
+    Ok((summary, stats.unwrap_or_default()))
 }
 
 #[cfg(test)]

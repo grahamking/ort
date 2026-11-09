@@ -12,14 +12,13 @@ use alloc::string::String;
 use alloc::string::ToString;
 
 use crate::common::utils;
+use crate::time;
 
 #[derive(Default, Clone, Debug)]
 pub struct Stats {
     pub metadata: Option<Metadata>,
-    pub elapsed_time: Duration,
-    pub time_to_first_token: Option<Duration>,
-    pub inter_token_latency_ms: u128,
     pub usage: Option<Usage>,
+    pub timing: Option<Timing>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -34,6 +33,14 @@ pub struct Usage {
     pub tokens: Option<u32>,
     pub web_search_requests: Option<u32>,
     pub tool_calls: Option<u32>,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Timing {
+    pub elapsed_time: Duration,
+    pub time_to_first_token: Option<Duration>,
+    pub inter_token_latency_ms: u128,
+    pub token_stream_start: Option<time::Ticks>,
 }
 
 impl AddAssign for Stats {
@@ -55,10 +62,15 @@ impl AddAssign for Stats {
             self.usage = Some(usage);
         }
 
-        if self.time_to_first_token.is_none() {
-            self.time_to_first_token = other.time_to_first_token;
+        if let Some(other_timing) = other.timing {
+            let mut t = self.timing.take().unwrap_or_default();
+            // We don't add this, only set once
+            if t.time_to_first_token.is_none() {
+                t.time_to_first_token = other_timing.time_to_first_token;
+            }
+            t.elapsed_time += other_timing.elapsed_time;
+            self.timing = Some(t);
         }
-        self.elapsed_time += other.elapsed_time;
 
         if let Some(other_metadata) = other.metadata {
             let mut m = self.metadata.take().unwrap_or_default();
@@ -120,18 +132,18 @@ impl Stats {
             }
         }
 
-        if self.elapsed_time != Duration::ZERO {
-            s.push_str(&format_duration(self.elapsed_time));
-        }
-        // We will either both timings or none, only need to check one
-        if self.time_to_first_token.is_some() {
-            s.push_str(" (");
-            s.push_str(&format_duration(
-                self.time_to_first_token.unwrap_or_default(),
-            ));
-            s.push_str(" TTFT, ");
-            s.push_str(&utils::num_to_string(self.inter_token_latency_ms as usize));
-            s.push_str("ms ITL)");
+        if let Some(t) = &self.timing {
+            if t.elapsed_time != Duration::ZERO {
+                s.push_str(&format_duration(t.elapsed_time));
+            }
+            // We will either both timings or none, only need to check one
+            if t.time_to_first_token.is_some() {
+                s.push_str(" (");
+                s.push_str(&format_duration(t.time_to_first_token.unwrap_or_default()));
+                s.push_str(" TTFT, ");
+                s.push_str(&utils::num_to_string(t.inter_token_latency_ms as usize));
+                s.push_str("ms ITL)");
+            }
         }
         s
     }

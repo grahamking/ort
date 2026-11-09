@@ -29,7 +29,7 @@ use crate::common::config::Cfg;
 use crate::common::error::{ort_err, ort_error};
 use crate::common::io::{ReadLine, Write};
 use crate::common::resolver;
-use crate::common::stats::{self, Stats};
+use crate::common::stats::{self};
 use crate::common::time;
 use crate::common::utils;
 use crate::http::{self, ContentLengthReader};
@@ -131,13 +131,13 @@ pub fn run<W: Write + Send>(
     }
 
     // Clean finish, send stats
-    let stats = active_prompt.stop();
-    output_writer.write(Response::Stats(stats.clone()))?;
+    //let stats = active_prompt.stop();
+    //output_writer.write(Response::Stats(stats.clone()))?;
     output_writer.stop(true)?; // prints stats
     // Finalize JSON
     if let Some(lw) = last_writer.as_mut() {
         // Last writer needs the provider from Stats so we can use the same one next time
-        lw.write(Response::Stats(stats))?;
+        //lw.write(Response::Stats(stats))?;
         lw.stop(true)?;
     }
 
@@ -289,8 +289,8 @@ pub fn run_multi<W: Write + Send>(
                         &mut event,
                     );
 
-                    let stats = active_prompt.stop();
-                    output_writer.write(Response::Stats(stats))?;
+                    //let stats = active_prompt.stop();
+                    //output_writer.write(Response::Stats(stats))?;
                     output_writer.stop(true)?;
 
                     let _ = w.write(output_writer.output.as_ref().unwrap().as_bytes());
@@ -341,9 +341,7 @@ pub struct ActivePrompt {
     // pub for agent unit tests
     pub reader: Option<Box<dyn PromptReader>>,
 
-    stats: stats::Stats,
     tsc_calibration: Option<time::TscCalibration>,
-    token_stream_start: Option<time::Ticks>,
     // pub for agent unit tests
     pub start: Option<time::Ticks>,
     num_tokens: usize,
@@ -354,6 +352,8 @@ pub struct ActivePrompt {
 
     pending_tool_calls: Vec<ToolCall>,
     logger: Option<Logger>,
+
+    stats: stats::Stats,
 }
 
 impl ActivePrompt {
@@ -380,19 +380,9 @@ impl ActivePrompt {
             session_id,
             model_idx,
             reader: None,
-            stats: Stats {
-                // Default the model to the passed one, in case provider stats don't include it
-                metadata: Some(stats::Metadata {
-                    used_model: model_id.clone(),
-                    // Provider doesn't make sense for build.nvidia.com
-                    provider: "".to_string(),
-                }),
-                ..Default::default()
-            },
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
             //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
             tsc_calibration: time::tsc_calibration().ok(),
-            token_stream_start: None,
             start: None,
             num_tokens: 0,
             is_start: true,
@@ -401,6 +391,13 @@ impl ActivePrompt {
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
             logger,
+            stats: stats::Stats {
+                metadata: Some(stats::Metadata {
+                    used_model: model_id.clone(),
+                    provider: "".to_string(),
+                }),
+                ..Default::default()
+            },
         }
     }
 
@@ -549,7 +546,7 @@ impl ActivePrompt {
     fn extract_events(&mut self, mut v: ChatCompletionsResponse, queue: &mut Vec<Response>) {
         // Handle last message which contains the "usage" key
         // Do this before getting choices because it's empty on last message.
-        if let Some(usage) = v.usage {
+        if let Some(usage) = &v.usage {
             let u = stats::Usage {
                 cost_in_cents: Some(usage.cost as f64 * 100.0), // convert to cents
                 tokens: Some(usage.total_tokens),
@@ -561,13 +558,17 @@ impl ActivePrompt {
             // Chat Completions includes this on every message. We only
             // want it once, so use the last message, the Usage one.
             let m = stats::Metadata {
-                provider: v.provider.unwrap_or_default(),
-                used_model: v.model.unwrap_or_default(),
+                provider: v.provider.clone().unwrap_or_default(),
+                used_model: v.model.clone().unwrap_or_default(),
             };
             queue.push(Response::Metadata(m));
+
+            // We now have everything we need to calculate stats.
+            // Usage always comes last.
+            queue.push(Response::Stats(self.stats.clone()));
         }
 
-        if let Some(error) = v.error {
+        if let Some(error) = &v.error {
             queue.push(Response::Error(error.message().to_string()));
         };
 
@@ -589,6 +590,11 @@ impl ActivePrompt {
         let has_annotations = !choice.delta.annotations.is_empty();
         let mut is_finished = false;
         if let Some(finish_reason) = &choice.finish_reason {
+            if let Some(tc) = &self.tsc_calibration
+                && let Some(start) = &self.start
+            {
+                self.record_final_timing(*tc, *start, self.num_tokens);
+            }
             queue.push(Response::Finish(finish_reason.clone()));
             is_finished = true;
         }
@@ -603,12 +609,14 @@ impl ActivePrompt {
         }
 
         // Record time to first token
-        if self.stats.time_to_first_token.is_none() {
+        if self.stats.timing.is_none() {
+            let mut t: stats::Timing = Default::default();
             let first_token = time::Ticks::now();
-            self.stats.time_to_first_token = self
+            t.time_to_first_token = self
                 .tsc_calibration
                 .map(|tc| time::elapsed_duration(self.start.unwrap(), first_token, tc));
-            self.token_stream_start = Some(time::Ticks::now());
+            t.token_stream_start = Some(time::Ticks::now());
+            self.stats.timing = Some(t);
         }
 
         // Handle tool calls
@@ -685,6 +693,26 @@ impl ActivePrompt {
         self.tsc_calibration
     }
 
+    pub fn record_final_timing(
+        &mut self,
+        tsc_calibration: time::TscCalibration,
+        start: time::Ticks,
+        num_tokens: usize,
+    ) {
+        let Some(t) = self.stats.timing.as_mut() else {
+            // We never got the first token
+            return;
+        };
+        let now = time::Ticks::now();
+        t.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
+        if let Some(token_stream_start) = t.token_stream_start {
+            let stream_elapsed_time =
+                time::elapsed_duration(token_stream_start, now, tsc_calibration);
+            t.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1) as u128;
+        }
+    }
+
+    /*
     pub fn stop(&mut self) -> Stats {
         if let Some(tc) = self.tsc_calibration {
             let now = time::Ticks::now();
@@ -699,6 +727,7 @@ impl ActivePrompt {
         };
         self.stats.clone()
     }
+    */
 
     /// Extract the Logger so we can use it again
     pub fn take_logger(&mut self) -> Option<Logger> {

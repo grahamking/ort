@@ -55,6 +55,7 @@ const MIME_TYPES: [(&str, &str); 2] = [("jpg", "image/jpeg"), ("png", "image/png
 //  }
 
 pub struct ChatCompletionsResponse {
+    // Data parsed from remote
     pub provider: Option<String>,
     pub model: Option<String>,
     pub choices: Vec<Choice>,
@@ -72,6 +73,8 @@ impl ChatCompletionsResponse {
             JsonField::new_raw("error"),
         ];
         autoparser(json, &mut fields).context("ChatCompletionsResponse autoparser")?;
+
+        let model_id = fields[1].get_string();
 
         let mut choices = vec![];
         if let Some(v) = fields[2].get_vec_raw() {
@@ -94,7 +97,7 @@ impl ChatCompletionsResponse {
 
         Ok(ChatCompletionsResponse {
             provider: fields[0].get_string(),
-            model: fields[1].get_string(),
+            model: model_id.clone(),
             choices,
             usage,
             error,

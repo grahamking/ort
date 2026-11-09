@@ -165,7 +165,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 stats.usage = self.usage.take();
 
                 // Prevent timing display
-                stats.time_to_first_token = None;
+                stats.timing = None;
 
                 let mut writes = Vec::with_capacity(8);
 
@@ -238,7 +238,7 @@ mod test {
 
     use super::*;
     use core::time::Duration;
-    use ort_openrouter_cli::{Annotation, Stats, StdoutWriter, ToolDisplay};
+    use ort_openrouter_cli::{Annotation, Stats, StdoutWriter, Timing, ToolDisplay};
 
     #[test]
     fn context_compaction_uses_calibration_and_next_usage_refreshes_it() {
@@ -344,7 +344,10 @@ mod test {
                     used_model: "openai/gpt-oss-120b".to_string(),
                     provider: "OpenAI".to_string(),
                 }),
-                elapsed_time: Duration::from_secs(24),
+                timing: Some(Timing {
+                    elapsed_time: Duration::from_secs(24),
+                    ..Default::default()
+                }),
                 usage: Some(Usage {
                     cost_in_cents: Some(0.6020),
                     ..Default::default()
