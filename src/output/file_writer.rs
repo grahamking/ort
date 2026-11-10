@@ -121,7 +121,7 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
         stats.usage = self.usage.take();
-        stats.metadata = self.metadata.take();
+        stats.metadata = self.metadata.take().unwrap_or_default();
         let _ = self.writer.write("Stats: ".as_bytes());
         let _ = self.writer.write(stats.as_string().as_bytes());
         let _ = self.writer.write_char('\n');

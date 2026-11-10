@@ -73,7 +73,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
         stats.usage = self.usage.take();
-        stats.metadata = self.metadata.take();
+        stats.metadata = self.metadata.take().unwrap_or_default();
         let _ = self.writer.writev(&[
             "Stats: ".as_bytes(),
             stats.as_string().as_bytes(),

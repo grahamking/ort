@@ -283,7 +283,7 @@ fn collect(active: &mut ActivePrompt) -> OrtResult<(String, Stats)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ort_openrouter_cli::{Function, OrtBufReader, StringReader, build_body, time};
+    use ort_openrouter_cli::{Function, OrtBufReader, StringReader, Timing, build_body, time};
     fn text(m: &Message) -> &str {
         m.content[0].text().unwrap()
     }
@@ -311,7 +311,10 @@ mod tests {
             data: data.into(),
             pos: 0,
         })));
-        active.start = Some(time::Ticks::now());
+        active.stats.timing = Some(Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
         active
     }
     fn summary(reason: &str, content: &str) -> ActivePrompt {

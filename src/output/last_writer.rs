@@ -361,7 +361,7 @@ impl Drop for LastWriter {
 mod tests {
     extern crate std;
     use super::*;
-    use crate::{Function, Role, api::build_body, time};
+    use crate::{Function, Role, api::build_body, common::stats, time};
     use alloc::{boxed::Box, format, vec};
     use std::fs;
 
@@ -573,7 +573,10 @@ mod tests {
         let mut w = f.writer(vec![Message::user("question".into())]);
         let mut prompt =
             crate::ActivePrompt::new("test".into(), &test_cfg(), vec![], vec![], 0, None);
-        prompt.start = Some(time::Ticks::now());
+        prompt.stats.timing = Some(stats::Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
 
         let stream = concat!(
             "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning\":\" \",\"reasoning_details\":[{\"type\":\"reasoning.encrypted\",\"data\":\"opaque\"}],\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n",

@@ -75,7 +75,7 @@ impl super::OutputWriter for CollectedWriter {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
         stats.usage = self.usage.take();
-        stats.metadata = self.metadata.take();
+        stats.metadata = self.metadata.take().unwrap_or_default();
         let stat_string = stats.as_string();
         let mut out = String::with_capacity(stat_string.len() + self.contents.len() + 9);
         out.push_str("--- ");

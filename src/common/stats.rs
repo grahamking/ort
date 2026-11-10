@@ -16,7 +16,7 @@ use crate::time;
 
 #[derive(Default, Clone, Debug)]
 pub struct Stats {
-    pub metadata: Option<Metadata>,
+    pub metadata: Metadata,
     pub usage: Option<Usage>,
     pub timing: Option<Timing>,
 }
@@ -37,6 +37,7 @@ pub struct Usage {
 
 #[derive(Default, Clone, Debug)]
 pub struct Timing {
+    pub start: time::Ticks,
     pub elapsed_time: Duration,
     pub time_to_first_token: Option<Duration>,
     pub inter_token_latency_ms: u128,
@@ -72,40 +73,30 @@ impl AddAssign for Stats {
             self.timing = Some(t);
         }
 
-        if let Some(other_metadata) = other.metadata {
-            let mut m = self.metadata.take().unwrap_or_default();
-            if m.provider.is_empty() {
-                m.provider = other_metadata.provider;
-            }
-            if m.used_model.is_empty() {
-                m.used_model = other_metadata.used_model;
-            }
-            self.metadata = Some(m);
+        if self.metadata.provider.is_empty() {
+            self.metadata.provider = other.metadata.provider;
+        }
+        if self.metadata.used_model.is_empty() {
+            self.metadata.used_model = other.metadata.used_model;
         }
     }
 }
 
 impl Stats {
     pub fn provider(&self) -> &str {
-        if let Some(m) = &self.metadata {
-            &m.provider
-        } else {
-            ""
-        }
+        &self.metadata.provider
     }
 
     pub fn as_string(&self) -> String {
         // "{used_model} at {provider}. {cost_in_cents:.4} cents. {elapsed_time} ({time_to_first_token} TTFT, {inter_token_latency_ms}ms ITL)",
         let mut s = String::with_capacity(256);
 
-        if let Some(metadata) = &self.metadata {
-            s.push_str(&metadata.used_model);
-            if !metadata.provider.is_empty() {
-                s.push_str(" at ");
-                s.push_str(&metadata.provider);
-            }
-            s.push_str(". ");
+        s.push_str(&self.metadata.used_model);
+        if !self.metadata.provider.is_empty() {
+            s.push_str(" at ");
+            s.push_str(&self.metadata.provider);
         }
+        s.push_str(". ");
 
         if let Some(usage) = &self.usage {
             if let Some(cost_in_cents) = usage.cost_in_cents {

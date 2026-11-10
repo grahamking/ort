@@ -340,8 +340,6 @@ pub struct ActivePrompt {
     pub reader: Option<Box<dyn PromptReader>>,
 
     tsc_calibration: Option<time::TscCalibration>,
-    // pub for agent unit tests
-    pub start: Option<time::Ticks>,
     num_tokens: usize,
     is_start: bool,
     line_buf: String,
@@ -349,7 +347,8 @@ pub struct ActivePrompt {
     pending_tool_calls: Vec<ToolCall>,
     logger: Option<Logger>,
 
-    stats: stats::Stats,
+    // pub for unit test in art
+    pub stats: stats::Stats,
 }
 
 impl ActivePrompt {
@@ -379,17 +378,16 @@ impl ActivePrompt {
             // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
             //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
             tsc_calibration: time::tsc_calibration().ok(),
-            start: None,
             num_tokens: 0,
             is_start: true,
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
             logger,
             stats: stats::Stats {
-                metadata: Some(stats::Metadata {
+                metadata: stats::Metadata {
                     used_model: model_id.clone(),
                     provider: "".to_string(),
-                }),
+                },
                 ..Default::default()
             },
         }
@@ -403,7 +401,10 @@ impl ActivePrompt {
             l.log(&body);
         }
         let (host, port, base_path) = http::split_url(&self.cfg.base_url);
-        self.start = Some(time::Ticks::now());
+        self.stats.timing = Some(stats::Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
         let addrs: Vec<SocketAddr> = if self.cfg.dns.is_empty() {
             let ips = unsafe { resolver::resolve(host).context("resolver::resolve")? };
             ips.into_iter()
@@ -587,9 +588,9 @@ impl ActivePrompt {
         let mut is_finished = false;
         if let Some(finish_reason) = &choice.finish_reason {
             if let Some(tc) = &self.tsc_calibration
-                && let Some(start) = &self.start
+                && let Some(start) = stats.timing.as_ref().map(|t| t.start)
             {
-                record_final_timing(*tc, *start, self.num_tokens, stats);
+                record_final_timing(*tc, start, self.num_tokens, stats);
             }
             queue.push(Response::Finish(finish_reason.clone()));
             is_finished = true;
@@ -605,14 +606,14 @@ impl ActivePrompt {
         }
 
         // Record time to first token
-        if stats.timing.is_none() {
-            let mut t: stats::Timing = Default::default();
+        if let Some(t) = stats.timing.as_mut()
+            && t.time_to_first_token.is_none()
+        {
             let first_token = time::Ticks::now();
             t.time_to_first_token = self
                 .tsc_calibration
-                .map(|tc| time::elapsed_duration(self.start.unwrap(), first_token, tc));
+                .map(|tc| time::elapsed_duration(t.start, first_token, tc));
             t.token_stream_start = Some(time::Ticks::now());
-            stats.timing = Some(t);
         }
 
         // Handle tool calls
@@ -678,23 +679,6 @@ impl ActivePrompt {
         self.tsc_calibration
     }
 
-    /*
-    pub fn stop(&mut self) -> Stats {
-        if let Some(tc) = self.tsc_calibration {
-            let now = time::Ticks::now();
-            if let Some(start) = self.start.take() {
-                self.stats.elapsed_time = time::elapsed_duration(start, now, tc);
-            }
-            if let Some(token_stream_start) = self.token_stream_start {
-                let stream_elapsed_time = time::elapsed_duration(token_stream_start, now, tc);
-                self.stats.inter_token_latency_ms =
-                    stream_elapsed_time.as_millis() / max(self.num_tokens, 1) as u128;
-            }
-        };
-        self.stats.clone()
-    }
-    */
-
     /// Extract the Logger so we can use it again
     pub fn take_logger(&mut self) -> Option<Logger> {
         self.logger.take()
@@ -723,8 +707,7 @@ pub fn record_final_timing(
     stats: &mut stats::Stats,
 ) {
     let Some(t) = stats.timing.as_mut() else {
-        // We never got the first token
-        return;
+        unreachable!("No data received on socket");
     };
     let now = time::Ticks::now();
     t.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
@@ -744,7 +727,7 @@ mod tests {
     use alloc::vec;
 
     use crate::common::buf_read::OrtBufReader;
-    use crate::common::{time, utils};
+    use crate::common::{stats, time, utils};
     use crate::config::Cfg;
     use crate::input::prompt::PromptReader;
     use crate::{Response, ThinkEvent};
@@ -771,7 +754,10 @@ mod tests {
         };
         let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
         active_prompt.reader = Some(buf_reader);
-        active_prompt.start = Some(time::Ticks::now());
+        active_prompt.stats.timing = Some(stats::Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
 
         // First the Start event
         let Ok(Some(events)) = active_prompt.next() else {
@@ -854,7 +840,10 @@ mod tests {
         };
         let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
         active_prompt.reader = Some(buf_reader);
-        active_prompt.start = Some(time::Ticks::now());
+        active_prompt.stats.timing = Some(stats::Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
 
         // First the Start event
         let Ok(Some(events)) = active_prompt.next() else {

@@ -32,7 +32,7 @@ impl Sub for Instant {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug)]
 pub struct Ticks(u64);
 
 impl Ticks {

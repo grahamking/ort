@@ -360,6 +360,7 @@ mod tests {
     use ort_openrouter_cli::PromptReader;
     use ort_openrouter_cli::Response;
     use ort_openrouter_cli::StringReader;
+    use ort_openrouter_cli::Timing;
     use ort_openrouter_cli::build_body;
     use ort_openrouter_cli::config::Cfg;
     use ort_openrouter_cli::time;
@@ -430,7 +431,10 @@ mod tests {
         };
         let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
         active_prompt.reader = Some(buf_reader);
-        active_prompt.start = Some(time::Ticks::now());
+        active_prompt.stats.timing = Some(Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
 
         let mut num_tool_calls = 0;
         while let Ok(Some(events)) = active_prompt.next() {
@@ -473,7 +477,10 @@ mod tests {
         };
         let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
         active_prompt.reader = Some(buf_reader);
-        active_prompt.start = Some(time::Ticks::now());
+        active_prompt.stats.timing = Some(Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
 
         // Three events, first is Start
 
@@ -540,7 +547,10 @@ mod tests {
         };
         let buf_reader: Box<dyn PromptReader> = Box::new(OrtBufReader::new(string_reader));
         active_prompt.reader = Some(buf_reader);
-        active_prompt.start = Some(time::Ticks::now());
+        active_prompt.stats.timing = Some(Timing {
+            start: time::Ticks::now(),
+            ..Default::default()
+        });
 
         // First the Start event
         let Ok(Some(events)) = active_prompt.next() else {

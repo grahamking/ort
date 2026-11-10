@@ -161,7 +161,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             Response::Stats(mut stats) => {
                 self.section(Section::Stats);
 
-                stats.metadata = self.metadata.take();
+                stats.metadata = self.metadata.take().unwrap_or_default();
                 stats.usage = self.usage.take();
 
                 // Prevent timing display
@@ -336,10 +336,10 @@ mod test {
             Response::Content(" is".to_string()),
             Response::Content(" licensed".to_string()),
             Response::Stats(Stats {
-                metadata: Some(Metadata {
+                metadata: Metadata {
                     used_model: "openai/gpt-oss-120b".to_string(),
                     provider: "OpenAI".to_string(),
-                }),
+                },
                 timing: Some(Timing {
                     elapsed_time: Duration::from_secs(24),
                     ..Default::default()
