@@ -57,12 +57,10 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                 if self.show_reasoning {
                     self.section(Section::Think);
                     match think {
-                        ThinkEvent::Start => {}
                         ThinkEvent::Content(s) => {
                             let _ = self.writer.write_all(s.as_bytes());
                         }
                         ThinkEvent::Details(_) => {}
-                        ThinkEvent::Stop => {}
                     }
                 }
             }

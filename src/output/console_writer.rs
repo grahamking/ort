@@ -50,12 +50,14 @@ impl<'a, W: Write + Send> ConsoleWriter<'a, W> {
         }
     }
 
-    fn section(&mut self, to_section: Section) {
+    fn section(&mut self, to_section: Section) -> bool {
         if self.section != to_section {
             Section::change(self.section, to_section, super::THINK_START, self.writer);
             self.section = to_section;
+            true
         } else {
             Section::same(self.section, self.writer);
+            false
         }
     }
 }
@@ -102,7 +104,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 }
                 if self.show_reasoning {
                     match think {
-                        ThinkEvent::Start | ThinkEvent::Stop | ThinkEvent::Details(_) => {}
+                        ThinkEvent::Details(_) => {}
                         ThinkEvent::Content(s) => {
                             self.section(Section::Think);
                             let _ = self.writer.write_all(s.as_bytes());
@@ -111,11 +113,11 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                     }
                 } else {
                     match think {
-                        ThinkEvent::Start => {
-                            let _ = self.writer.write(super::MSG_THINKING);
-                            let _ = self.writer.flush();
-                        }
                         ThinkEvent::Content(_) => {
+                            if self.section(Section::Think) {
+                                let _ = self.writer.write(super::MSG_THINKING);
+                                let _ = self.writer.flush();
+                            }
                             let now = Ticks::now();
                             let should_update = self.tsc_calibration.is_none_or(|tc| {
                                 elapsed_duration(self.last_spinner_update, now, tc)
@@ -131,7 +133,6 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                             }
                         }
                         ThinkEvent::Details(_) => {}
-                        ThinkEvent::Stop => {}
                     }
                 }
             }

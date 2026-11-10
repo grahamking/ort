@@ -130,9 +130,7 @@ pub fn run<W: Write + Send>(
         ));
     }
 
-    // Clean finish, send stats
-    //let stats = active_prompt.stop();
-    //output_writer.write(Response::Stats(stats.clone()))?;
+    // Clean finish
     output_writer.stop(true)?; // prints stats
     // Finalize JSON
     if let Some(lw) = last_writer.as_mut() {
@@ -346,8 +344,6 @@ pub struct ActivePrompt {
     pub start: Option<time::Ticks>,
     num_tokens: usize,
     is_start: bool,
-    is_first_reasoning: bool,
-    is_first_content: bool,
     line_buf: String,
 
     pending_tool_calls: Vec<ToolCall>,
@@ -386,8 +382,6 @@ impl ActivePrompt {
             start: None,
             num_tokens: 0,
             is_start: true,
-            is_first_reasoning: true,
-            is_first_content: true,
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
             logger,
@@ -544,6 +538,8 @@ impl ActivePrompt {
     }
 
     fn extract_events(&mut self, mut v: ChatCompletionsResponse, queue: &mut Vec<Response>) {
+        let stats = &mut self.stats;
+
         // Handle last message which contains the "usage" key
         // Do this before getting choices because it's empty on last message.
         if let Some(usage) = &v.usage {
@@ -565,7 +561,7 @@ impl ActivePrompt {
 
             // We now have everything we need to calculate stats.
             // Usage always comes last.
-            queue.push(Response::Stats(self.stats.clone()));
+            queue.push(Response::Stats(stats.clone()));
         }
 
         if let Some(error) = &v.error {
@@ -593,7 +589,7 @@ impl ActivePrompt {
             if let Some(tc) = &self.tsc_calibration
                 && let Some(start) = &self.start
             {
-                self.record_final_timing(*tc, *start, self.num_tokens);
+                record_final_timing(*tc, *start, self.num_tokens, stats);
             }
             queue.push(Response::Finish(finish_reason.clone()));
             is_finished = true;
@@ -609,14 +605,14 @@ impl ActivePrompt {
         }
 
         // Record time to first token
-        if self.stats.timing.is_none() {
+        if stats.timing.is_none() {
             let mut t: stats::Timing = Default::default();
             let first_token = time::Ticks::now();
             t.time_to_first_token = self
                 .tsc_calibration
                 .map(|tc| time::elapsed_duration(self.start.unwrap(), first_token, tc));
             t.token_stream_start = Some(time::Ticks::now());
-            self.stats.timing = Some(t);
+            stats.timing = Some(t);
         }
 
         // Handle tool calls
@@ -650,10 +646,6 @@ impl ActivePrompt {
             && !reasoning_content.is_empty()
         {
             self.num_tokens += 1;
-            if self.is_first_reasoning {
-                queue.push(Response::Think(ThinkEvent::Start));
-                self.is_first_reasoning = false;
-            }
             let r_event = Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
             queue.push(r_event);
         }
@@ -671,13 +663,6 @@ impl ActivePrompt {
         if let Some(content) = content
             && !content.is_empty()
         {
-            // If we signaled the open (!is_first_reasoning)
-            // and we haven't signaled the close yet (is_first_reasoning),
-            // signal the close.
-            if !self.is_first_reasoning && self.is_first_content {
-                queue.push(Response::Think(ThinkEvent::Stop));
-            }
-            self.is_first_content = false;
             self.num_tokens += 1;
             let r_event = Response::Content(content.to_string());
             queue.push(r_event);
@@ -691,25 +676,6 @@ impl ActivePrompt {
 
     pub fn tsc_calibration(&self) -> Option<time::TscCalibration> {
         self.tsc_calibration
-    }
-
-    pub fn record_final_timing(
-        &mut self,
-        tsc_calibration: time::TscCalibration,
-        start: time::Ticks,
-        num_tokens: usize,
-    ) {
-        let Some(t) = self.stats.timing.as_mut() else {
-            // We never got the first token
-            return;
-        };
-        let now = time::Ticks::now();
-        t.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
-        if let Some(token_stream_start) = t.token_stream_start {
-            let stream_elapsed_time =
-                time::elapsed_duration(token_stream_start, now, tsc_calibration);
-            t.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1) as u128;
-        }
     }
 
     /*
@@ -747,6 +713,24 @@ impl ActivePrompt {
 impl AsFd for ActivePrompt {
     fn as_fd(&self) -> i32 {
         self.reader.as_ref().unwrap().as_fd()
+    }
+}
+
+pub fn record_final_timing(
+    tsc_calibration: time::TscCalibration,
+    start: time::Ticks,
+    num_tokens: usize,
+    stats: &mut stats::Stats,
+) {
+    let Some(t) = stats.timing.as_mut() else {
+        // We never got the first token
+        return;
+    };
+    let now = time::Ticks::now();
+    t.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
+    if let Some(token_stream_start) = t.token_stream_start {
+        let stream_elapsed_time = time::elapsed_duration(token_stream_start, now, tsc_calibration);
+        t.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1) as u128;
     }
 }
 
@@ -806,8 +790,8 @@ mod tests {
                     Response::Annotation(_) => {
                         num_annotations += 1;
                     }
-                    Response::Think(ThinkEvent::Start) => {
-                        // Once we reach Think Start annotations are over
+                    Response::Think(ThinkEvent::Content(_)) => {
+                        // Once we reach Think annotations are over
                         break 'events;
                     }
                     Response::Think(ThinkEvent::Details(_)) => {

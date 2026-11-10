@@ -107,7 +107,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             Response::Think(think) => {
                 if self.show_reasoning {
                     match think {
-                        ThinkEvent::Start | ThinkEvent::Stop | ThinkEvent::Details(_) => {}
+                        ThinkEvent::Details(_) => {}
                         ThinkEvent::Content(s) => {
                             self.section(Section::Think);
                             let _ = self.writer.write_all(s.as_bytes());
@@ -298,7 +298,6 @@ mod test {
         let events = [
             Response::Prompt("What is the license of this project?".to_string()),
             Response::Start,
-            Response::Think(ThinkEvent::Start),
             Response::Think(ThinkEvent::Content("Search a bit first".to_string())),
             Response::Annotation(Annotation::UrlCitation {
                 url: "http://ort.example".to_string(),
@@ -327,14 +326,11 @@ mod test {
                 added: None,
             }),
             Response::Start,
-            Response::Think(ThinkEvent::Start),
             Response::Think(ThinkEvent::Content(
                 "We need license file. Look at LICENSE.".to_string(),
             )),
             Response::ToolDisplay(read.display()),
-            Response::Think(ThinkEvent::Start),
             Response::Think(ThinkEvent::Content("The license is MIT.".to_string())),
-            Response::Think(ThinkEvent::Stop),
             Response::Content("The".to_string()),
             Response::Content(" project".to_string()),
             Response::Content(" is".to_string()),
@@ -352,7 +348,6 @@ mod test {
                     cost_in_cents: Some(0.6020),
                     ..Default::default()
                 }),
-                ..Default::default()
             }),
         ];
 

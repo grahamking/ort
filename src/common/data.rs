@@ -824,12 +824,10 @@ pub enum Response {
 
 #[derive(Debug, Clone)]
 pub enum ThinkEvent {
-    Start,
     Content(String),
     // reasoning_details, which is encrypted, summary, or text. Only encrypted matters, the rest
     // repeats Content.
     Details(String),
-    Stop,
 }
 
 #[derive(Debug, Clone)]
