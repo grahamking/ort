@@ -11,7 +11,7 @@ use ort_openrouter_cli::{
     ActivePrompt, Content, ErrorKind, Logger, Message, OrtResult, Response, Role, Stats,
     config::Cfg,
     json_parser::{JsonField, autoparser},
-    ort_error,
+    ort_error, time,
 };
 use std::collections::HashSet;
 
@@ -223,6 +223,7 @@ impl Compactor {
         let Some(prepared) = self.prepare(messages, RECENT_BYTES) else {
             return Ok(false);
         };
+        let tsc_calibration = time::tsc_calibration().ok();
         let mut summary_cfg = cfg.clone();
         summary_cfg.include_web_tools = false;
         let mut active = ActivePrompt::new(
@@ -231,6 +232,7 @@ impl Compactor {
             prepared.input.clone(),
             vec![],
             0,
+            tsc_calibration,
             logger.take(),
         );
         let maybe_stats = active
@@ -306,7 +308,7 @@ mod tests {
             models: vec!["test/model".into()],
             ..Default::default()
         };
-        let mut active = ActivePrompt::new("test".into(), &cfg, vec![], vec![], 0, None);
+        let mut active = ActivePrompt::new("test".into(), &cfg, vec![], vec![], 0, None, None);
         active.reader = Some(Box::new(OrtBufReader::new(StringReader {
             data: data.into(),
             pos: 0,

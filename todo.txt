@@ -1,3 +1,11 @@
+--- Fix "Thinking..."
+
+It should ge cleared on first content. Section needs something.
+
+--- Replace token count with byte count
+
+We don't know how many tokens we have. Some providers (Google) batch them - as they should. But our count assumes only one token per message.
+
 --- Common format, to support Responses
 
 `StreamEvent` maybe, see `common-format-plan.md`
@@ -66,10 +74,6 @@ Bash cd /home/graham/src/ort/master && rg -n "Format::|enum Format|dead_code" sr
 Re-apply 7347803
 
 Then make `last-1.cfg` only save provider if user selected one. The returned provider is not always (or even often) a valid slug.
-
---- Context API
-
-NVIDIA NOAA harness thing has it, so has Codex. But can models use it?
 
 --- Gap with Pi
 

@@ -13,6 +13,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use ort_openrouter_cli::Logger;
 use ort_openrouter_cli::ThinkEvent;
+use ort_openrouter_cli::time;
 use ort_openrouter_cli::utils;
 use ort_openrouter_cli::{ort_err, syscall};
 
@@ -205,12 +206,14 @@ fn run_single<W: Write + Send>(
     total_stats: &mut Stats,
     logger: Option<Logger>,
 ) -> OrtResult<(bool, Option<Logger>)> {
+    let tsc_calibration = time::tsc_calibration().ok();
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
         messages.clone(),
         tools.to_vec(),
         0,
+        tsc_calibration,
         logger,
     );
     active_prompt.send_request()?;
@@ -424,6 +427,7 @@ mod tests {
             vec![], // tools
             0,
             None,
+            None,
         );
         let string_reader = StringReader {
             data: test_data,
@@ -469,6 +473,7 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
+            None,
             None,
         );
         let string_reader = StringReader {
@@ -539,6 +544,7 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
+            None,
             None,
         );
         let string_reader = StringReader {

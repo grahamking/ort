@@ -16,6 +16,7 @@ use crate::time;
 
 #[derive(Default, Clone, Debug)]
 pub struct Stats {
+    pub num_tokens: usize,
     pub metadata: Metadata,
     pub usage: Option<Usage>,
     pub timing: Option<Timing>,

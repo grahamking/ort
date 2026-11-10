@@ -79,12 +79,17 @@ pub fn run<W: Write + Send>(
         None
     };
 
+    // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
+    //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
+    let tsc_calibration = time::tsc_calibration().ok();
+
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
         messages,
         vec![],
         0,
+        tsc_calibration,
         logger(cfg, env)?,
     );
 
@@ -95,7 +100,7 @@ pub fn run<W: Write + Send>(
             w_core,
             cfg.show_reasoning,
             cfg.quiet,
-            active_prompt.tsc_calibration(),
+            tsc_calibration,
         ))
     };
     output_writer.write(Response::Connecting)?;
@@ -192,6 +197,8 @@ pub fn run_multi<W: Write + Send>(
     let _ = w.write(msg.as_bytes());
     let _ = w.flush();
 
+    let tsc_calibration = time::tsc_calibration().ok();
+
     let epoll_fd = syscall::epoll_create(num_models as i32);
     if epoll_fd < 0 {
         return Err(ort_error(ErrorKind::Other, "epoll_create"));
@@ -220,6 +227,7 @@ pub fn run_multi<W: Write + Send>(
             messages.clone(),
             vec![],
             idx,
+            tsc_calibration,
             logger,
         );
         active_prompt.send_request()?;
@@ -340,7 +348,6 @@ pub struct ActivePrompt {
     pub reader: Option<Box<dyn PromptReader>>,
 
     tsc_calibration: Option<time::TscCalibration>,
-    num_tokens: usize,
     is_start: bool,
     line_buf: String,
 
@@ -359,6 +366,7 @@ impl ActivePrompt {
         messages: Vec<Message>,
         tools: Vec<&'static Tool>,
         model_idx: usize,
+        tsc_calibration: Option<time::TscCalibration>,
         logger: Option<Logger>,
     ) -> Self {
         let session_id = if model_idx == 0 {
@@ -375,15 +383,13 @@ impl ActivePrompt {
             session_id,
             model_idx,
             reader: None,
-            // TODO: Should we warn this CPU doesn't have TSC calibration, so no timing?
-            //print_string(c"FATAL running tsc_calibration: ", &err.as_string());
-            tsc_calibration: time::tsc_calibration().ok(),
-            num_tokens: 0,
             is_start: true,
             line_buf: String::with_capacity(1024),
             pending_tool_calls: vec![],
+            tsc_calibration,
             logger,
             stats: stats::Stats {
+                num_tokens: 0,
                 metadata: stats::Metadata {
                     used_model: model_id.clone(),
                     provider: "".to_string(),
@@ -504,7 +510,7 @@ impl ActivePrompt {
             let response = ChatCompletionsResponse::from_json(data);
             match response {
                 Ok(v) => {
-                    self.extract_events(v, &mut queue);
+                    self.extract_events(v, self.tsc_calibration, &mut queue);
                 }
                 Err(err) => {
                     if let Some(l) = self.logger.as_mut() {
@@ -538,7 +544,12 @@ impl ActivePrompt {
         }
     }
 
-    fn extract_events(&mut self, mut v: ChatCompletionsResponse, queue: &mut Vec<Response>) {
+    fn extract_events(
+        &mut self,
+        mut v: ChatCompletionsResponse,
+        tsc_calibration: Option<time::TscCalibration>,
+        queue: &mut Vec<Response>,
+    ) {
         let stats = &mut self.stats;
 
         // Handle last message which contains the "usage" key
@@ -587,10 +598,8 @@ impl ActivePrompt {
         let has_annotations = !choice.delta.annotations.is_empty();
         let mut is_finished = false;
         if let Some(finish_reason) = &choice.finish_reason {
-            if let Some(tc) = &self.tsc_calibration
-                && let Some(start) = stats.timing.as_ref().map(|t| t.start)
-            {
-                record_final_timing(*tc, start, self.num_tokens, stats);
+            if let Some(tc) = tsc_calibration {
+                record_final_timing(tc, stats);
             }
             queue.push(Response::Finish(finish_reason.clone()));
             is_finished = true;
@@ -610,9 +619,8 @@ impl ActivePrompt {
             && t.time_to_first_token.is_none()
         {
             let first_token = time::Ticks::now();
-            t.time_to_first_token = self
-                .tsc_calibration
-                .map(|tc| time::elapsed_duration(t.start, first_token, tc));
+            t.time_to_first_token =
+                tsc_calibration.map(|tc| time::elapsed_duration(t.start, first_token, tc));
             t.token_stream_start = Some(time::Ticks::now());
         }
 
@@ -646,7 +654,7 @@ impl ActivePrompt {
         if let Some(reasoning_content) = choice.delta.reasoning.as_ref()
             && !reasoning_content.is_empty()
         {
-            self.num_tokens += 1;
+            stats.num_tokens += 1;
             let r_event = Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
             queue.push(r_event);
         }
@@ -664,7 +672,7 @@ impl ActivePrompt {
         if let Some(content) = content
             && !content.is_empty()
         {
-            self.num_tokens += 1;
+            stats.num_tokens += 1;
             let r_event = Response::Content(content.to_string());
             queue.push(r_event);
         }
@@ -675,23 +683,10 @@ impl ActivePrompt {
         }
     }
 
-    pub fn tsc_calibration(&self) -> Option<time::TscCalibration> {
-        self.tsc_calibration
-    }
-
     /// Extract the Logger so we can use it again
     pub fn take_logger(&mut self) -> Option<Logger> {
         self.logger.take()
     }
-
-    /*
-    fn has_pending_data(&self) -> bool {
-        self.reader
-            .as_ref()
-            .map(|reader| reader.has_pending_data())
-            .unwrap_or(false)
-    }
-    */
 }
 
 impl AsFd for ActivePrompt {
@@ -700,20 +695,16 @@ impl AsFd for ActivePrompt {
     }
 }
 
-pub fn record_final_timing(
-    tsc_calibration: time::TscCalibration,
-    start: time::Ticks,
-    num_tokens: usize,
-    stats: &mut stats::Stats,
-) {
+fn record_final_timing(tsc_calibration: time::TscCalibration, stats: &mut stats::Stats) {
     let Some(t) = stats.timing.as_mut() else {
         unreachable!("No data received on socket");
     };
     let now = time::Ticks::now();
-    t.elapsed_time = time::elapsed_duration(start, now, tsc_calibration);
+    t.elapsed_time = time::elapsed_duration(t.start, now, tsc_calibration);
     if let Some(token_stream_start) = t.token_stream_start {
         let stream_elapsed_time = time::elapsed_duration(token_stream_start, now, tsc_calibration);
-        t.inter_token_latency_ms = stream_elapsed_time.as_millis() / max(num_tokens, 1) as u128;
+        t.inter_token_latency_ms =
+            stream_elapsed_time.as_millis() / max(stats.num_tokens, 1) as u128;
     }
 }
 
@@ -746,6 +737,7 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
+            None,
             None,
         );
         let string_reader = crate::common::buf_read::StringReader {
@@ -832,6 +824,7 @@ mod tests {
             vec![], // messages
             vec![], // tools
             0,
+            None,
             None,
         );
         let string_reader = crate::common::buf_read::StringReader {

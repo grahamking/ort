@@ -572,7 +572,7 @@ mod tests {
         let f = Fixture::new();
         let mut w = f.writer(vec![Message::user("question".into())]);
         let mut prompt =
-            crate::ActivePrompt::new("test".into(), &test_cfg(), vec![], vec![], 0, None);
+            crate::ActivePrompt::new("test".into(), &test_cfg(), vec![], vec![], 0, None, None);
         prompt.stats.timing = Some(stats::Timing {
             start: time::Ticks::now(),
             ..Default::default()

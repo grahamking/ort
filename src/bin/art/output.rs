@@ -336,6 +336,7 @@ mod test {
             Response::Content(" is".to_string()),
             Response::Content(" licensed".to_string()),
             Response::Stats(Stats {
+                num_tokens: 0,
                 metadata: Metadata {
                     used_model: "openai/gpt-oss-120b".to_string(),
                     provider: "OpenAI".to_string(),
