@@ -26,11 +26,12 @@ mod responses;
 
 #[cfg(not(feature = "responses"))]
 use chat_completions as selected;
+
 #[cfg(feature = "responses")]
 use responses as selected;
 
 pub(crate) use selected::PROMPT_URL;
-pub use selected::build_body;
+pub use selected::{build_body, extract_events};
 
 /// Writing `last.json` always uses the chat completions format, whatever we
 /// send to the server, so this is not feature gated.

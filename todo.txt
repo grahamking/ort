@@ -1,6 +1,6 @@
 --- Fix "Thinking..."
 
-It should ge cleared on first content. Section needs something.
+It should get cleared on first content. Section needs something.
 
 --- Replace token count with byte count
 
