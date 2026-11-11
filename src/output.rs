@@ -16,7 +16,7 @@ use crate::net::AsFd;
 use crate::syscall;
 use crate::{ErrorKind, OrtResult, Write};
 
-use crate::common::data::Response;
+use crate::common::data::StreamEvent;
 
 pub mod collected_writer;
 pub mod console_writer;
@@ -62,7 +62,7 @@ pub const ERR_RATE_LIMITED: &str = "429 Too Many Requests";
 pub const MISSING_CHAR: char = '□';
 
 pub trait OutputWriter {
-    fn write(&mut self, data: Response) -> OrtResult<()>;
+    fn write(&mut self, data: StreamEvent) -> OrtResult<()>;
     fn stop(&mut self, _include_stats: bool) -> OrtResult<()> {
         Ok(())
     }

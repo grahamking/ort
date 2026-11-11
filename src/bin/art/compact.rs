@@ -8,7 +8,7 @@
 //! Manual compaction with recent-history retention
 
 use ort_openrouter_cli::{
-    ActivePrompt, Content, ErrorKind, Logger, Message, OrtResult, Response, Role, Stats,
+    ActivePrompt, Content, ErrorKind, Logger, Message, OrtResult, Role, Stats, StreamEvent,
     config::Cfg,
     json_parser::{JsonField, autoparser},
     ort_error, time,
@@ -256,17 +256,17 @@ fn collect(active: &mut ActivePrompt) -> OrtResult<(String, Stats)> {
     while let Some(events) = active.next()? {
         for event in events {
             match event {
-                Response::Content(text) => summary.push_str(&text),
-                Response::Error(_) | Response::Missing | Response::ToolCalls(_) => {
+                StreamEvent::Content(text) => summary.push_str(&text),
+                StreamEvent::Error(_) | StreamEvent::Missing | StreamEvent::ToolCalls(_) => {
                     return Err(ort_error(
                         ErrorKind::ResponseStreamError,
                         "Invalid compaction response",
                     ));
                 }
-                Response::Stats(s) => {
+                StreamEvent::Stats(s) => {
                     stats = Some(s);
                 }
-                Response::Finish(reason) => {
+                StreamEvent::Finish(reason) => {
                     finish_reason = Some(reason);
                 }
                 _ => {}

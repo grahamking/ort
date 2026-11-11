@@ -686,7 +686,7 @@ impl Annotation {
 }
 
 #[derive(Clone, Debug)]
-pub enum Response {
+pub enum StreamEvent {
     /// Initiating network call: DNS, TLS negoatiation, etc.
     Connecting,
     /// The first time we get anything at all on the SSE stream

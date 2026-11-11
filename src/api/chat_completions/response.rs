@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use super::data::ChatCompletionsResponse;
 use crate::{
-    OrtResult, Response, ThinkEvent,
+    OrtResult, StreamEvent, ThinkEvent,
     common::{data::ToolCall, stats},
     time,
 };
@@ -24,7 +24,7 @@ pub fn from_json(data: &str) -> OrtResult<ChatCompletionsResponse> {
 pub fn extract_events(
     mut v: ChatCompletionsResponse,
     tsc_calibration: Option<time::TscCalibration>,
-    queue: &mut Vec<Response>,
+    queue: &mut Vec<StreamEvent>,
     stats: &mut stats::Stats,
     pending_tool_calls: &mut Vec<ToolCall>,
 ) {
@@ -37,7 +37,7 @@ pub fn extract_events(
             web_search_requests: usage.web_search_requests,
             tool_calls: usage.tool_calls_executed,
         };
-        queue.push(Response::Usage(u));
+        queue.push(StreamEvent::Usage(u));
 
         // Chat Completions includes this on every message. We only
         // want it once, so use the last message, the Usage one.
@@ -45,15 +45,15 @@ pub fn extract_events(
             provider: v.provider.clone().unwrap_or_default(),
             used_model: v.model.clone().unwrap_or_default(),
         };
-        queue.push(Response::Metadata(m));
+        queue.push(StreamEvent::Metadata(m));
 
         // We now have everything we need to calculate stats.
         // Usage always comes last.
-        queue.push(Response::Stats(stats.clone()));
+        queue.push(StreamEvent::Stats(stats.clone()));
     }
 
     if let Some(error) = &v.error {
-        queue.push(Response::Error(error.message().to_string()));
+        queue.push(StreamEvent::Error(error.message().to_string()));
     };
 
     // Standard OpenAI stream delta shape
@@ -77,7 +77,7 @@ pub fn extract_events(
         if let Some(tc) = tsc_calibration {
             record_final_timing(tc, stats);
         }
-        queue.push(Response::Finish(finish_reason.clone()));
+        queue.push(StreamEvent::Finish(finish_reason.clone()));
         is_finished = true;
     }
     if !(has_reasoning
@@ -130,17 +130,17 @@ pub fn extract_events(
         && !reasoning_content.is_empty()
     {
         stats.num_tokens += 1;
-        let r_event = Response::Think(ThinkEvent::Content(reasoning_content.to_string()));
+        let r_event = StreamEvent::Think(ThinkEvent::Content(reasoning_content.to_string()));
         queue.push(r_event);
     }
     if let Some(reasoning_details) = choice.delta.reasoning_details.as_ref() {
-        let r_event = Response::Think(ThinkEvent::Details(reasoning_details.to_string()));
+        let r_event = StreamEvent::Think(ThinkEvent::Details(reasoning_details.to_string()));
         queue.push(r_event);
     }
 
     // Handle annotations
     for a in &choice.delta.annotations {
-        queue.push(Response::Annotation(a.clone()));
+        queue.push(StreamEvent::Annotation(a.clone()));
     }
 
     // Handle regular content
@@ -148,12 +148,12 @@ pub fn extract_events(
         && !content.is_empty()
     {
         stats.num_tokens += 1;
-        let r_event = Response::Content(content.to_string());
+        let r_event = StreamEvent::Content(content.to_string());
         queue.push(r_event);
     }
 
     if choice.is_tool_call_finish() && !pending_tool_calls.is_empty() {
-        let event = Response::ToolCalls(core::mem::take(pending_tool_calls));
+        let event = StreamEvent::ToolCalls(core::mem::take(pending_tool_calls));
         queue.push(event);
     }
 }

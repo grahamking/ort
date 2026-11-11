@@ -9,7 +9,7 @@ extern crate alloc;
 use alloc::borrow::Cow;
 
 use ort_openrouter_cli::{
-    ErrorKind, Message, Metadata, OrtResult, OutputWriter, Response, Section, ThinkEvent, Usage,
+    ErrorKind, Message, Metadata, OrtResult, OutputWriter, Section, StreamEvent, ThinkEvent, Usage,
     Write, ort_err, ort_error, utils,
 };
 
@@ -100,11 +100,11 @@ impl<'a, W: Write + Send> AgentWriter<'a, W> {
 }
 
 impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
-    fn write(&mut self, data: Response) -> OrtResult<()> {
+    fn write(&mut self, data: StreamEvent) -> OrtResult<()> {
         match data {
             // TODO: Should we show activity?
-            Response::Connecting | Response::Start => {}
-            Response::Think(think) => {
+            StreamEvent::Connecting | StreamEvent::Start => {}
+            StreamEvent::Think(think) => {
                 if self.show_reasoning {
                     match think {
                         ThinkEvent::Details(_) => {}
@@ -116,14 +116,14 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                     }
                 }
             }
-            Response::Content(content) => {
+            StreamEvent::Content(content) => {
                 self.section(Section::Content);
                 let _ = self.writer.write_all(content.as_bytes());
             }
-            Response::ToolCalls(_tool_calls) => {
+            StreamEvent::ToolCalls(_tool_calls) => {
                 // We use ToolDisplay instead
             }
-            Response::ToolDisplay(tool) => {
+            StreamEvent::ToolDisplay(tool) => {
                 self.section(Section::Tool);
                 let _ = self.writer.write(TOOL_CALL_START);
                 let _ = self.writer.write(tool.name.as_bytes());
@@ -145,20 +145,20 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 }
                 let _ = self.writer.flush();
             }
-            Response::Annotation(annotation) => {
+            StreamEvent::Annotation(annotation) => {
                 // These are url_citation from remote web_search tool
                 self.section(Section::WebSearch);
                 let _ = self
                     .writer
                     .writev(&[MSG_WEB_FETCH, annotation.citation_url().as_bytes()]);
             }
-            Response::Usage(usage) => {
+            StreamEvent::Usage(usage) => {
                 self.usage = Some(usage);
             }
-            Response::Metadata(metadata) => {
+            StreamEvent::Metadata(metadata) => {
                 self.metadata = Some(metadata);
             }
-            Response::Stats(mut stats) => {
+            StreamEvent::Stats(mut stats) => {
                 self.section(Section::Stats);
 
                 stats.metadata = self.metadata.take().unwrap_or_default();
@@ -188,7 +188,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 let _ = self.writer.writev(&writes);
                 let _ = self.writer.flush();
             }
-            Response::Prompt(prompt) => {
+            StreamEvent::Prompt(prompt) => {
                 self.section(Section::Prompt);
                 let _ = self.writer.writev(&[
                     PROMPT_START,
@@ -197,23 +197,23 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 ]);
                 let _ = self.writer.flush();
             }
-            Response::Missing => {
+            StreamEvent::Missing => {
                 let _ = self.writer.write_char(MISSING_CHAR);
             }
-            Response::Warn(warning) => {
+            StreamEvent::Warn(warning) => {
                 self.section(Section::Warn);
                 let _ = self
                     .writer
                     .writev(&[WARN_START, warning.trim().as_bytes(), RESET]);
                 let _ = self.writer.flush();
             }
-            Response::Error(err_string) => {
+            StreamEvent::Error(err_string) => {
                 if err_string.contains(ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
-            Response::Finish(_reason) => {}
+            StreamEvent::Finish(_reason) => {}
         }
         Ok(())
     }
@@ -264,7 +264,7 @@ mod test {
         let mut buffer = String::new();
         let mut writer = AgentWriter::new(&mut buffer, false, Some(1_000_000));
         writer.context_size = 26_000;
-        writer.write(Response::Stats(Stats::default())).unwrap();
+        writer.write(StreamEvent::Stats(Stats::default())).unwrap();
         assert!(buffer.contains("Ctx: 26K / 1M tokens."));
     }
 
@@ -296,46 +296,46 @@ mod test {
             line_numbers: true,
         };
         let events = [
-            Response::Prompt("What is the license of this project?".to_string()),
-            Response::Start,
-            Response::Think(ThinkEvent::Content("Search a bit first".to_string())),
-            Response::Annotation(Annotation::UrlCitation {
+            StreamEvent::Prompt("What is the license of this project?".to_string()),
+            StreamEvent::Start,
+            StreamEvent::Think(ThinkEvent::Content("Search a bit first".to_string())),
+            StreamEvent::Annotation(Annotation::UrlCitation {
                 url: "http://ort.example".to_string(),
                 content: String::new(),
             }),
-            Response::Annotation(Annotation::UrlCitation {
+            StreamEvent::Annotation(Annotation::UrlCitation {
                 url: "http://ort.example/other".to_string(),
                 content: String::new(),
             }),
-            Response::Think(ThinkEvent::Content(
+            StreamEvent::Think(ThinkEvent::Content(
                 "We need to find license file. Use bash to list.".to_string(),
             )),
-            Response::Warn("Tool does not exist. No such tool: 'bosh'".to_string()),
-            Response::ToolDisplay(ToolDisplay {
+            StreamEvent::Warn("Tool does not exist. No such tool: 'bosh'".to_string()),
+            StreamEvent::ToolDisplay(ToolDisplay {
                 name: "Bash ",
                 arguments: "ls -R".to_string(),
                 extra: None,
                 removed: None,
                 added: None,
             }),
-            Response::ToolDisplay(ToolDisplay {
+            StreamEvent::ToolDisplay(ToolDisplay {
                 name: "Bash ",
                 arguments: r#"find . -name "*LICENS*""#.to_string(),
                 extra: Some(" limit 10000".to_string()),
                 removed: None,
                 added: None,
             }),
-            Response::Start,
-            Response::Think(ThinkEvent::Content(
+            StreamEvent::Start,
+            StreamEvent::Think(ThinkEvent::Content(
                 "We need license file. Look at LICENSE.".to_string(),
             )),
-            Response::ToolDisplay(read.display()),
-            Response::Think(ThinkEvent::Content("The license is MIT.".to_string())),
-            Response::Content("The".to_string()),
-            Response::Content(" project".to_string()),
-            Response::Content(" is".to_string()),
-            Response::Content(" licensed".to_string()),
-            Response::Stats(Stats {
+            StreamEvent::ToolDisplay(read.display()),
+            StreamEvent::Think(ThinkEvent::Content("The license is MIT.".to_string())),
+            StreamEvent::Content("The".to_string()),
+            StreamEvent::Content(" project".to_string()),
+            StreamEvent::Content(" is".to_string()),
+            StreamEvent::Content(" licensed".to_string()),
+            StreamEvent::Stats(Stats {
                 num_tokens: 0,
                 metadata: Metadata {
                     used_model: "openai/gpt-oss-120b".to_string(),

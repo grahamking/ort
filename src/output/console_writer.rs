@@ -12,7 +12,7 @@ use crate::Section;
 use crate::common::error::{ort_err, ort_error};
 use crate::common::io::MAX_LEN_UTF8;
 use crate::common::time::{Ticks, TscCalibration, elapsed_duration};
-use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats};
+use crate::{ErrorKind, OrtResult, StreamEvent, ThinkEvent, Write, common::stats};
 
 const SPINNER_UPDATE_MS: Duration = Duration::from_millis(40);
 
@@ -83,20 +83,20 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
         Ok(())
     }
 
-    fn write(&mut self, data: Response) -> OrtResult<()> {
-        if self.is_quiet && !matches!(data, Response::Content(_) | Response::Error(_)) {
+    fn write(&mut self, data: StreamEvent) -> OrtResult<()> {
+        if self.is_quiet && !matches!(data, StreamEvent::Content(_) | StreamEvent::Error(_)) {
             return Ok(());
         }
         match data {
-            Response::Connecting => {
+            StreamEvent::Connecting => {
                 let _ = self.writer.write(super::MSG_CONNECTING);
                 let _ = self.writer.flush();
             }
-            Response::Start => {
+            StreamEvent::Start => {
                 let _ = self.writer.write(super::MSG_PROCESSING);
                 let _ = self.writer.flush();
             }
-            Response::Think(think) => {
+            StreamEvent::Think(think) => {
                 if self.section == Section::Content {
                     // If content has started, don't show thinking.
                     // Sometimes Gemini Pro sends it out of order.
@@ -136,7 +136,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                     }
                 }
             }
-            Response::Content(content) => {
+            StreamEvent::Content(content) => {
                 // In quiet mode there is only one section
                 if !self.is_quiet {
                     self.section(Section::Content);
@@ -144,33 +144,33 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 let _ = self.writer.write_all(content.as_bytes());
                 let _ = self.writer.flush();
             }
-            Response::ToolCalls(_) | Response::ToolDisplay(_) => {
+            StreamEvent::ToolCalls(_) | StreamEvent::ToolDisplay(_) => {
                 // No tool calls in chat mode
             }
-            Response::Annotation(annotation) => {
+            StreamEvent::Annotation(annotation) => {
                 // These are url_citation from remote web_search tool
                 self.section(Section::WebSearch);
                 let _ = self
                     .writer
                     .writev(&[super::MSG_WEB_FETCH, annotation.citation_url().as_bytes()]);
             }
-            Response::Usage(usage) => {
+            StreamEvent::Usage(usage) => {
                 self.usage = Some(usage);
             }
-            Response::Metadata(metadata) => {
+            StreamEvent::Metadata(metadata) => {
                 self.metadata = Some(metadata);
             }
-            Response::Stats(stats) => {
+            StreamEvent::Stats(stats) => {
                 self.section(Section::Stats);
                 self.stats_out = Some(stats);
             }
-            Response::Prompt(_prompt) => {
+            StreamEvent::Prompt(_prompt) => {
                 // Prompt not displayed in chat mode
             }
-            Response::Missing => {
+            StreamEvent::Missing => {
                 let _ = self.writer.write_char(super::MISSING_CHAR);
             }
-            Response::Warn(warning) => {
+            StreamEvent::Warn(warning) => {
                 self.section(Section::Warn);
                 let _ = self.writer.writev(&[
                     super::WARN_START,
@@ -179,7 +179,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 ]);
                 let _ = self.writer.flush();
             }
-            Response::Error(err_string) => {
+            StreamEvent::Error(err_string) => {
                 let _ = self.writer.write(super::CURSOR_ON);
                 let _ = self.writer.flush();
                 if err_string.contains(super::ERR_RATE_LIMITED) {
@@ -187,7 +187,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
-            Response::Finish(_reason) => {}
+            StreamEvent::Finish(_reason) => {}
         }
 
         Ok(())

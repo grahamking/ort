@@ -10,7 +10,7 @@ use alloc::string::String;
 
 use crate::common::error::ort_err;
 use crate::ort_error;
-use crate::{ErrorKind, OrtResult, Response, common::stats};
+use crate::{ErrorKind, OrtResult, StreamEvent, common::stats};
 
 pub struct CollectedWriter {
     contents: String,
@@ -33,39 +33,39 @@ impl CollectedWriter {
 }
 
 impl super::OutputWriter for CollectedWriter {
-    fn write(&mut self, data: Response) -> OrtResult<()> {
+    fn write(&mut self, data: StreamEvent) -> OrtResult<()> {
         match data {
-            Response::Connecting | Response::Start => {}
-            Response::Think(_) => {}
-            Response::Content(content) => {
+            StreamEvent::Connecting | StreamEvent::Start => {}
+            StreamEvent::Think(_) => {}
+            StreamEvent::Content(content) => {
                 self.contents.push_str(&content);
             }
-            Response::ToolCalls(_) | Response::ToolDisplay(_) => {
+            StreamEvent::ToolCalls(_) | StreamEvent::ToolDisplay(_) => {
                 // No ToolCalls when using CollectedWriter
             }
-            Response::Annotation(_) => {
+            StreamEvent::Annotation(_) => {
                 // TODO
             }
-            Response::Metadata(metadata) => {
+            StreamEvent::Metadata(metadata) => {
                 self.metadata = Some(metadata);
             }
-            Response::Usage(usage) => {
+            StreamEvent::Usage(usage) => {
                 self.usage = Some(usage);
             }
-            Response::Stats(stats) => {
+            StreamEvent::Stats(stats) => {
                 self.stats_out = Some(stats);
             }
-            Response::Prompt(_) => {}
-            Response::Missing => {
+            StreamEvent::Prompt(_) => {}
+            StreamEvent::Missing => {
                 self.contents.push(super::MISSING_CHAR);
             }
-            Response::Warn(_warning) => {
+            StreamEvent::Warn(_warning) => {
                 // TODO
             }
-            Response::Error(err) => {
+            StreamEvent::Error(err) => {
                 return Err(ort_err(ErrorKind::ResponseStreamError, err.into()));
             }
-            Response::Finish(_reason) => {}
+            StreamEvent::Finish(_reason) => {}
         }
         Ok(())
     }

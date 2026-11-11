@@ -8,7 +8,7 @@ extern crate alloc;
 
 use crate::Section;
 use crate::common::error::{ort_err, ort_error};
-use crate::{ErrorKind, OrtResult, Response, ThinkEvent, Write, common::stats};
+use crate::{ErrorKind, OrtResult, StreamEvent, ThinkEvent, Write, common::stats};
 
 pub struct FileWriter<'a, W: Write + Send> {
     writer: &'a mut W,
@@ -47,13 +47,13 @@ impl<'a, W: Write + Send> FileWriter<'a, W> {
 }
 
 impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
-    fn write(&mut self, data: Response) -> OrtResult<()> {
-        if self.is_quiet && !matches!(data, Response::Content(_) | Response::Error(_)) {
+    fn write(&mut self, data: StreamEvent) -> OrtResult<()> {
+        if self.is_quiet && !matches!(data, StreamEvent::Content(_) | StreamEvent::Error(_)) {
             return Ok(());
         }
         match data {
-            Response::Connecting | Response::Start => {}
-            Response::Think(think) => {
+            StreamEvent::Connecting | StreamEvent::Start => {}
+            StreamEvent::Think(think) => {
                 if self.show_reasoning {
                     self.section(Section::Think);
                     match think {
@@ -64,50 +64,50 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
                     }
                 }
             }
-            Response::Content(content) => {
+            StreamEvent::Content(content) => {
                 // In quiet mode there is only one section
                 if !self.is_quiet {
                     self.section(Section::Content);
                 }
                 let _ = self.writer.write_all(content.as_bytes());
             }
-            Response::ToolCalls(_) | Response::ToolDisplay(_) => {
+            StreamEvent::ToolCalls(_) | StreamEvent::ToolDisplay(_) => {
                 // TODO
             }
-            Response::Annotation(annotation) => {
+            StreamEvent::Annotation(annotation) => {
                 self.section(Section::WebSearch);
                 let _ = self.writer.write(annotation.citation_url().as_bytes());
             }
-            Response::Usage(usage) => {
+            StreamEvent::Usage(usage) => {
                 self.usage = Some(usage);
             }
-            Response::Metadata(metadata) => {
+            StreamEvent::Metadata(metadata) => {
                 self.metadata = Some(metadata);
             }
-            Response::Stats(stats) => {
+            StreamEvent::Stats(stats) => {
                 self.section(Section::Stats);
                 self.stats_out = Some(stats);
             }
-            Response::Prompt(prompt) => {
+            StreamEvent::Prompt(prompt) => {
                 self.section(Section::Prompt);
                 let _ = self.writer.write("> ".as_bytes());
                 let _ = self.writer.write(prompt.as_bytes());
                 let _ = self.writer.flush();
             }
-            Response::Warn(warning) => {
+            StreamEvent::Warn(warning) => {
                 self.section(Section::Warn);
                 let _ = self.writer.write(warning.trim().as_bytes());
             }
-            Response::Missing => {
+            StreamEvent::Missing => {
                 let _ = self.writer.write_char(super::MISSING_CHAR);
             }
-            Response::Error(err_string) => {
+            StreamEvent::Error(err_string) => {
                 if err_string.contains(super::ERR_RATE_LIMITED) {
                     return Err(ort_error(ErrorKind::RateLimited, ""));
                 }
                 return Err(ort_err(ErrorKind::ResponseStreamError, err_string.into()));
             }
-            Response::Finish(_reason) => {}
+            StreamEvent::Finish(_reason) => {}
         }
         Ok(())
     }

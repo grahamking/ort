@@ -23,8 +23,8 @@ use std::path::Path;
 
 use crate::{compact, inotify, system_prompt};
 use ort_openrouter_cli::{
-    ActivePrompt, ErrorKind, Message, OrtResult, OutputWriter as _, Response, Stats, Tool, Write,
-    cli::Env, config,
+    ActivePrompt, ErrorKind, Message, OrtResult, OutputWriter as _, Stats, StreamEvent, Tool,
+    Write, cli::Env, config,
 };
 
 use super::output::AgentWriter;
@@ -68,10 +68,12 @@ pub fn run<W: Write + Send>(
     // If provided, first prompt is already in `messages`,
     // added in `common/config.rs::messages`.
     let mut has_more_turns = if let Some(inital_prompt) = cfg.prompt.clone() {
-        output_writer.write(Response::Prompt(inital_prompt))?;
+        output_writer.write(StreamEvent::Prompt(inital_prompt))?;
         true
     } else {
-        output_writer.write(Response::Prompt("-- Waiting for prompt --\r".to_string()))?;
+        output_writer.write(StreamEvent::Prompt(
+            "-- Waiting for prompt --\r".to_string(),
+        ))?;
         false
     };
 
@@ -100,12 +102,12 @@ pub fn run<W: Write + Send>(
             // Do we need to inject a user message?
             if has_more_turns && let Some(prompt) = poll_next_prompt(ifd, &filename)? {
                 messages.push(Message::user(prompt.clone()));
-                output_writer.write(Response::Prompt(prompt))?;
+                output_writer.write(StreamEvent::Prompt(prompt))?;
             };
 
             // After last turn show stats
             if !has_more_turns {
-                output_writer.write(Response::Stats(total_stats.clone()))?;
+                output_writer.write(StreamEvent::Stats(total_stats.clone()))?;
             }
         }
 
@@ -126,7 +128,7 @@ pub fn run<W: Write + Send>(
             continue;
         }
         messages.push(Message::user(prompt.clone()));
-        output_writer.write(Response::Prompt(prompt))?;
+        output_writer.write(StreamEvent::Prompt(prompt))?;
         has_more_turns = true;
     }
 
@@ -143,19 +145,19 @@ fn handle_compact<W: Write + Send>(
     stats: &mut Stats,
     logger: &mut Option<Logger>,
 ) -> OrtResult<()> {
-    output.write(Response::Prompt("-- Compacting conversation --".into()))?;
+    output.write(StreamEvent::Prompt("-- Compacting conversation --".into()))?;
     match compactor.run(api_key, cfg, messages, stats, logger) {
-        Ok(false) => output.write(Response::Prompt(
+        Ok(false) => output.write(StreamEvent::Prompt(
             "-- Nothing older to compact; recent history retained --".into(),
         )),
         Ok(true) => {
             output.update_context_size(messages, None);
-            output.write(Response::Stats(stats.clone()))?;
-            output.write(Response::Prompt(
+            output.write(StreamEvent::Stats(stats.clone()))?;
+            output.write(StreamEvent::Prompt(
                 "-- Conversation compacted. Waiting for prompt --".into(),
             ))
         }
-        Err(err) => output.write(Response::Warn(format!(
+        Err(err) => output.write(StreamEvent::Warn(format!(
             "Compaction failed; conversation unchanged: {}",
             err.as_string()
         ))),
@@ -233,18 +235,18 @@ fn run_single<W: Write + Send>(
             Ok(Some(out)) => {
                 for event in out {
                     match &event {
-                        Response::Content(content) => {
+                        StreamEvent::Content(content) => {
                             assistant_message.push_str(content);
                         }
-                        Response::Think(ThinkEvent::Content(r)) => {
+                        StreamEvent::Think(ThinkEvent::Content(r)) => {
                             // Save this and send it back
                             reasoning = Some(r.to_string());
                         }
-                        Response::Think(ThinkEvent::Details(rd)) => {
+                        StreamEvent::Think(ThinkEvent::Details(rd)) => {
                             // Save this and send it back
                             reasoning_details = Some(rd.to_string());
                         }
-                        Response::ToolCalls(tool_calls) => {
+                        StreamEvent::ToolCalls(tool_calls) => {
                             if tool_calls.is_empty() {
                                 continue;
                             }
@@ -273,7 +275,7 @@ fn run_single<W: Write + Send>(
                                             + "'";
                                         tool_call_results
                                             .push((tool_call.id.clone().unwrap(), error(&msg)));
-                                        output_writer.write(Response::Error(msg))?;
+                                        output_writer.write(StreamEvent::Error(msg))?;
                                         continue;
                                     }
                                     Err(error) => {
@@ -281,7 +283,7 @@ fn run_single<W: Write + Send>(
                                     }
                                 };
                                 output_writer
-                                    .write(Response::ToolDisplay(active_tool.display()))?;
+                                    .write(StreamEvent::ToolDisplay(active_tool.display()))?;
                                 let res = active_tool.run();
                                 match res {
                                     Ok(res) => {
@@ -296,7 +298,7 @@ fn run_single<W: Write + Send>(
                                 }
                             }
                         }
-                        Response::Stats(s) => stats = Some(s.clone()),
+                        StreamEvent::Stats(s) => stats = Some(s.clone()),
                         _ => {}
                     }
                     output_writer.write(event.clone())?;
@@ -361,7 +363,7 @@ mod tests {
     use alloc::vec;
     use ort_openrouter_cli::OrtBufReader;
     use ort_openrouter_cli::PromptReader;
-    use ort_openrouter_cli::Response;
+    use ort_openrouter_cli::StreamEvent;
     use ort_openrouter_cli::StringReader;
     use ort_openrouter_cli::Timing;
     use ort_openrouter_cli::build_body;
@@ -443,7 +445,7 @@ mod tests {
         let mut num_tool_calls = 0;
         while let Ok(Some(events)) = active_prompt.next() {
             for event in events {
-                if let Response::ToolCalls(tool_calls) = event {
+                if let StreamEvent::ToolCalls(tool_calls) = event {
                     for tool_call in tool_calls {
                         num_tool_calls += 1;
                         let active_tool = crate::tools::parse_function(&tool_call.function);
@@ -497,11 +499,11 @@ mod tests {
             3,
             "Expected three messages: Start, Finish(tool_call), ToolCalls"
         );
-        assert_matches!(events[0], Response::Start);
+        assert_matches!(events[0], StreamEvent::Start);
 
         // Then a single ToolCall with error
         let tc = events.remove(2);
-        let Response::ToolCalls(tool_calls) = tc else {
+        let StreamEvent::ToolCalls(tool_calls) = tc else {
             panic!(
                 "Final event should be ToolCalls with the single malformed tool call. Got: {tc:?}"
             );
@@ -564,11 +566,11 @@ mod tests {
         };
 
         let mut evt_iter = events.into_iter();
-        assert_matches!(evt_iter.next(), Some(Response::Start));
+        assert_matches!(evt_iter.next(), Some(StreamEvent::Start));
 
         let mut num_tool_calls = 0;
         for event in evt_iter {
-            if let Response::ToolCalls(tool_calls) = event {
+            if let StreamEvent::ToolCalls(tool_calls) = event {
                 for tool_call in tool_calls {
                     num_tool_calls += 1;
                     let parse_result = crate::tools::parse_function(&tool_call.function);

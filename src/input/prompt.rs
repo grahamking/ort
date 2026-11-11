@@ -22,7 +22,7 @@ use crate::{OrtError, api, chunked};
 
 use crate::Message;
 use crate::OrtResult;
-use crate::Response;
+use crate::StreamEvent;
 use crate::api::build_body;
 use crate::common::config::Cfg;
 use crate::common::error::{ort_err, ort_error};
@@ -101,7 +101,7 @@ pub fn run<W: Write + Send>(
             tsc_calibration,
         ))
     };
-    output_writer.write(Response::Connecting)?;
+    output_writer.write(StreamEvent::Connecting)?;
     active_prompt.send_request()?;
 
     let mut finish_reason = None;
@@ -112,7 +112,7 @@ pub fn run<W: Write + Send>(
             }
             Ok(Some(out)) => {
                 for event in out {
-                    if let Response::Finish(reason) = &event {
+                    if let StreamEvent::Finish(reason) = &event {
                         finish_reason = Some(reason.clone());
                     }
                     output_writer.write(event.clone())?;
@@ -456,7 +456,7 @@ impl ActivePrompt {
     }
 
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> OrtResult<Option<Vec<Response>>> {
+    pub fn next(&mut self) -> OrtResult<Option<Vec<StreamEvent>>> {
         let mut queue = vec![];
 
         loop {
@@ -482,7 +482,7 @@ impl ActivePrompt {
             if self.is_start {
                 // Very first message from server, often
                 // : OPENROUTER PROCESSING
-                queue.push(Response::Start);
+                queue.push(StreamEvent::Start);
                 self.is_start = false;
                 // It might be a real data line, so continue processing
             }
@@ -534,7 +534,7 @@ impl ActivePrompt {
                     // annotation, thinking or text content.
                     // Notify something was missing without messing up the display.
                     if self.pending_tool_calls.is_empty() {
-                        queue.push(Response::Missing);
+                        queue.push(StreamEvent::Missing);
                     }
                 }
             }
@@ -573,7 +573,7 @@ mod tests {
     use crate::common::{stats, time, utils};
     use crate::config::Cfg;
     use crate::input::prompt::PromptReader;
-    use crate::{Response, ThinkEvent};
+    use crate::{StreamEvent, ThinkEvent};
 
     #[test]
     fn test_annotation_realistic() {
@@ -607,9 +607,9 @@ mod tests {
         let Ok(Some(events)) = active_prompt.next() else {
             panic!("Missing Start event");
         };
-        assert_matches!(events.first(), Some(Response::Start));
+        assert_matches!(events.first(), Some(StreamEvent::Start));
         // The encrypted reasoning
-        assert_matches!(events[1], Response::Think(ThinkEvent::Details(_)));
+        assert_matches!(events[1], StreamEvent::Think(ThinkEvent::Details(_)));
 
         // Then some Annotation from the web_search
         let mut num_annotations = 0;
@@ -617,17 +617,17 @@ mod tests {
         'events: while let Ok(Some(events)) = active_prompt.next() {
             for event in events {
                 match event {
-                    Response::Annotation(_) => {
+                    StreamEvent::Annotation(_) => {
                         num_annotations += 1;
                     }
-                    Response::Think(ThinkEvent::Content(_)) => {
+                    StreamEvent::Think(ThinkEvent::Content(_)) => {
                         // Once we reach Think annotations are over
                         break 'events;
                     }
-                    Response::Think(ThinkEvent::Details(_)) => {
+                    StreamEvent::Think(ThinkEvent::Details(_)) => {
                         // These are scattered around, ignore them for test
                     }
-                    Response::Missing => {
+                    StreamEvent::Missing => {
                         // OpenRouter web_search seems to truncte citations sometimes
                         // JSON parser probably needs to handle it.
                         has_seen_the_bug = true;
@@ -648,8 +648,8 @@ mod tests {
         let mut num_think = 0;
         while let Ok(Some(events)) = active_prompt.next() {
             match events.first().unwrap() {
-                Response::Think(ThinkEvent::Content(_)) => num_think += 1,
-                Response::Think(ThinkEvent::Details(_)) => {}
+                StreamEvent::Think(ThinkEvent::Content(_)) => num_think += 1,
+                StreamEvent::Think(ThinkEvent::Details(_)) => {}
                 other => {
                     panic!("Unexpected event: {other:?}");
                 }
@@ -695,9 +695,9 @@ mod tests {
             panic!("Missing Start event");
         };
         let mut evt_iter = events.into_iter();
-        assert_matches!(evt_iter.next(), Some(Response::Start));
+        assert_matches!(evt_iter.next(), Some(StreamEvent::Start));
         // We're expecting a single Response::Missing, non-fatal
-        assert_matches!(evt_iter.next(), Some(Response::Missing));
+        assert_matches!(evt_iter.next(), Some(StreamEvent::Missing));
         assert_matches!(evt_iter.next(), None);
     }
 }

@@ -17,7 +17,7 @@ use crate::common::json_parser::Parser;
 use crate::common::json_writer::{write_encoded_bytes, write_json_str};
 use crate::output::OutputWriter;
 use crate::{
-    Context, ErrorKind, LastData, Message, OrtResult, Response, Write, common::config,
+    Context, ErrorKind, LastData, Message, OrtResult, StreamEvent, Write, common::config,
     common::file, common::utils,
 };
 use crate::{ThinkEvent, ort_error};
@@ -249,12 +249,12 @@ fn field<'a>(fields: &'a [(String, String)], key: &str) -> Option<&'a str> {
 }
 
 impl OutputWriter for LastWriter {
-    fn write(&mut self, data: Response) -> OrtResult<()> {
+    fn write(&mut self, data: StreamEvent) -> OrtResult<()> {
         if self.stopped {
             return Ok(());
         }
         match data {
-            Response::Start => {
+            StreamEvent::Start => {
                 if self.started {
                     return Ok(());
                 }
@@ -271,20 +271,20 @@ impl OutputWriter for LastWriter {
                 }
                 self.w.write_str("{\"role\":\"assistant\",\"content\":\"")?;
             }
-            Response::Think(ThinkEvent::Content(text)) => self.reasoning.push_str(&text),
-            Response::Think(ThinkEvent::Details(json)) => self.add_details(&json)?,
-            Response::Content(text) => self.content(text.as_bytes())?,
-            Response::ToolCalls(calls) => self.tool_calls.extend(calls),
-            Response::Missing => {
+            StreamEvent::Think(ThinkEvent::Content(text)) => self.reasoning.push_str(&text),
+            StreamEvent::Think(ThinkEvent::Details(json)) => self.add_details(&json)?,
+            StreamEvent::Content(text) => self.content(text.as_bytes())?,
+            StreamEvent::ToolCalls(calls) => self.tool_calls.extend(calls),
+            StreamEvent::Missing => {
                 let mut buf = [0u8; 4];
                 self.content(super::MISSING_CHAR.encode_utf8(&mut buf).as_bytes())?;
             }
-            Response::Stats(stats) => {
+            StreamEvent::Stats(stats) => {
                 if !stats.provider().is_empty() {
                     self.cfg.provider = Some(utils::slug(stats.provider()));
                 }
             }
-            Response::Error(_) => {
+            StreamEvent::Error(_) => {
                 return Err(ort_error(
                     ErrorKind::LastWriterError,
                     "LastWriter run error",
@@ -404,9 +404,9 @@ mod tests {
     fn reasoning_round_trip_into_continue_request() {
         let f = Fixture::new();
         let mut w = f.writer(vec![Message::user("question".into())]);
-        w.write(Response::Start).unwrap();
+        w.write(StreamEvent::Start).unwrap();
         for text in ["\nthink ", "\"carefully\"\\\t🦀"] {
-            w.write(Response::Think(ThinkEvent::Content(text.into())))
+            w.write(StreamEvent::Think(ThinkEvent::Content(text.into())))
                 .unwrap();
         }
         for details in [
@@ -417,10 +417,10 @@ mod tests {
             r#"[{"type":"reasoning.encrypted","data":"opaque1","index":0,"id":"a"},{"type":"reasoning.encrypted","data":"opaque2","index":0,"id":"b"}]"#,
             "[]",
         ] {
-            w.write(Response::Think(ThinkEvent::Details(details.into())))
+            w.write(StreamEvent::Think(ThinkEvent::Details(details.into())))
                 .unwrap();
         }
-        w.write(Response::Content("answer".into())).unwrap();
+        w.write(StreamEvent::Content("answer".into())).unwrap();
         w.stop(false).unwrap();
         w.stop(false).unwrap(); // Repeated finalization must not append JSON.
         let mut last = f.read();
@@ -443,8 +443,8 @@ mod tests {
         assert_eq!(sent.messages[2].text(), Some("next"));
         // A second save retains the reasoning from the earlier turn too.
         let mut next = f.writer(sent.messages);
-        next.write(Response::Start).unwrap();
-        next.write(Response::Content("second answer".into()))
+        next.write(StreamEvent::Start).unwrap();
+        next.write(StreamEvent::Content("second answer".into()))
             .unwrap();
         next.stop(false).unwrap();
         assert_eq!(
@@ -457,12 +457,12 @@ mod tests {
     fn large_chunks_tools_and_missing_keep_valid_json_and_order() {
         let f = Fixture::new();
         let mut w = f.writer(vec![]);
-        w.write(Response::Start).unwrap();
+        w.write(StreamEvent::Start).unwrap();
         let large = "🦀\n\"\\".repeat(3000);
-        w.write(Response::Content("before".into())).unwrap();
-        w.write(Response::Missing).unwrap();
-        w.write(Response::Content(large.clone())).unwrap();
-        w.write(Response::ToolCalls(vec![ToolCall {
+        w.write(StreamEvent::Content("before".into())).unwrap();
+        w.write(StreamEvent::Missing).unwrap();
+        w.write(StreamEvent::Content(large.clone())).unwrap();
+        w.write(StreamEvent::ToolCalls(vec![ToolCall {
             id: Some("call_1".into()),
             function: Function {
                 name: "read".into(),
@@ -471,7 +471,7 @@ mod tests {
             ..Default::default()
         }]))
         .unwrap();
-        w.write(Response::Content("after".into())).unwrap();
+        w.write(StreamEvent::Content("after".into())).unwrap();
         w.stop(false).unwrap();
         let last = f.read();
         assert_eq!(last.messages.len(), 1);
@@ -488,16 +488,16 @@ mod tests {
     fn abandoned_response_preserves_previous_chat_and_cleans_temp() {
         let f = Fixture::new();
         let mut first = f.writer(vec![]);
-        first.write(Response::Start).unwrap();
-        first.write(Response::Content("saved".into())).unwrap();
+        first.write(StreamEvent::Start).unwrap();
+        first.write(StreamEvent::Content("saved".into())).unwrap();
         first.stop(false).unwrap();
         let temp;
         {
             let mut interrupted = f.writer(vec![]);
             temp = interrupted.temp_path.to_str().unwrap().to_string();
-            interrupted.write(Response::Start).unwrap();
+            interrupted.write(StreamEvent::Start).unwrap();
             interrupted
-                .write(Response::Content("partial".into()))
+                .write(StreamEvent::Content("partial".into()))
                 .unwrap();
             assert_eq!(f.read().messages[0].text(), Some("saved"));
         }
@@ -513,8 +513,8 @@ mod tests {
         let f = Fixture::new();
         let mut first = f.writer(vec![]);
         first.cfg.provider = Some("chosen-provider".into());
-        first.write(Response::Start).unwrap();
-        first.write(Response::Content("saved".into())).unwrap();
+        first.write(StreamEvent::Start).unwrap();
+        first.write(StreamEvent::Content("saved".into())).unwrap();
         first.stop(false).unwrap();
         // A newer config and an abandoned temporary file are not conversations.
         fs::write(format!("{}/ort/last-999.cfg", f.root), "model: unrelated").unwrap();

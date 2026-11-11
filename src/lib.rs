@@ -19,7 +19,7 @@ pub use common::alloc::ArenaAlloc;
 pub use common::buf_read::{OrtBufReader, StringReader};
 pub use common::config;
 pub use common::data::{
-    Annotation, Content, Function, LastData, Message, Priority, ReasoningEffort, Response, Role,
+    Annotation, Content, Function, LastData, Message, Priority, ReasoningEffort, Role, StreamEvent,
     ThinkEvent, Tool, ToolDisplay, ToolParameter,
 };
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_error};
