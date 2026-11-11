@@ -210,11 +210,12 @@ pub enum JsonValue {
 impl JsonValue {}
 
 pub fn autoparser(json: &str, fields: &mut [JsonField]) -> OrtResult<()> {
+    let mut fields_remaining = fields.len();
     let mut p = Parser::new(json);
     p.skip_ws();
     p.expect(b'{')?;
 
-    loop {
+    while fields_remaining > 0 {
         p.skip_ws();
         if p.try_consume(b'}') {
             break;
@@ -245,6 +246,7 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> OrtResult<()> {
                     field.parse(&mut p)?;
                 }
                 is_parsed = true;
+                fields_remaining -= 1;
                 break;
             }
         }
@@ -262,6 +264,16 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> OrtResult<()> {
         }
     }
 
+    // At this point fields_remaining might still be positive. Some fields are optional.
+
+    /*
+    if fields_remaining != 0 {
+        return Err(ort_err(
+            ErrorKind::FormatError,
+            "Did not find all the fields".into(),
+        ));
+    }
+
     p.skip_ws();
     if !p.eof() {
         return Err(ort_err(
@@ -269,6 +281,7 @@ pub fn autoparser(json: &str, fields: &mut [JsonField]) -> OrtResult<()> {
             "trailing characters after JSON object".into(),
         ));
     }
+    */
 
     Ok(())
 }

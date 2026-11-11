@@ -7,5 +7,7 @@
 #![cfg_attr(not(feature = "responses"), allow(unused))]
 
 mod request;
+mod response;
 pub(crate) use request::PROMPT_URL;
 pub use request::build_body;
+pub use response::{extract_events, from_json};
