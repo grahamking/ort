@@ -4,8 +4,6 @@
 //! MIT License
 //! Copyright (c) 2026 Graham King
 
-use core::cmp::max;
-
 extern crate alloc;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -75,7 +73,7 @@ pub fn extract_events(
     let mut is_finished = false;
     if let Some(finish_reason) = &choice.finish_reason {
         if let Some(tc) = tsc_calibration {
-            record_final_timing(tc, stats);
+            stats.record_final_timing(tc);
         }
         queue.push(StreamEvent::Finish(finish_reason.clone()));
         is_finished = true;
@@ -90,14 +88,8 @@ pub fn extract_events(
         return;
     }
 
-    // Record time to first token
-    if let Some(t) = stats.timing.as_mut()
-        && t.time_to_first_token.is_none()
-    {
-        let first_token = time::Ticks::now();
-        t.time_to_first_token =
-            tsc_calibration.map(|tc| time::elapsed_duration(t.start, first_token, tc));
-        t.token_stream_start = Some(time::Ticks::now());
+    if let Some(tsc) = tsc_calibration {
+        stats.record_first_token(tsc);
     }
 
     // Handle tool calls
@@ -155,18 +147,5 @@ pub fn extract_events(
     if choice.is_tool_call_finish() && !pending_tool_calls.is_empty() {
         let event = StreamEvent::ToolCalls(core::mem::take(pending_tool_calls));
         queue.push(event);
-    }
-}
-
-fn record_final_timing(tsc_calibration: time::TscCalibration, stats: &mut stats::Stats) {
-    let Some(t) = stats.timing.as_mut() else {
-        unreachable!("No data received on socket");
-    };
-    let now = time::Ticks::now();
-    t.elapsed_time = time::elapsed_duration(t.start, now, tsc_calibration);
-    if let Some(token_stream_start) = t.token_stream_start {
-        let stream_elapsed_time = time::elapsed_duration(token_stream_start, now, tsc_calibration);
-        t.inter_token_latency_ms =
-            stream_elapsed_time.as_millis() / max(stats.num_tokens, 1) as u128;
     }
 }

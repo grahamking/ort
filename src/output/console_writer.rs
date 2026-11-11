@@ -72,8 +72,12 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
         let Some(mut stats) = self.stats_out.take() else {
             return Err(ort_error(ErrorKind::MissingUsageStats, ""));
         };
-        stats.usage = self.usage.take();
-        stats.metadata = self.metadata.take().unwrap_or_default();
+        if let Some(u) = self.usage.take() {
+            stats.usage = Some(u);
+        }
+        if let Some(m) = self.metadata.take() {
+            stats.metadata = m;
+        }
         let _ = self.writer.writev(&[
             "Stats: ".as_bytes(),
             stats.as_string().as_bytes(),

@@ -74,10 +74,10 @@ impl AddAssign for Stats {
             self.timing = Some(t);
         }
 
-        if self.metadata.provider.is_empty() {
+        if !other.metadata.provider.is_empty() {
             self.metadata.provider = other.metadata.provider;
         }
-        if self.metadata.used_model.is_empty() {
+        if !other.metadata.used_model.is_empty() {
             self.metadata.used_model = other.metadata.used_model;
         }
     }
@@ -86,6 +86,39 @@ impl AddAssign for Stats {
 impl Stats {
     pub fn provider(&self) -> &str {
         &self.metadata.provider
+    }
+
+    // Record time to first token
+    pub fn record_first_token(&mut self, tsc_calibration: time::TscCalibration) {
+        let Some(t) = self.timing.as_mut() else {
+            panic!("Timing should be set in send_request");
+        };
+        if t.time_to_first_token.is_some() {
+            // Already done
+            return;
+        }
+
+        let first_token = time::Ticks::now();
+        t.time_to_first_token = Some(time::elapsed_duration(
+            t.start,
+            first_token,
+            tsc_calibration,
+        ));
+        t.token_stream_start = Some(time::Ticks::now());
+    }
+
+    pub fn record_final_timing(&mut self, tsc_calibration: time::TscCalibration) {
+        let Some(t) = self.timing.as_mut() else {
+            unreachable!("No data received on socket");
+        };
+        let now = time::Ticks::now();
+        t.elapsed_time = time::elapsed_duration(t.start, now, tsc_calibration);
+        if let Some(token_stream_start) = t.token_stream_start {
+            let stream_elapsed_time =
+                time::elapsed_duration(token_stream_start, now, tsc_calibration);
+            t.inter_token_latency_ms =
+                stream_elapsed_time.as_millis() / core::cmp::max(self.num_tokens, 1) as u128;
+        }
     }
 
     pub fn as_string(&self) -> String {
