@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::common::data::Usage;
-use crate::{Annotation, ThinkEvent};
+use crate::{Annotation, Function, ThinkEvent};
 use crate::{
     Context as _, ErrorKind, OrtResult, StreamEvent,
     common::{data::ToolCall, stats},
@@ -26,7 +26,7 @@ pub fn extract_events(
     tsc_calibration: Option<time::TscCalibration>,
     queue: &mut Vec<StreamEvent>,
     stats: &mut stats::Stats,
-    _pending_tool_calls: &mut Vec<ToolCall>,
+    pending_tool_calls: &mut Vec<ToolCall>,
 ) {
     use ResponseEvent::*;
 
@@ -36,22 +36,47 @@ pub fn extract_events(
             if let Some(tsc) = tsc_calibration {
                 stats.record_first_token(tsc);
             }
+            stats.num_tokens += 1;
             queue.push(StreamEvent::Think(ThinkEvent::Content(s)));
         }
         OutputTextDelta(s) => {
             if let Some(tsc) = tsc_calibration {
                 stats.record_first_token(tsc);
             }
+            stats.num_tokens += 1;
             queue.push(StreamEvent::Content(s));
         }
         Annotation(a) => queue.push(StreamEvent::Annotation(a)),
+        FunctionCallStart(tool_call) => {
+            pending_tool_calls.push(tool_call);
+        }
+        FunctionCallArgumentsDone(tool_call) => {
+            match pending_tool_calls
+                .iter_mut()
+                .find(|item| item.index == tool_call.index)
+            {
+                Some(pending) => {
+                    pending.update_from(&tool_call);
+                }
+                None => {
+                    unreachable!("FunctionCallArgumentsDone without FunctionCallStart");
+                }
+            }
+        }
         Completed(st) => {
             *stats += st;
-            if let Some(tc) = tsc_calibration {
-                stats.record_final_timing(tc);
+            if pending_tool_calls.is_empty() {
+                // End of user turn
+                if let Some(tc) = tsc_calibration {
+                    stats.record_final_timing(tc);
+                }
+                queue.push(StreamEvent::Stats(stats.clone()));
+                queue.push(StreamEvent::Finish("complete".to_string()));
+            } else {
+                // End of tool turn, run the tool calls
+                let tcs = StreamEvent::ToolCalls(core::mem::take(pending_tool_calls));
+                queue.push(tcs);
             }
-            queue.push(StreamEvent::Stats(stats.clone()));
-            queue.push(StreamEvent::Finish("complete".to_string()));
         }
         _ => {}
     }
@@ -70,6 +95,10 @@ pub enum ResponseEvent {
     OutputTextDelta(String),
     OutputTextDone,
     Annotation(Annotation),
+    // First field is call_id
+    FunctionCallStart(ToolCall),
+    FunctionCallArgumentDelta,
+    FunctionCallArgumentsDone(ToolCall),
     Completed(stats::Stats),
 }
 
@@ -83,7 +112,40 @@ impl ResponseEvent {
         match event_type.as_str() {
             "response.created" => Ok(ResponseEvent::Created),
             "response.in_progress" => Ok(ResponseEvent::InProgress),
-            "response.output_item.added" => Ok(ResponseEvent::OutputItemAdded),
+            "response.output_item.added" => {
+                let mut fields = [
+                    JsonField::new_raw("item"),
+                    JsonField::new_int("output_index"),
+                ];
+                autoparser(json, &mut fields)
+                    .context("ResponseEvent output_item.added autoparser")?;
+
+                let item_json = fields[0].get_raw().unwrap();
+                let item_index = fields[1].get_int().unwrap();
+                let mut fields = [
+                    JsonField::new_simple_string("type"),
+                    // These three for type: "function_call"
+                    JsonField::new_simple_string("call_id"),
+                    JsonField::new_simple_string("name"),
+                    JsonField::new_string("arguments"),
+                ];
+                autoparser(&item_json, &mut fields)
+                    .context("ResponseEvent output_item.added autoparser")?;
+                if fields[0].get_string().unwrap() == "function_call" {
+                    let tool_call = ToolCall {
+                        index: item_index,
+                        id: fields[1].get_string(),
+                        function: Function {
+                            name: fields[2].get_string().unwrap(),
+                            arguments: fields[3].get_string().unwrap(),
+                        },
+                        has_error: false,
+                    };
+                    Ok(ResponseEvent::FunctionCallStart(tool_call))
+                } else {
+                    Ok(ResponseEvent::OutputItemAdded)
+                }
+            }
             "response.content_part.added" => Ok(ResponseEvent::ContentPartAdded),
             "response.reasoning_text.delta" => {
                 let mut fields = [JsonField::new_string("delta")];
@@ -111,6 +173,28 @@ impl ResponseEvent {
                 let a = Annotation::from_json(&fields[0].get_raw().unwrap())?;
                 Ok(ResponseEvent::Annotation(a))
             }
+            "response.function_call_arguments.delta" => {
+                Ok(ResponseEvent::FunctionCallArgumentDelta)
+            }
+            "response.function_call_arguments.done" => {
+                // We don't need to read the deltas, here we have full arguments
+                let mut fields = [
+                    JsonField::new_int("output_index"),
+                    JsonField::new_simple_string("name"),
+                    JsonField::new_string("arguments"),
+                ];
+                autoparser(json, &mut fields).context("ResponseEvent function_call autoparser")?;
+                let tool_call = ToolCall {
+                    index: fields[0].get_int().unwrap(),
+                    id: None,
+                    function: Function {
+                        name: fields[1].get_string().unwrap(),
+                        arguments: fields[2].get_string().unwrap(),
+                    },
+                    has_error: false,
+                };
+                Ok(ResponseEvent::FunctionCallArgumentsDone(tool_call))
+            }
             "response.completed" => {
                 let mut fields = [JsonField::new_raw("response")];
                 autoparser(json, &mut fields)
@@ -134,13 +218,14 @@ impl ResponseEvent {
                 };
 
                 let st = stats::Stats {
-                    num_tokens: 0, // TODO
                     metadata: stats::Metadata {
                         used_model: model,
                         provider: "".to_string(),
                     },
                     usage: Some(u),
-                    timing: None, // TODO
+                    // These two are calculated by extract_events
+                    num_tokens: 0,
+                    timing: None,
                 };
 
                 Ok(ResponseEvent::Completed(st))

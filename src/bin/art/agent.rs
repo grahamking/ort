@@ -234,6 +234,7 @@ fn run_single<W: Write + Send>(
             }
             Ok(Some(out)) => {
                 for event in out {
+                    let mut send_to_ui = true;
                     match &event {
                         StreamEvent::Content(content) => {
                             assistant_message.push_str(content);
@@ -298,10 +299,17 @@ fn run_single<W: Write + Send>(
                                 }
                             }
                         }
-                        StreamEvent::Stats(s) => stats = Some(s.clone()),
+                        StreamEvent::Stats(s) => {
+                            // Skip sending the tool turn Stats to UI. We send
+                            // them ourselves after the user turn.
+                            send_to_ui = false;
+                            stats = Some(s.clone());
+                        }
                         _ => {}
                     }
-                    output_writer.write(event.clone())?;
+                    if send_to_ui {
+                        output_writer.write(event.clone())?;
+                    }
                 }
             }
             Err(err) => {

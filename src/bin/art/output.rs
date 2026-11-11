@@ -161,8 +161,12 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
             StreamEvent::Stats(mut stats) => {
                 self.section(Section::Stats);
 
-                stats.metadata = self.metadata.take().unwrap_or_default();
-                stats.usage = self.usage.take();
+                if let Some(u) = self.usage.take() {
+                    stats.usage = Some(u);
+                }
+                if let Some(m) = self.metadata.take() {
+                    stats.metadata = m;
+                }
 
                 // Prevent timing display
                 stats.timing = None;
@@ -173,7 +177,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                 writes.push(AGENT_STATS_START);
                 let stats_s = stats.as_string();
                 writes.push(stats_s.as_bytes());
-                writes.push(b". Ctx: ");
+                writes.push(b"Ctx: ");
                 let context_size_h = utils::num_to_human_string(self.context_size);
                 writes.push(context_size_h.as_bytes());
                 let context_limit_h;

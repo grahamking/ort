@@ -167,7 +167,7 @@ impl Stats {
                 s.push_str(&format_duration(t.time_to_first_token.unwrap_or_default()));
                 s.push_str(" TTFT, ");
                 s.push_str(&utils::num_to_string(t.inter_token_latency_ms as usize));
-                s.push_str("ms ITL)");
+                s.push_str("ms ITL). ");
             }
         }
         s
