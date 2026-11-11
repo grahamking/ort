@@ -658,8 +658,13 @@ impl Annotation {
 impl Annotation {
     pub fn from_json(json: &str) -> OrtResult<Self> {
         let mut fields = [
+            // Common
             JsonField::new_simple_string("type"),
+            // Chat completions
             JsonField::new_raw("url_citation"),
+            // Responses
+            JsonField::new_simple_string("url"),
+            JsonField::new_string("content"),
         ];
         autoparser(json, &mut fields)?;
 
@@ -671,17 +676,24 @@ impl Annotation {
             ));
         }
 
-        let citation_body = fields[1].get_raw().unwrap_or_default();
-        let mut citation_fields = [
-            JsonField::new_simple_string("url"),
-            JsonField::new_string("content"),
-        ];
-        autoparser(&citation_body, &mut citation_fields)?;
-
-        Ok(Annotation::UrlCitation {
-            url: citation_fields[0].get_string().unwrap_or_default(),
-            content: citation_fields[1].get_string().unwrap_or_default(),
-        })
+        if let Some(citation_body) = fields[1].get_raw() {
+            // Chat completions has an extra level of object
+            let mut citation_fields = [
+                JsonField::new_simple_string("url"),
+                JsonField::new_string("content"),
+            ];
+            autoparser(&citation_body, &mut citation_fields)?;
+            Ok(Annotation::UrlCitation {
+                url: citation_fields[0].get_string().unwrap_or_default(),
+                content: citation_fields[1].get_string().unwrap_or_default(),
+            })
+        } else {
+            // Responses
+            Ok(Annotation::UrlCitation {
+                url: fields[2].get_string().unwrap_or_default(),
+                content: fields[3].get_string().unwrap_or_default(),
+            })
+        }
     }
 }
 

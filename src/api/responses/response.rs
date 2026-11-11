@@ -8,8 +8,8 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::ThinkEvent;
 use crate::common::data::Usage;
+use crate::{Annotation, ThinkEvent};
 use crate::{
     Context as _, ErrorKind, OrtResult, StreamEvent,
     common::{data::ToolCall, stats},
@@ -44,6 +44,7 @@ pub fn extract_events(
             }
             queue.push(StreamEvent::Content(s));
         }
+        Annotation(a) => queue.push(StreamEvent::Annotation(a)),
         Completed(st) => {
             *stats += st;
             if let Some(tc) = tsc_calibration {
@@ -68,6 +69,7 @@ pub enum ResponseEvent {
     OutputItemDone,
     OutputTextDelta(String),
     OutputTextDone,
+    Annotation(Annotation),
     Completed(stats::Stats),
 }
 
@@ -103,6 +105,12 @@ impl ResponseEvent {
                 ))
             }
             "response.output_text.done" => Ok(ResponseEvent::OutputTextDone),
+            "response.output_text.annotation.added" => {
+                let mut fields = [JsonField::new_raw("annotation")];
+                autoparser(json, &mut fields).context("ResponseEvent annotation autoparser")?;
+                let a = Annotation::from_json(&fields[0].get_raw().unwrap())?;
+                Ok(ResponseEvent::Annotation(a))
+            }
             "response.completed" => {
                 let mut fields = [JsonField::new_raw("response")];
                 autoparser(json, &mut fields)
@@ -233,5 +241,18 @@ mod tests {
         };
         assert_eq!(st.metadata.used_model.as_str(), "openai/gpt-oss-20b");
         assert_eq!(st.usage.and_then(|u| u.tokens), Some(118));
+    }
+
+    #[test]
+    fn test_annotation_added() {
+        let s = r#"{"type":"response.output_text.annotation.added","output_index":3,"item_id":"msg_tmp_32rlm6j37xg","content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","url":"https://www.unfpa.org/data/world-population/WORLD","title":"WORLD Population 2025 - United Nations Population Fund | United Nations Population Fund","start_index":0,"end_index":0,"content":"WORLD Population 2025 - United Nations Population Fund | United Nations Population Fund\n\n# WORLD Population 2025 - United Nations Population Fund \n\n Total Population (2025): 8,232,000,000\n\n...\n\nTotal population: Estimated size of national populations at mid-year. ... Total population: World Population Prospects 2024 revision. United Nations Population Division, 2024."},"sequence_number":126}"#;
+        let r = ResponseEvent::from_json(s).unwrap();
+        let ResponseEvent::Annotation(a) = r else {
+            panic!("Expected Annotation");
+        };
+        assert_eq!(
+            a.citation_url(),
+            "https://www.unfpa.org/data/world-population/WORLD"
+        );
     }
 }
