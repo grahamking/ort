@@ -20,7 +20,6 @@ use crate::net::AsFd;
 use crate::output::logger::Logger;
 use crate::{OrtError, api, chunked};
 
-use crate::ChatCompletionsResponse;
 use crate::Message;
 use crate::OrtResult;
 use crate::Response;
@@ -506,7 +505,7 @@ impl ActivePrompt {
             }
 
             // Each data: line is a JSON chunk
-            let response = ChatCompletionsResponse::from_json(data);
+            let response = api::from_json(data);
             match response {
                 Ok(v) => {
                     api::extract_events(

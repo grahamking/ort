@@ -10,11 +10,16 @@ extern crate alloc;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
+use super::data::ChatCompletionsResponse;
 use crate::{
-    ChatCompletionsResponse, Response, ThinkEvent,
+    OrtResult, Response, ThinkEvent,
     common::{data::ToolCall, stats},
     time,
 };
+
+pub fn from_json(data: &str) -> OrtResult<ChatCompletionsResponse> {
+    ChatCompletionsResponse::from_json(data)
+}
 
 pub fn extract_events(
     mut v: ChatCompletionsResponse,

@@ -31,7 +31,7 @@ use chat_completions as selected;
 use responses as selected;
 
 pub(crate) use selected::PROMPT_URL;
-pub use selected::{build_body, extract_events};
+pub use selected::{build_body, extract_events, from_json};
 
 /// Writing `last.json` always uses the chat completions format, whatever we
 /// send to the server, so this is not feature gated.

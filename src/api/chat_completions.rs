@@ -6,8 +6,9 @@
 
 #![cfg_attr(feature = "responses", allow(unused))]
 
+mod data;
 mod request;
 mod response;
 pub(crate) use request::PROMPT_URL;
 pub use request::{build_body, write_json_message};
-pub use response::extract_events;
+pub use response::{extract_events, from_json};

@@ -19,8 +19,8 @@ pub use common::alloc::ArenaAlloc;
 pub use common::buf_read::{OrtBufReader, StringReader};
 pub use common::config;
 pub use common::data::{
-    Annotation, ChatCompletionsResponse, Choice, Content, Function, LastData, Message, Priority,
-    ReasoningEffort, Response, Role, ThinkEvent, Tool, ToolDisplay, ToolParameter,
+    Annotation, Content, Function, LastData, Message, Priority, ReasoningEffort, Response, Role,
+    ThinkEvent, Tool, ToolDisplay, ToolParameter,
 };
 pub use common::error::{Context, ErrorKind, OrtError, OrtResult, ort_err, ort_error};
 pub use common::file;
