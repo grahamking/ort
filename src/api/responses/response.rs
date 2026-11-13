@@ -32,6 +32,7 @@ pub fn extract_events(
 
     match v {
         Created => queue.push(StreamEvent::Start),
+        Queued => queue.push(StreamEvent::Warn("Request queued".to_string())),
         ReasoningTextDelta(s) => {
             if let Some(tsc) = tsc_calibration {
                 stats.record_first_token(tsc);
@@ -78,6 +79,9 @@ pub fn extract_events(
                 queue.push(tcs);
             }
         }
+        Failed { code, message } => {
+            queue.push(StreamEvent::Error(code + " " + &message));
+        }
         _ => {}
     }
 }
@@ -85,21 +89,24 @@ pub fn extract_events(
 #[derive(Debug)]
 pub enum ResponseEvent {
     Created,
+    Queued,
     InProgress,
     OutputItemAdded,
     ContentPartAdded,
     ReasoningTextDelta(String),
     ReasoningTextDone,
+    ReasoningSummaryAdded,
+    ReasoningSummaryDone,
     ContentPartDone,
     OutputItemDone,
     OutputTextDelta(String),
     OutputTextDone,
     Annotation(Annotation),
-    // First field is call_id
     FunctionCallStart(ToolCall),
     FunctionCallArgumentDelta,
     FunctionCallArgumentsDone(ToolCall),
     Completed(stats::Stats),
+    Failed { code: String, message: String },
 }
 
 impl ResponseEvent {
@@ -111,6 +118,7 @@ impl ResponseEvent {
         //crate::print_string(c"Type: ", &event_type);
         match event_type.as_str() {
             "response.created" => Ok(ResponseEvent::Created),
+            "response.queued" => Ok(ResponseEvent::Queued),
             "response.in_progress" => Ok(ResponseEvent::InProgress),
             "response.output_item.added" => {
                 let mut fields = [
@@ -147,7 +155,12 @@ impl ResponseEvent {
                 }
             }
             "response.content_part.added" => Ok(ResponseEvent::ContentPartAdded),
-            "response.reasoning_text.delta" => {
+            "response.reasoning_text.done" | "response.reasoning_summary_text.done" => {
+                Ok(ResponseEvent::ReasoningTextDone)
+            }
+            "response.reasoning_summary_part.added" => Ok(ResponseEvent::ReasoningSummaryAdded),
+            "response.reasoning_summary_part.done" => Ok(ResponseEvent::ReasoningSummaryDone),
+            "response.reasoning_text.delta" | "response.reasoning_summary_text.delta" => {
                 let mut fields = [JsonField::new_string("delta")];
                 autoparser(json, &mut fields)
                     .context("ResponseEvent reasoning_text.delta autoparser")?;
@@ -155,7 +168,6 @@ impl ResponseEvent {
                     fields[0].get_string().unwrap(),
                 ))
             }
-            "response.reasoning_text.done" => Ok(ResponseEvent::ReasoningTextDone),
             "response.content_part.done" => Ok(ResponseEvent::ContentPartDone),
             "response.output_item.done" => Ok(ResponseEvent::OutputItemDone),
             "response.output_text.delta" => {
@@ -229,6 +241,65 @@ impl ResponseEvent {
                 };
 
                 Ok(ResponseEvent::Completed(st))
+            }
+            "response.failed" => {
+                let mut fields = [JsonField::new_raw("response")];
+                autoparser(json, &mut fields)
+                    .context("ResponseEvent response.failed autoparser")?;
+
+                let resp_json = fields[0].get_raw().unwrap();
+                let mut fields = [JsonField::new_raw("error")];
+                autoparser(&resp_json, &mut fields)
+                    .context("ResponseEvent response.failed autoparser 2")?;
+
+                let error_json = fields[0].get_raw().unwrap();
+                let mut fields = [
+                    JsonField::new_simple_string("code"),
+                    JsonField::new_string("message"),
+                ];
+                autoparser(&error_json, &mut fields)
+                    .context("ResponseEvent response.failed autoparser 3")?;
+
+                Ok(ResponseEvent::Failed {
+                    code: fields[0].get_string().unwrap(),
+                    message: fields[1].get_string().unwrap(),
+                })
+            }
+            "response.incomplete" => {
+                let mut fields = [JsonField::new_raw("response")];
+                autoparser(json, &mut fields)
+                    .context("ResponseEvent response.incomplete autoparser")?;
+
+                let resp_json = fields[0].get_raw().unwrap();
+                let mut fields = [JsonField::new_raw("incomplete_details")];
+                autoparser(&resp_json, &mut fields)
+                    .context("ResponseEvent response.incomplete 2")?;
+
+                let incomplete_json = fields[0].get_raw().unwrap();
+                let mut fields = [JsonField::new_simple_string("reason")];
+                autoparser(&incomplete_json, &mut fields)
+                    .context("ResponseEvent response.incomplete 3")?;
+
+                Ok(ResponseEvent::Failed {
+                    code: "Incomplete".to_string(),
+                    message: fields[0].get_string().unwrap(),
+                })
+            }
+            "error" => {
+                let mut fields = [JsonField::new_raw("error")];
+                autoparser(json, &mut fields).context("ResponseEvent error autoparser")?;
+
+                let error_json = fields[0].get_raw().unwrap();
+                let mut fields = [
+                    JsonField::new_simple_string("code"),
+                    JsonField::new_string("message"),
+                ];
+                autoparser(&error_json, &mut fields).context("ResponseEvent error autoparser 2")?;
+
+                Ok(ResponseEvent::Failed {
+                    code: fields[0].get_string().unwrap(),
+                    message: fields[1].get_string().unwrap(),
+                })
             }
             _ => Err(ort_err(ErrorKind::FormatError, "TODO".into())),
         }
@@ -339,5 +410,22 @@ mod tests {
             a.citation_url(),
             "https://www.unfpa.org/data/world-population/WORLD"
         );
+    }
+
+    #[test]
+    fn test_reasoning_summary() {
+        let s1 = r#"{"type":"response.reasoning_summary_part.added","output_index":0,"item_id":"rs_f0dae57e-fc05-92fd-9721-19cc82d602f2","summary_index":0,"part":{"type":"summary_text","text":""},"sequence_number":3}"#;
+        let s2 = r#"{"type":"response.reasoning_summary_text.delta","output_index":0,"item_id":"rs_f0dae57e-fc05-92fd-9721-19cc82d602f2","summary_index":0,"delta":"I'm mapping out a focused","sequence_number":4}"#;
+        let s3 = r#"{"type":"response.reasoning_summary_text.done","output_index":0,"item_id":"rs_f0dae57e-fc05-92fd-9721-19cc82d602f2","summary_index":0,"text":"I'm mapping out a focused lesson plan for learning calculus. The goal is to suggest an outline rather than write full lessons.\n\nThe plan centers on building geometric intuition first. Limits, derivatives as slopes, and integrals as areas should be visualized before heavy computation. Practice should progress from simple to complex problems. The fundamental theorem of calculus will connect derivatives and integrals. Spaced review and applications will reinforce the concepts.","sequence_number":20}"#;
+        let s4 = r#"{"type":"response.reasoning_summary_part.done","output_index":0,"item_id":"rs_f0dae57e-fc05-92fd-9721-19cc82d602f2","summary_index":0,"part":{"type":"summary_text","text":"I'm mapping out a focused lesson plan for learning calculus. The goal is to suggest an outline rather than write full lessons.\n\nThe plan centers on building geometric intuition first. Limits, derivatives as slopes, and integrals as areas should be visualized before heavy computation. Practice should progress from simple to complex problems. The fundamental theorem of calculus will connect derivatives and integrals. Spaced review and applications will reinforce the concepts."},"sequence_number":21}"#;
+
+        let _ = ResponseEvent::from_json(s1).unwrap();
+        let r = ResponseEvent::from_json(s2).unwrap();
+        let ResponseEvent::ReasoningTextDelta(delta) = r else {
+            panic!("Expected ReasoningTextDelta");
+        };
+        assert_eq!(delta.as_str(), "I'm mapping out a focused");
+        let _ = ResponseEvent::from_json(s3).unwrap();
+        let _ = ResponseEvent::from_json(s4).unwrap();
     }
 }
