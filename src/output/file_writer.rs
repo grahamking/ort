@@ -74,6 +74,7 @@ impl<'a, W: Write + Send> super::OutputWriter for FileWriter<'a, W> {
             StreamEvent::ToolCalls(_) | StreamEvent::ToolDisplay(_) => {
                 // TODO
             }
+            StreamEvent::Item(_) => {}
             StreamEvent::Annotation(annotation) => {
                 self.section(Section::WebSearch);
                 let _ = self.writer.write(annotation.citation_url().as_bytes());

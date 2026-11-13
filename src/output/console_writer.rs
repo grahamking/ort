@@ -151,6 +151,7 @@ impl<'a, W: Write + Send> super::OutputWriter for ConsoleWriter<'a, W> {
             StreamEvent::ToolCalls(_) | StreamEvent::ToolDisplay(_) => {
                 // No tool calls in chat mode
             }
+            StreamEvent::Item(_) => {}
             StreamEvent::Annotation(annotation) => {
                 // These are url_citation from remote web_search tool
                 self.section(Section::WebSearch);

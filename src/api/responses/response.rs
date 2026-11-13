@@ -47,6 +47,9 @@ pub fn extract_events(
             stats.num_tokens += 1;
             queue.push(StreamEvent::Content(s));
         }
+        OutputItemDone(json) => {
+            queue.push(StreamEvent::Item(json));
+        }
         Annotation(a) => queue.push(StreamEvent::Annotation(a)),
         FunctionCallStart(tool_call) => {
             pending_tool_calls.push(tool_call);
@@ -98,7 +101,7 @@ pub enum ResponseEvent {
     ReasoningSummaryAdded,
     ReasoningSummaryDone,
     ContentPartDone,
-    OutputItemDone,
+    OutputItemDone(String),
     OutputTextDelta(String),
     OutputTextDone,
     Annotation(Annotation),
@@ -169,7 +172,13 @@ impl ResponseEvent {
                 ))
             }
             "response.content_part.done" => Ok(ResponseEvent::ContentPartDone),
-            "response.output_item.done" => Ok(ResponseEvent::OutputItemDone),
+            "response.output_item.done" => {
+                // All "item" must be sent back verbatim
+                let mut fields = [JsonField::new_raw("item")];
+                autoparser(json, &mut fields)
+                    .context("ResponseEvent output_item.done autoparser")?;
+                Ok(ResponseEvent::OutputItemDone(fields[0].get_raw().unwrap()))
+            }
             "response.output_text.delta" => {
                 let mut fields = [JsonField::new_string("delta")];
                 autoparser(json, &mut fields)
@@ -368,7 +377,7 @@ mod tests {
     fn test_output_item_done() {
         let s = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"rs_tmp_b18h8au8kt","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"The user asks: \"What is the capital of Cape Verde?\" The answer: Praia. Provide concise answer."}],"summary":[],"format":"unknown"},"sequence_number":28}"#;
         let r = ResponseEvent::from_json(s).unwrap();
-        assert_matches!(r, ResponseEvent::OutputItemDone);
+        assert_matches!(r, ResponseEvent::OutputItemDone(_));
     }
 
     #[test]

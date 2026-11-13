@@ -713,6 +713,8 @@ pub enum StreamEvent {
     ToolDisplay(ToolDisplay),
     /// A url_citation from web_search tool, or maybe other things
     Annotation(Annotation),
+    /// A whole item JSON we send back (Responses API only)
+    Item(String),
     /// Usage object from upstream. Included in Stats later.
     Usage(super::stats::Usage),
     /// Provider and Model used. Included in Stats later.

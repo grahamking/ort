@@ -43,6 +43,7 @@ impl super::OutputWriter for CollectedWriter {
             StreamEvent::ToolCalls(_) | StreamEvent::ToolDisplay(_) => {
                 // No ToolCalls when using CollectedWriter
             }
+            StreamEvent::Item(_) => {}
             StreamEvent::Annotation(_) => {
                 // TODO
             }

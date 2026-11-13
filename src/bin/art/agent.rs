@@ -226,6 +226,7 @@ fn run_single<W: Write + Send>(
     let mut reasoning = None;
     let mut reasoning_details = None;
     let mut stats = None;
+    let mut _items = vec![];
 
     loop {
         match active_prompt.next() {
@@ -246,6 +247,9 @@ fn run_single<W: Write + Send>(
                         StreamEvent::Think(ThinkEvent::Details(rd)) => {
                             // Save this and send it back
                             reasoning_details = Some(rd.to_string());
+                        }
+                        StreamEvent::Item(item) => {
+                            _items.push(item.clone());
                         }
                         StreamEvent::ToolCalls(tool_calls) => {
                             if tool_calls.is_empty() {
@@ -317,6 +321,10 @@ fn run_single<W: Write + Send>(
             }
         }
     }
+
+    // TODO: Send back `items`. We will only have some in Responses API.
+    // The while json goes in the `input` stream.
+    // Maybe a raw message type?
 
     let stats = stats.unwrap_or_default();
     let has_tool_call = match assistant_tool_calls {

@@ -273,6 +273,7 @@ impl OutputWriter for LastWriter {
             }
             StreamEvent::Think(ThinkEvent::Content(text)) => self.reasoning.push_str(&text),
             StreamEvent::Think(ThinkEvent::Details(json)) => self.add_details(&json)?,
+            StreamEvent::Item(_) => {}
             StreamEvent::Content(text) => self.content(text.as_bytes())?,
             StreamEvent::ToolCalls(calls) => self.tool_calls.extend(calls),
             StreamEvent::Missing => {

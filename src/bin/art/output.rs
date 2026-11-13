@@ -116,6 +116,7 @@ impl<'a, W: Write + Send> OutputWriter for AgentWriter<'a, W> {
                     }
                 }
             }
+            StreamEvent::Item(_) => {}
             StreamEvent::Content(content) => {
                 self.section(Section::Content);
                 let _ = self.writer.write_all(content.as_bytes());
