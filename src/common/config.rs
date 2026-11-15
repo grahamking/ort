@@ -327,7 +327,7 @@ impl Cfg {
     /// If the prompt or system prompt start with `@` read them from that file.
     /// A missing prompt file is created empty, so that `art` (agent) can start.
     /// A missing system prompt file is an error.
-    fn load_prompts(&mut self) -> OrtResult<()> {
+    pub fn load_prompts(&mut self) -> OrtResult<()> {
         if let Some(p) = self.prompt.as_ref()
             && p.bytes().next() == Some(FILE_INDICATOR)
         {
@@ -368,7 +368,7 @@ impl Cfg {
     /// System prompt variable substitution.
     /// `$PWD` -> current working directory
     /// `$DATE` -> output of `date` cmd
-    fn fill_system_prompt_variables(&mut self, env: &Env) -> OrtResult<()> {
+    pub fn fill_system_prompt_variables(&mut self, env: &Env) -> OrtResult<()> {
         let Some(mut sp) = self.system_prompt.take() else {
             // No system prompt
             return Ok(());
