@@ -18,6 +18,7 @@ pub mod syscall;
 pub use common::alloc::ArenaAlloc;
 pub use common::buf_read::{OrtBufReader, StringReader};
 pub use common::config;
+pub use common::conversation::Conversation;
 pub use common::data::{
     Annotation, Content, Function, LastData, Message, Priority, ReasoningEffort, Role, StreamEvent,
     ThinkEvent, Tool, ToolDisplay, ToolParameter,

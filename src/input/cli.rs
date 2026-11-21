@@ -168,11 +168,11 @@ pub fn main<W: Write + Send>(
             override_config_from_cli(&mut cfg, cli_opts.clone());
             cfg.setup(&env)?;
 
-            let messages = cfg.messages()?;
+            let conv = cfg.conversation()?;
             if cli_opts.models.len() == 1 {
-                prompt::run(&api_key, &cfg, &env, messages, !is_terminal, w)
+                prompt::run(&api_key, &cfg, &env, conv, !is_terminal, w)
             } else {
-                prompt::run_multi(&api_key, &cfg, &env, cli_opts, messages, w)
+                prompt::run_multi(&api_key, &cfg, &env, cli_opts, conv, w)
             }
         }
         args::Cmd::ContinueConversation(cli_opts) => {

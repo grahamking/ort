@@ -13,9 +13,6 @@ use alloc::vec::Vec;
 use std::fs;
 use std::path::Path;
 
-use crate::ort_error;
-use ort_openrouter_cli::{Content, ErrorKind, Message, OrtResult, Role};
-
 pub const DEFAULT: &str = r#"You are an expert coding assistant operating inside ort, a coding agent harness running in a Linux terminal. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
@@ -49,28 +46,6 @@ Use the `read` tool to load a skill's `SKILL.md` file when the task matches its 
 When a skill file references a relative path, resolve it against the skill directory (parent of `SKILL.md`).
 
 ### Available skills"#;
-
-/// Add message to system prompt
-pub(crate) fn add(messages: &mut [Message], extra_content: &str) -> OrtResult<()> {
-    match messages.first_mut() {
-        Some(Message {
-            role: Role::System,
-            content: content_vec,
-            ..
-        }) => match content_vec.first_mut() {
-            Some(Content::Text(s)) => {
-                s.push('\n');
-                s.push_str(extra_content);
-                Ok(())
-            }
-            _ => Err(ort_error(ErrorKind::MissingSystemPrompt, "No content")),
-        },
-        _ => Err(ort_error(
-            ErrorKind::MissingSystemPrompt,
-            "No system prompt",
-        )),
-    }
-}
 
 pub(crate) fn load_skills(skills_dir: &Path) -> String {
     let Ok(entries) = fs::read_dir(skills_dir) else {

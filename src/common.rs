@@ -11,6 +11,7 @@ pub mod alloc;
 pub mod base64;
 pub mod buf_read;
 pub mod config;
+pub mod conversation;
 pub mod data;
 pub mod dir;
 pub mod error;

@@ -11,10 +11,11 @@ use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::common::conversation::Conversation;
 use crate::common::error::ort_err;
 use crate::common::file;
 use crate::common::io::Write;
-use crate::{Context, Message, Priority, ReasoningEffort, syscall};
+use crate::{Context, Priority, ReasoningEffort, syscall};
 use crate::{ErrorKind, OrtResult, cli::Env, common::utils, ort_error};
 
 /// To use a different endpoint set `base_url` in `${XDG_CONFIG_HOME}/ort.cfg`
@@ -153,18 +154,13 @@ impl Cfg {
         }
     }
 
-    /// Initial chat completions messages to send.
+    /// Initial conversation to send.
     /// Includes the system prompt, regular prompt, and any attached files.
-    pub fn messages(&mut self) -> OrtResult<Vec<Message>> {
-        // A Message is quite small, an enum and two Option<String>.
-        // Capacity 3 for (all optional):
-        // - System message
-        // - User message
-        // - and the assistant message that LastWriter appends, to save a realloc.
-        let mut messages = Vec::with_capacity(3);
+    pub fn conversation(&mut self) -> OrtResult<Conversation> {
+        let mut c = Conversation::new();
 
         if let Some(sys) = self.system_prompt.clone() {
-            messages.push(crate::Message::system(sys));
+            c.set_instructions(sys);
         };
 
         if let Some(prompt) = self.prompt.clone() {
@@ -173,10 +169,10 @@ impl Cfg {
             } else {
                 crate::Message::with_files(prompt, &self.files)?
             };
-            messages.push(user_message);
+            c.add_message(user_message);
         }
 
-        Ok(messages)
+        Ok(c)
     }
 
     #[allow(clippy::should_implement_trait)]

@@ -10,7 +10,7 @@ use alloc::ffi::CString;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec;
-use alloc::vec::Vec;
+use ort_openrouter_cli::Conversation;
 use ort_openrouter_cli::Logger;
 use ort_openrouter_cli::ThinkEvent;
 use ort_openrouter_cli::time;
@@ -30,13 +30,17 @@ use ort_openrouter_cli::{
 use super::output::AgentWriter;
 use super::tools;
 
+// TODO: Ideally ".. instructions for <dir>\n\n .."
+const AGENTS_PREFIX: &str = "# AGENTS.md instructions\n<INSTRUCTIONS>\n";
+const AGENTS_SUFFIX: &str = "\n</INSTRUCTIONS>";
+
 pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &config::Cfg,
     env: &Env,
     // This contains the system prompt
     // It grows to contain the whole conversation
-    mut messages: Vec<Message>,
+    mut conv: Conversation,
     w_core: &mut W,
 ) -> OrtResult<()> {
     // Watch the file immediately
@@ -50,17 +54,23 @@ pub fn run<W: Write + Send>(
         inotify::IN_MOVED_TO | inotify::IN_CLOSE_WRITE,
     );
 
-    // Load AGENTS.md
-    if let Ok(agents_md) = fs::read_to_string("AGENTS.md") {
-        system_prompt::add(&mut messages, &agents_md)?;
-    }
-
+    // Load skills.
+    // These are not trusted so they go as a user message.
     let skill_dir = Path::new(".agents/skills");
     if skill_dir.exists() {
         let extra_content = system_prompt::load_skills(skill_dir);
         if !extra_content.is_empty() {
-            system_prompt::add(&mut messages, &extra_content)?;
+            conv.prepend_message(extra_content);
         }
+    }
+
+    // Load AGENTS.md
+    // This is not a trusted file, we might be inspected a random repo, so it has
+    // to go as a user message not system or developer instructions.
+    // But put it first, before the prompt.
+    if let Ok(agents_md) = fs::read_to_string("AGENTS.md") {
+        let full_agents = AGENTS_PREFIX.to_string() + &agents_md + AGENTS_SUFFIX;
+        conv.prepend_message(full_agents);
     }
 
     let mut output_writer = AgentWriter::new(w_core, cfg.show_reasoning, cfg.context_size);
@@ -92,7 +102,7 @@ pub fn run<W: Write + Send>(
             (has_more_turns, logger) = run_single(
                 api_key,
                 cfg,
-                &mut messages,
+                &mut conv,
                 tools::ALL_TOOLS,
                 &mut output_writer,
                 &mut total_stats,
@@ -101,7 +111,7 @@ pub fn run<W: Write + Send>(
 
             // Do we need to inject a user message?
             if has_more_turns && let Some(prompt) = poll_next_prompt(ifd, &filename)? {
-                messages.push(Message::user(prompt.clone()));
+                conv.add_message(Message::user(prompt.clone()));
                 output_writer.write(StreamEvent::Prompt(prompt))?;
             };
 
@@ -120,14 +130,14 @@ pub fn run<W: Write + Send>(
                 &mut compactor,
                 api_key,
                 cfg,
-                &mut messages,
+                &mut conv,
                 &mut output_writer,
                 &mut total_stats,
                 &mut logger,
             )?;
             continue;
         }
-        messages.push(Message::user(prompt.clone()));
+        conv.add_message(Message::user(prompt.clone()));
         output_writer.write(StreamEvent::Prompt(prompt))?;
         has_more_turns = true;
     }
@@ -140,18 +150,18 @@ fn handle_compact<W: Write + Send>(
     compactor: &mut compact::Compactor,
     api_key: &str,
     cfg: &config::Cfg,
-    messages: &mut Vec<Message>,
+    conv: &mut Conversation,
     output: &mut AgentWriter<W>,
     stats: &mut Stats,
     logger: &mut Option<Logger>,
 ) -> OrtResult<()> {
     output.write(StreamEvent::Prompt("-- Compacting conversation --".into()))?;
-    match compactor.run(api_key, cfg, messages, stats, logger) {
+    match compactor.run(api_key, cfg, conv, stats, logger) {
         Ok(false) => output.write(StreamEvent::Prompt(
             "-- Nothing older to compact; recent history retained --".into(),
         )),
         Ok(true) => {
-            output.update_context_size(messages, None);
+            output.update_context_size(conv.messages(), None);
             output.write(StreamEvent::Stats(stats.clone()))?;
             output.write(StreamEvent::Prompt(
                 "-- Conversation compacted. Waiting for prompt --".into(),
@@ -202,7 +212,7 @@ fn next_prompt(ifd: i32, prompt_filename: &str, block: bool) -> OrtResult<Option
 fn run_single<W: Write + Send>(
     api_key: &str,
     cfg: &config::Cfg,
-    messages: &mut Vec<Message>,
+    conv: &mut Conversation,
     tools: &[&'static Tool],
     output_writer: &mut AgentWriter<W>,
     total_stats: &mut Stats,
@@ -212,7 +222,7 @@ fn run_single<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
-        messages.clone(),
+        conv.clone(),
         tools.to_vec(),
         0,
         tsc_calibration,
@@ -329,28 +339,28 @@ fn run_single<W: Write + Send>(
     let stats = stats.unwrap_or_default();
     let has_tool_call = match assistant_tool_calls {
         None => {
-            messages.push(Message::assistant(assistant_message));
+            conv.add_message(Message::assistant(assistant_message));
             if let Some(usage) = &stats.usage {
-                output_writer.update_context_size(messages, usage.tokens);
+                output_writer.update_context_size(conv.messages(), usage.tokens);
             }
             false
         }
         Some(all_tool_calls) => {
             // The JSON response format is a "role: assistant" message with all the tool calls
             // the agent made inside of that.
-            messages.push(Message::assistant_with_tool_call(
+            conv.add_message(Message::assistant_with_tool_call(
                 assistant_message,
                 all_tool_calls,
                 reasoning,
                 reasoning_details,
             ));
             if let Some(usage) = &stats.usage {
-                output_writer.update_context_size(messages, usage.tokens);
+                output_writer.update_context_size(conv.messages(), usage.tokens);
             }
             // Then multiple messages with "role: tool" and the results one by one.
             // The calls and results are not co-located.
             for (id, res) in tool_call_results {
-                messages.push(Message::tool(id, res));
+                conv.add_message(Message::tool(id, res));
             }
             true
         }
@@ -358,7 +368,7 @@ fn run_single<W: Write + Send>(
 
     // Tool results were not included in this request's usage.
     if has_tool_call {
-        output_writer.update_context_size(messages, None);
+        output_writer.update_context_size(conv.messages(), None);
     }
     *total_stats += stats;
 
@@ -441,8 +451,8 @@ mod tests {
                 is_private: true,
                 ..Default::default()
             },
-            vec![], // messages
-            vec![], // tools
+            Conversation::new(), // messages
+            vec![],              // tools
             0,
             None,
             None,
@@ -488,8 +498,8 @@ mod tests {
                 is_private: true,
                 ..Default::default()
             },
-            vec![], // messages
-            vec![], // tools
+            Conversation::new(), // messages
+            vec![],              // tools
             0,
             None,
             None,
@@ -559,8 +569,8 @@ mod tests {
                 is_private: true,
                 ..Default::default()
             },
-            vec![], // messages
-            vec![], // tools
+            Conversation::new(), // messages
+            vec![],              // tools
             0,
             None,
             None,
@@ -600,58 +610,5 @@ mod tests {
         }
         // Assert: All of that JSONL produces a single tool call.
         assert_eq!(num_tool_calls, 2);
-    }
-
-    #[test]
-    fn test_load_skills_and_add_to_system_prompt() {
-        let base_dir =
-            std::env::temp_dir().join(format!("ort_art_skills_test_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base_dir);
-
-        let skill_a_dir = base_dir.join("alpha");
-        let skill_b_dir = base_dir.join("beta");
-        let no_skill_dir = base_dir.join("gamma");
-        fs::create_dir_all(&skill_a_dir).unwrap();
-        fs::create_dir_all(&skill_b_dir).unwrap();
-        fs::create_dir_all(&no_skill_dir).unwrap();
-
-        fs::write(
-            skill_a_dir.join("SKILL.md"),
-            "---\nname: \"alpha-skill\"\ndescription: \"First skill description.\"\n---\n# Alpha\n",
-        )
-        .unwrap();
-
-        fs::write(
-            skill_b_dir.join("SKILL.md"),
-            "---\ndescription: >\n  Multi-line\n  beta description.\n---\n# Beta\n",
-        )
-        .unwrap();
-
-        let rendered = system_prompt::load_skills(&base_dir);
-        let alpha_path = skill_a_dir
-            .join("SKILL.md")
-            .to_string_lossy()
-            .replace('\\', "/");
-        let beta_path = skill_b_dir
-            .join("SKILL.md")
-            .to_string_lossy()
-            .replace('\\', "/");
-
-        assert!(rendered.contains("## Skills"));
-        assert!(rendered.contains(&format!(
-            "- alpha-skill: First skill description. (file: {alpha_path})"
-        )));
-        assert!(rendered.contains(&format!(
-            "- beta: Multi-line beta description. (file: {beta_path})"
-        )));
-
-        let mut messages = vec![Message::system("Base prompt".to_string())];
-        system_prompt::add(&mut messages, &rendered).unwrap();
-        assert_eq!(
-            messages[0].content[0].text().unwrap(),
-            format!("Base prompt\n{rendered}")
-        );
-
-        let _ = fs::remove_dir_all(&base_dir);
     }
 }

@@ -14,13 +14,13 @@ use alloc::vec::Vec;
 
 use crate::cli::Env;
 use crate::common::buf_read::OrtBufReader;
+use crate::common::conversation::Conversation;
 use crate::common::data::{Tool, ToolCall};
 use crate::common::error::Context;
 use crate::net::AsFd;
 use crate::output::logger::Logger;
 use crate::{OrtError, api, chunked};
 
-use crate::Message;
 use crate::OrtResult;
 use crate::StreamEvent;
 use crate::api::build_body;
@@ -66,13 +66,13 @@ pub fn run<W: Write + Send>(
     api_key: &str,
     cfg: &Cfg,
     env: &Env,
-    messages: Vec<Message>,
+    conv: Conversation,
     is_pipe_output: bool, // Are we redirecting stdout?
     w_core: &mut W,
 ) -> OrtResult<()> {
     let mut last_writer = if !cfg.is_private {
         // Save the config so we use the same next time
-        Some(LastWriter::new(messages.clone(), env, cfg)?)
+        Some(LastWriter::new(conv.messages().to_vec(), env, cfg)?)
     } else {
         None
     };
@@ -84,7 +84,7 @@ pub fn run<W: Write + Send>(
     let mut active_prompt = ActivePrompt::new(
         api_key.to_string(),
         cfg,
-        messages,
+        conv,
         vec![],
         0,
         tsc_calibration,
@@ -176,7 +176,14 @@ pub fn run_continue<W: Write + Send>(
     let mut last = load_last_data(env)?;
     last.messages.push(crate::Message::user(new_prompt));
 
-    run(api_key, cfg, env, last.messages, is_pipe_output, w)
+    run(
+        api_key,
+        cfg,
+        env,
+        Conversation::from_messages(last.messages),
+        is_pipe_output,
+        w,
+    )
 }
 
 pub fn run_multi<W: Write + Send>(
@@ -184,7 +191,7 @@ pub fn run_multi<W: Write + Send>(
     cfg: &Cfg,
     env: &Env,
     opts: PromptOpts,
-    messages: Vec<crate::Message>,
+    conv: Conversation,
     w: &mut W,
 ) -> OrtResult<()> {
     let num_models = opts.models.len();
@@ -222,7 +229,7 @@ pub fn run_multi<W: Write + Send>(
         let mut active_prompt = ActivePrompt::new(
             api_key.to_string(),
             cfg,
-            messages.clone(),
+            conv.clone(),
             vec![],
             idx,
             tsc_calibration,
@@ -335,7 +342,7 @@ pub trait PromptReader: ReadLine + AsFd {}
 pub struct ActivePrompt {
     api_key: String,
     cfg: Cfg,
-    messages: Vec<Message>,
+    conv: Conversation,
     tools: Vec<&'static Tool>,
     session_id: String,
 
@@ -361,7 +368,7 @@ impl ActivePrompt {
     pub fn new(
         api_key: String,
         cfg: &Cfg,
-        messages: Vec<Message>,
+        conv: Conversation,
         tools: Vec<&'static Tool>,
         model_idx: usize,
         tsc_calibration: Option<time::TscCalibration>,
@@ -376,7 +383,7 @@ impl ActivePrompt {
         ActivePrompt {
             api_key,
             cfg: cfg.clone(),
-            messages,
+            conv,
             tools,
             session_id,
             model_idx,
@@ -399,7 +406,7 @@ impl ActivePrompt {
 
     /// Start the HTTP request
     pub fn send_request(&mut self) -> OrtResult<()> {
-        let body = build_body(self.model_idx, &self.cfg, &self.messages, &self.tools)
+        let body = build_body(self.model_idx, &self.cfg, self.conv.messages(), &self.tools)
             .context("build_body")?;
         if let Some(l) = self.logger.as_mut() {
             l.log(&body);
@@ -573,7 +580,7 @@ mod tests {
     use crate::common::{stats, time, utils};
     use crate::config::Cfg;
     use crate::input::prompt::PromptReader;
-    use crate::{StreamEvent, ThinkEvent};
+    use crate::{Conversation, StreamEvent, ThinkEvent};
 
     #[test]
     fn test_annotation_realistic() {
@@ -586,8 +593,8 @@ mod tests {
                 is_private: true,
                 ..Default::default()
             },
-            vec![], // messages
-            vec![], // tools
+            Conversation::new(), // messages
+            vec![],              // tools
             0,
             None,
             None,
@@ -673,8 +680,8 @@ mod tests {
                 is_private: true,
                 ..Default::default()
             },
-            vec![], // messages
-            vec![], // tools
+            Conversation::new(), // messages
+            vec![],              // tools
             0,
             None,
             None,

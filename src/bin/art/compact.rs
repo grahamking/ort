@@ -8,7 +8,8 @@
 //! Manual compaction with recent-history retention
 
 use ort_openrouter_cli::{
-    ActivePrompt, Content, ErrorKind, Logger, Message, OrtResult, Role, Stats, StreamEvent,
+    ActivePrompt, Content, Conversation, ErrorKind, Logger, Message, OrtResult, Role, Stats,
+    StreamEvent,
     config::Cfg,
     json_parser::{JsonField, autoparser},
     ort_error, time,
@@ -78,12 +79,11 @@ impl Paths {
 
 #[derive(Default)]
 pub struct Compactor {
-    // Explicit identity avoids mistaking user text for a generated checkpoint.
-    summary_index: Option<usize>,
+    // A committed checkpoint is the first message after the retained prefix.
+    has_checkpoint: bool,
     paths: Paths,
 }
 struct Prepared {
-    system: Vec<Message>,
     tail: Vec<Message>,
     input: Vec<Message>,
     paths: Paths,
@@ -157,20 +157,16 @@ fn transcript(messages: &[Message]) -> String {
 }
 
 impl Compactor {
-    fn prepare(&self, messages: &[Message], budget: usize) -> Option<Prepared> {
-        let mut system = Vec::new();
-        let mut history = Vec::new();
-        let mut previous = None;
-        for (i, message) in messages.iter().enumerate() {
-            if matches!(message.role, Role::System) {
-                system.push(message.clone());
-            } else if self.summary_index == Some(i) {
-                previous = Some(message);
-            } else {
-                history.push(message.clone());
-            }
-        }
-        let cut = cut_point(&history, budget);
+    fn prepare(&self, conv: &Conversation, budget: usize) -> Option<Prepared> {
+        let mut history = &conv.messages()[conv.retained_prefix_len()..];
+        let previous = if self.has_checkpoint {
+            let (checkpoint, rest) = history.split_first()?;
+            history = rest;
+            Some(checkpoint)
+        } else {
+            None
+        };
+        let cut = cut_point(history, budget);
         if cut == 0 {
             return None;
         }
@@ -186,7 +182,6 @@ impl Compactor {
         let mut paths = self.paths.clone();
         paths.record(&history[..cut]);
         Some(Prepared {
-            system,
             tail: history[cut..].to_vec(),
             input: vec![Message::system(SYSTEM.into()), Message::user(prompt)],
             paths,
@@ -196,17 +191,14 @@ impl Compactor {
     fn apply(
         &mut self,
         active: &mut ActivePrompt,
-        messages: &mut Vec<Message>,
+        conv: &mut Conversation,
         prepared: Prepared,
     ) -> OrtResult<Stats> {
         let (mut summary, stats) = collect(active)?;
         prepared.paths.append(&mut summary);
-        let mut replacement = prepared.system;
-        let summary_index = replacement.len();
-        replacement.push(Message::user(format!("{SUMMARY_PREFIX}{}", summary.trim())));
-        replacement.extend(prepared.tail);
-        *messages = replacement;
-        self.summary_index = Some(summary_index);
+        let checkpoint = Message::user(format!("{SUMMARY_PREFIX}{}", summary.trim()));
+        conv.replace_history(std::iter::once(checkpoint).chain(prepared.tail));
+        self.has_checkpoint = true;
         self.paths = prepared.paths;
         Ok(stats)
     }
@@ -216,11 +208,11 @@ impl Compactor {
         &mut self,
         api_key: &str,
         cfg: &Cfg,
-        messages: &mut Vec<Message>,
+        conv: &mut Conversation,
         total_stats: &mut Stats,
         logger: &mut Option<Logger>,
     ) -> OrtResult<bool> {
-        let Some(prepared) = self.prepare(messages, RECENT_BYTES) else {
+        let Some(prepared) = self.prepare(conv, RECENT_BYTES) else {
             return Ok(false);
         };
         let tsc_calibration = time::tsc_calibration().ok();
@@ -229,7 +221,7 @@ impl Compactor {
         let mut active = ActivePrompt::new(
             api_key.into(),
             &summary_cfg,
-            prepared.input.clone(),
+            Conversation::from_messages(prepared.input.clone()),
             vec![],
             0,
             tsc_calibration,
@@ -237,7 +229,7 @@ impl Compactor {
         );
         let maybe_stats = active
             .send_request()
-            .and_then(|()| self.apply(&mut active, messages, prepared));
+            .and_then(|()| self.apply(&mut active, conv, prepared));
         *logger = active.take_logger();
         if let Ok(stats) = maybe_stats {
             *total_stats += stats;
@@ -308,7 +300,15 @@ mod tests {
             models: vec!["test/model".into()],
             ..Default::default()
         };
-        let mut active = ActivePrompt::new("test".into(), &cfg, vec![], vec![], 0, None, None);
+        let mut active = ActivePrompt::new(
+            "test".into(),
+            &cfg,
+            Conversation::new(),
+            vec![],
+            0,
+            None,
+            None,
+        );
         active.reader = Some(Box::new(OrtBufReader::new(StringReader {
             data: data.into(),
             pos: 0,
@@ -331,17 +331,16 @@ mod tests {
             assert!(!is_command(p));
         }
         let mut c = Compactor::default();
-        let mut messages = vec![
-            Message::system("rules".into()),
-            Message::user("hello".into()),
-        ];
-        assert!(c.prepare(&messages, RECENT_BYTES).is_none());
+        let mut conv = Conversation::new();
+        conv.set_instructions("rules".into());
+        conv.add_message(Message::user("hello".into()));
+        assert!(c.prepare(&conv, RECENT_BYTES).is_none());
         // Empty config would panic on an API request, so also verify the no-request path.
         assert!(
             !c.run(
                 "",
                 &Cfg::default(),
-                &mut messages,
+                &mut conv,
                 &mut Stats::default(),
                 &mut None
             )
@@ -362,14 +361,14 @@ mod tests {
     }
     #[test]
     fn request_excludes_system_and_tail_and_truncates_old_results() {
-        let messages = vec![
+        let conv = Conversation::from_messages(vec![
             Message::system("private standing rules".into()),
             Message::user("goal".into()),
             call("read", "old.rs"),
             Message::tool("id".into(), "é".repeat(2500)),
             Message::user("recent secret".into()),
-        ];
-        let p = Compactor::default().prepare(&messages, 1).unwrap();
+        ]);
+        let p = Compactor::default().prepare(&conv, 1).unwrap();
         assert_eq!(text(&p.input[0]), SYSTEM);
         let body = text(&p.input[1]);
         assert!(!body.contains("private standing rules"));
@@ -393,49 +392,83 @@ mod tests {
         recent
             .content
             .push(Content::ImageUrl("https://example.test/image".into()));
-        let mut messages = vec![
+        let mut conv = Conversation::from_messages(vec![
             Message::system("rules plus AGENTS.md".into()),
             Message::user("old".repeat(100)),
             recent,
             call("read", "recent.rs"),
             Message::tool("id".into(), "exact result".into()),
-        ];
-        let expected_tail = format!("{:?}", &messages[2..]);
-        let budget = messages[2..].iter().map(estimated_bytes).sum();
+        ]);
+        let tail = &conv.messages()[2..];
+        let expected_tail = format!("{tail:?}");
+        let budget = tail.iter().map(estimated_bytes).sum();
         let mut c = Compactor::default();
-        let p = c.prepare(&messages, budget).unwrap();
-        c.apply(&mut summary("stop", "checkpoint"), &mut messages, p)
+        let p = c.prepare(&conv, budget).unwrap();
+        c.apply(&mut summary("stop", "checkpoint"), &mut conv, p)
             .unwrap();
+        let messages = conv.messages();
         assert_eq!(text(&messages[0]), "rules plus AGENTS.md");
         assert!(text(&messages[1]).starts_with(SUMMARY_PREFIX));
         assert_eq!(format!("{:?}", &messages[2..]), expected_tail);
         assert!(c.paths.read.is_empty()); // Retained calls are tracked when later summarized.
     }
     #[test]
+    fn prepended_context_survives_repeated_compaction() {
+        let mut conv = Conversation::new();
+        conv.prepend_message("skill index".into());
+        conv.set_instructions("standing rules".into());
+        conv.prepend_message("repository guidance".into());
+        let expected_prefix = format!("{:?}", conv.messages());
+        let mut c = Compactor::default();
+        conv.add_message(Message::user("first prompt".into()));
+        for (older, recent, checkpoint) in [
+            ("first prompt", "second prompt", "first checkpoint"),
+            ("second prompt", "third prompt", "second checkpoint"),
+        ] {
+            conv.add_message(Message::user(recent.into()));
+            let p = c.prepare(&conv, 1).unwrap();
+            let input = text(&p.input[1]);
+            assert!(input.contains(older));
+            for retained in ["standing rules", "repository guidance", "skill index"] {
+                assert!(!input.contains(retained));
+            }
+            c.apply(&mut summary("stop", checkpoint), &mut conv, p)
+                .unwrap();
+            let messages = conv.messages();
+            assert_eq!(messages.len(), 5);
+            assert_eq!(format!("{:?}", &messages[..3]), expected_prefix);
+            assert_eq!(text(&messages[3]), format!("{SUMMARY_PREFIX}{checkpoint}"));
+            assert_eq!(text(&messages[4]), recent);
+        }
+    }
+    #[test]
     fn paths_survive_repeated_compaction_and_modified_wins() {
-        let mut messages = vec![
+        let mut conv = Conversation::from_messages(vec![
             Message::system("rules".into()),
             call("read", "a.rs"),
             Message::tool("id".into(), "result".into()),
             Message::user("tail".into()),
-        ];
+        ]);
         let mut c = Compactor::default();
-        let p = c.prepare(&messages, 1).unwrap();
-        c.apply(&mut summary("stop", "first"), &mut messages, p)
+        let p = c.prepare(&conv, 1).unwrap();
+        c.apply(&mut summary("stop", "first"), &mut conv, p)
             .unwrap();
-        assert!(text(&messages[1]).contains("\"a.rs\""));
-        assert!(c.prepare(&messages, 1).is_none());
-        messages.extend([
+        assert!(text(&conv.messages()[1]).contains("\"a.rs\""));
+        assert!(c.prepare(&conv, 1).is_none());
+        for message in [
             call("edit", "a.rs"),
             Message::tool("id".into(), "done".into()),
             call("read", "b.rs"),
             Message::tool("id".into(), "data".into()),
             Message::user("new tail".into()),
-        ]);
-        let p = c.prepare(&messages, 1).unwrap();
+        ] {
+            conv.add_message(message);
+        }
+        let p = c.prepare(&conv, 1).unwrap();
         assert!(text(&p.input[1]).contains("first"));
-        c.apply(&mut summary("stop", "second"), &mut messages, p)
+        c.apply(&mut summary("stop", "second"), &mut conv, p)
             .unwrap();
+        let messages = conv.messages();
         assert_eq!(messages.len(), 3);
         assert_eq!(c.paths.read, HashSet::from(["b.rs".into()]));
         assert_eq!(c.paths.modified, HashSet::from(["a.rs".into()]));
@@ -443,12 +476,12 @@ mod tests {
     }
     #[test]
     fn failed_stream_keeps_history_and_metadata_unchanged() {
-        let mut messages = vec![
+        let mut conv = Conversation::from_messages(vec![
             call("write", "a.rs"),
             Message::tool("id".into(), "done".into()),
             Message::user("tail".into()),
-        ];
-        let before = format!("{messages:?}");
+        ]);
+        let before = format!("{:?}", conv.messages());
         let mut c = Compactor::default();
         for mut active in [
             summary("length", "partial"),
@@ -458,11 +491,11 @@ mod tests {
             stream("data: {\"error\":{\"message\":\"failed\",\"code\":500}}\n"),
             stream("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n"),
         ] {
-            let p = c.prepare(&messages, 1).unwrap();
-            assert!(c.apply(&mut active, &mut messages, p).is_err());
-            assert_eq!(format!("{messages:?}"), before);
+            let p = c.prepare(&conv, 1).unwrap();
+            assert!(c.apply(&mut active, &mut conv, p).is_err());
+            assert_eq!(format!("{:?}", conv.messages()), before);
             assert_eq!(c.paths, Paths::default());
-            assert!(c.summary_index.is_none());
+            assert!(!c.has_checkpoint);
         }
     }
     #[test]
@@ -474,11 +507,11 @@ mod tests {
     }
     #[test]
     fn summary_like_user_text_is_not_discarded() {
-        let messages = vec![
+        let conv = Conversation::from_messages(vec![
             Message::user(format!("{SUMMARY_PREFIX}real user request")),
             Message::assistant("tail".into()),
-        ];
-        let p = Compactor::default().prepare(&messages, 1).unwrap();
+        ]);
+        let p = Compactor::default().prepare(&conv, 1).unwrap();
         assert!(text(&p.input[1]).contains("real user request"));
     }
 }

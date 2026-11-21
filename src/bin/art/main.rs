@@ -61,8 +61,8 @@ fn main() -> std::process::ExitCode {
     // We display stats in a different way so silent the normal way
     cfg.quiet = true;
 
-    let messages = cfg.messages().unwrap();
-    match agent::run(&api_key, &cfg, &env, messages, &mut StdoutWriter {}) {
+    let conv = cfg.conversation().unwrap();
+    match agent::run(&api_key, &cfg, &env, conv, &mut StdoutWriter {}) {
         Ok(()) => 0.into(),
         Err(err) => {
             eprintln!("\nFailed: {}. {}", err.kind.as_string(), err.context);

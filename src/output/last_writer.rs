@@ -362,7 +362,7 @@ impl Drop for LastWriter {
 mod tests {
     extern crate std;
     use super::*;
-    use crate::{Function, Role, api::build_body, common::stats, time};
+    use crate::{Conversation, Function, Role, api::build_body, common::stats, time};
     use alloc::{boxed::Box, format, vec};
     use std::fs;
 
@@ -572,8 +572,15 @@ mod tests {
     fn streaming_whitespace_does_not_drop_reasoning_details_or_content() {
         let f = Fixture::new();
         let mut w = f.writer(vec![Message::user("question".into())]);
-        let mut prompt =
-            crate::ActivePrompt::new("test".into(), &test_cfg(), vec![], vec![], 0, None, None);
+        let mut prompt = crate::ActivePrompt::new(
+            "test".into(),
+            &test_cfg(),
+            Conversation::new(),
+            vec![],
+            0,
+            None,
+            None,
+        );
         prompt.stats.timing = Some(stats::Timing {
             start: time::Ticks::now(),
             ..Default::default()
