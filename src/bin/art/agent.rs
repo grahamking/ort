@@ -111,7 +111,7 @@ pub fn run<W: Write + Send>(
 
             // Do we need to inject a user message?
             if has_more_turns && let Some(prompt) = poll_next_prompt(ifd, &filename)? {
-                conv.add_message(Message::user(prompt.clone()));
+                conv.add_user_prompt(&prompt);
                 output_writer.write(StreamEvent::Prompt(prompt))?;
             };
 
@@ -137,7 +137,7 @@ pub fn run<W: Write + Send>(
             )?;
             continue;
         }
-        conv.add_message(Message::user(prompt.clone()));
+        conv.add_user_prompt(&prompt);
         output_writer.write(StreamEvent::Prompt(prompt))?;
         has_more_turns = true;
     }

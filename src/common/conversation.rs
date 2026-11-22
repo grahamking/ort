@@ -62,6 +62,10 @@ impl Conversation {
         self.m.extend(history);
     }
 
+    pub fn add_user_prompt(&mut self, s: impl Into<String>) {
+        self.m.push(Message::user(s.into()));
+    }
+
     /// Put a message next in the conversation
     pub fn add_message(&mut self, m: Message) {
         self.m.push(m);

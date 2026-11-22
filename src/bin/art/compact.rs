@@ -333,7 +333,7 @@ mod tests {
         let mut c = Compactor::default();
         let mut conv = Conversation::new();
         conv.set_instructions("rules".into());
-        conv.add_message(Message::user("hello".into()));
+        conv.add_user_prompt("hello");
         assert!(c.prepare(&conv, RECENT_BYTES).is_none());
         // Empty config would panic on an API request, so also verify the no-request path.
         assert!(
@@ -420,12 +420,12 @@ mod tests {
         conv.prepend_message("repository guidance".into());
         let expected_prefix = format!("{:?}", conv.messages());
         let mut c = Compactor::default();
-        conv.add_message(Message::user("first prompt".into()));
+        conv.add_user_prompt("first prompt");
         for (older, recent, checkpoint) in [
             ("first prompt", "second prompt", "first checkpoint"),
             ("second prompt", "third prompt", "second checkpoint"),
         ] {
-            conv.add_message(Message::user(recent.into()));
+            conv.add_user_prompt(recent);
             let p = c.prepare(&conv, 1).unwrap();
             let input = text(&p.input[1]);
             assert!(input.contains(older));
